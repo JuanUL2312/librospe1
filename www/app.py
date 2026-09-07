@@ -2516,13 +2516,17 @@ def registro_cliente():
             if existe:
                 flash("❌ El correo ya está registrado", "danger")
                 return redirect(url_for("registro_cliente"))
+            def _nulo(valor):
+                """Convierte cadenas vacías en None (NULL) para columnas únicas/opcionales."""
+                return valor.strip() if valor and valor.strip() else None
+
             cliente = Cliente(
-                dni=request.form.get("dni"),
-                nombres=request.form["nombres"],
-                apellidos=request.form["apellidos"],
-                correo=request.form["email"],
-                telefono=request.form.get("telefono"),
-                direccion=request.form.get("direccion"),
+                dni=_nulo(request.form.get("dni")),
+                nombres=request.form["nombres"].strip(),
+                apellidos=request.form["apellidos"].strip(),
+                correo=request.form["email"].strip(),
+                telefono=_nulo(request.form.get("telefono")),
+                direccion=_nulo(request.form.get("direccion")),
                 clave=bcrypt.generate_password_hash(request.form["clave"]).decode("utf-8"),
             )
             db.session.add(cliente)
