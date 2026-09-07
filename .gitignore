@@ -8,3 +8,8 @@ __pycache__/
 sync.log
 sincronizacion.log
 www/cookies.txt
+.cache/
+.local/
+.ssh/
+.gunicorn/
+www/tmp/bloqueos.html
