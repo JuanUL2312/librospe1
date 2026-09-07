@@ -3302,19 +3302,22 @@ def contacto():
 # INICIALIZAR BASE DE DATOS
 # ===============================
 
-with app.app_context():
-    db.create_all()
-    
-    try:
-        from sqlalchemy import text
-        result = db.session.execute(text("SHOW COLUMNS FROM intentos_login LIKE 'email_bloqueado'"))
-        if not result.fetchone():
-            db.session.execute(text("ALTER TABLE intentos_login ADD COLUMN email_bloqueado DATETIME NULL"))
-            db.session.commit()
-            print("✅ Columna email_bloqueado agregada")
-    except Exception as e:
-        print(f"⚠️ Migración: {e}")
-        db.session.rollback()
+if os.environ.get("AUTO_CREATE_SCHEMA", "false").lower() == "true":
+    with app.app_context():
+        db.create_all()
+        try:
+            result = db.session.execute(
+                text("SHOW COLUMNS FROM intentos_login LIKE 'email_bloqueado'")
+            )
+            if not result.fetchone():
+                db.session.execute(
+                    text("ALTER TABLE intentos_login ADD COLUMN email_bloqueado DATETIME NULL")
+                )
+                db.session.commit()
+                print("Columna email_bloqueado agregada")
+        except Exception as e:
+            print(f"Migración omitida: {e}")
+            db.session.rollback()
 
 # ===============================
 # DASHBOARD
