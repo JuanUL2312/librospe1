@@ -2,8 +2,11 @@ import os
 import sys
 import time
 import hmac
+import json
 from pathlib import Path
 from urllib.parse import quote_plus
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 from flask import Flask, abort, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.utils import secure_filename
 from flask_bcrypt import Bcrypt
@@ -169,7 +172,16 @@ class Venta(db.Model):
     tipo_comprobante = db.Column(db.String(20), default="boleta")
     numero_comprobante = db.Column(db.String(50), nullable=True)
     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=True)
+    pedido_id = db.Column(db.Integer, nullable=True)
     estado = db.Column(db.Integer, default=1)
+    # Datos de facturación del cliente (boleta/factura)
+    cliente_nombres = db.Column(db.String(100), nullable=True)
+    cliente_apellidos = db.Column(db.String(100), nullable=True)
+    cliente_documento = db.Column(db.String(20), nullable=True)
+    cliente_email = db.Column(db.String(150), nullable=True)
+    cliente_direccion = db.Column(db.Text, nullable=True)
+    cliente_direccion_fiscal = db.Column(db.Text, nullable=True)
+    cliente_razon_social = db.Column(db.String(200), nullable=True)
     producto = db.relationship("Producto", back_populates="ventas")
     vendedor = db.relationship("UsuarioSistema", back_populates="ventas")
     cliente = db.relationship("Cliente", back_populates="ventas")
@@ -188,6 +200,7 @@ class Cliente(db.Model):
     __tablename__ = "clientes"
     id = db.Column(db.Integer, primary_key=True)
     dni = db.Column(db.String(8))
+    ruc = db.Column(db.String(11), nullable=True)
     nombres = db.Column(db.String(100), nullable=False)
     apellidos = db.Column(db.String(100), nullable=False)
     correo = db.Column(db.String(150), unique=True, nullable=False)  # ← CAMBIADO de email a correo
@@ -2840,6 +2853,12 @@ def crear_pedido():
         # ============================================
         # 4. CREAR DETALLES Y VENTAS
         # ============================================
+        # Número de comprobante correlativo (B001-000123 / F001-000045)
+        tipo_comp = data.get("comprobante", {}).get("tipo", "boleta")
+        serie = "B001" if tipo_comp == "boleta" else "F001"
+        contador = Venta.query.filter_by(tipo_comprobante=tipo_comp).count()
+        numero_comprobante = f"{serie}-{contador + 1:06d}"
+        
         productos_para_correo = []
         
         for item in data["items"]:
@@ -2865,8 +2884,9 @@ def crear_pedido():
                 cantidad=int(item["cantidad"]),
                 vendedor_id=1,
                 fecha_venta=datetime.now(),
-                tipo_comprobante=data.get("comprobante", {}).get("tipo", "boleta"),
-                numero_comprobante=f"ONLINE-{pedido.id}",
+                tipo_comprobante=tipo_comp,
+                numero_comprobante=numero_comprobante,
+                pedido_id=pedido.id,
                 cliente_nombres=cliente_nombres,
                 cliente_apellidos=cliente_apellidos,
                 cliente_documento=cliente_documento,
@@ -2883,6 +2903,19 @@ def crear_pedido():
                 'precio_unitario': float(item["precio"]),
                 'total': subtotal
             })
+        
+        # ============================================
+        # 4.5 ACTUALIZAR PERFIL DEL CLIENTE (recomendación)
+        # Guarda el DNI/RUC y completa nombres si están vacíos
+        # ============================================
+        cliente_obj = Cliente.query.get(session["cliente_id"])
+        if cliente_obj:
+            if not cliente_obj.dni and cliente_documento and len(cliente_documento) == 8 and cliente_documento.isdigit():
+                cliente_obj.dni = cliente_documento
+            if not cliente_obj.nombres and cliente_nombres:
+                cliente_obj.nombres = cliente_nombres
+            if not cliente_obj.apellidos and cliente_apellidos:
+                cliente_obj.apellidos = cliente_apellidos
         
         db.session.commit()
         
@@ -2901,8 +2934,8 @@ def crear_pedido():
             enviar_comprobante_email(
                 destinatario=cliente_email,
                 cliente_nombre=f"{cliente_nombres} {cliente_apellidos}".strip(),
-                tipo_comprobante=data.get("comprobante", {}).get("tipo", "boleta"),
-                numero_comprobante=f"ONLINE-{pedido.id}",
+                tipo_comprobante=tipo_comp,
+                numero_comprobante=numero_comprobante,
                 fecha=datetime.now(),
                 productos=productos_para_correo,
                 total_venta=float(data["total"])
@@ -3047,7 +3080,7 @@ def detalle_pedido(pedido_id):
     detalles = db.session.query(DetallePedido, Producto.nombre.label("producto_nombre")).join(Producto).filter(DetallePedido.pedido_id == pedido_id).all()
     cliente = Cliente.query.get(pedido.cliente_id)
     # Buscar venta asociada (opcional, solo si existe)
-    venta = Venta.query.filter_by(numero_comprobante=f"ONLINE-{pedido_id}").first()
+    venta = Venta.query.filter_by(pedido_id=pedido_id).first()
     es_admin = session.get("rol") == "administrador"
     
     return render_template("pedido_detalle.html", 
@@ -3241,6 +3274,62 @@ def api_cliente_direccion():
     except Exception as e:
         return jsonify({"success": False, "direccion": "", "error": str(e)})
 
+def _api_token():
+    """Devuelve el token de APIsPERU desde .env o None."""
+    return os.environ.get("API_PERU_TOKEN", "").strip() or None
+
+
+def consultar_dni_reniec(dni):
+    """Consulta un DNI en la API externa de RENIEC (apisperu.com).
+    Requiere API_PERU_TOKEN en .env. Devuelve dict con nombres/apellidos o None."""
+    token = _api_token()
+    if not token:
+        return None
+    base = os.environ.get("DNI_API_URL", "https://dniruc.apisperu.com/api/v1/dni").strip()
+    url = f"{base.rstrip('/')}/{dni}?token={token}"
+    req = Request(url, method="GET")
+    req.add_header("Accept", "application/json")
+    try:
+        with urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    if not data.get("success"):
+        return None
+    nombres = (data.get("nombres") or "").strip()
+    apellido_paterno = (data.get("apellidoPaterno") or "").strip()
+    apellido_materno = (data.get("apellidoMaterno") or "").strip()
+    apellidos = f"{apellido_paterno} {apellido_materno}".strip()
+    if not nombres:
+        return None
+    return {"nombres": nombres, "apellidos": apellidos}
+
+
+def consultar_ruc_sunat(ruc):
+    """Consulta un RUC en la API externa de SUNAT (apisperu.com).
+    Requiere API_PERU_TOKEN en .env. Devuelve dict con razón social/dirección o None."""
+    token = _api_token()
+    if not token:
+        return None
+    base = os.environ.get("RUC_API_URL", "https://dniruc.apisperu.com/api/v1/ruc").strip()
+    url = f"{base.rstrip('/')}/{ruc}?token={token}"
+    req = Request(url, method="GET")
+    req.add_header("Accept", "application/json")
+    try:
+        with urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    # La respuesta de RUC viene plana: si no existe devuelve success=false
+    if data.get("success") is False:
+        return None
+    razon_social = (data.get("razonSocial") or "").strip()
+    if not razon_social:
+        return None
+    direccion = (data.get("direccion") or "").strip()
+    return {"razon_social": razon_social, "direccion": direccion}
+
+
 @app.route("/api/consultar-dni/<dni>")
 @login_required_cliente
 def api_consultar_dni_cliente(dni):
@@ -3256,12 +3345,25 @@ def api_consultar_dni_cliente(dni):
             "dni": cliente.dni,
         })
     
-    venta = Venta.query.filter_by(cliente_documento=dni).first()
-    if venta and venta.cliente_nombres:
+    # Si no está en la base interna, consultar RENIEC (si hay token configurado)
+    info = consultar_dni_reniec(dni)
+    if info:
+        # Guardar el DNI en el perfil del cliente logueado (recomendación)
+        try:
+            cliente_actual = Cliente.query.get(session.get("cliente_id"))
+            if cliente_actual and not cliente_actual.dni:
+                cliente_actual.dni = dni
+                if not cliente_actual.nombres and info["nombres"]:
+                    cliente_actual.nombres = info["nombres"]
+                if not cliente_actual.apellidos and info["apellidos"]:
+                    cliente_actual.apellidos = info["apellidos"]
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
         return jsonify({
             "success": True,
-            "nombres": venta.cliente_nombres,
-            "apellidos": venta.cliente_apellidos or "",
+            "nombres": info["nombres"],
+            "apellidos": info["apellidos"],
             "dni": dni,
         })
     
@@ -3283,16 +3385,21 @@ def api_consultar_ruc_cliente(ruc):
             "ruc": ruc,
         })
     
-    # Luego buscar en ventas anteriores
-    venta = Venta.query.filter_by(cliente_documento=ruc).first()
-    if venta and venta.cliente_nombres:
-        direccion = ""
-        if hasattr(venta, 'cliente_direccion_fiscal') and venta.cliente_direccion_fiscal:
-            direccion = venta.cliente_direccion_fiscal
+    # Si no está en la base interna, consultar SUNAT (si hay token configurado)
+    info = consultar_ruc_sunat(ruc)
+    if info:
+        # Guardar el RUC en el perfil del cliente logueado (recomendación)
+        try:
+            cliente_actual = Cliente.query.get(session.get("cliente_id"))
+            if cliente_actual and not cliente_actual.ruc:
+                cliente_actual.ruc = ruc
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
         return jsonify({
             "success": True,
-            "razon_social": venta.cliente_nombres,
-            "direccion": direccion,
+            "razon_social": info["razon_social"],
+            "direccion": info["direccion"],
             "ruc": ruc,
         })
     
@@ -3653,11 +3760,7 @@ def cliente_detalle_pedido(pedido_id):
     venta = None
     
 
-    venta = Venta.query.filter_by(numero_comprobante=f"ONLINE-{pedido_id}").first()
-    
-
-    if not venta:
-        venta = Venta.query.filter(Venta.numero_comprobante.like(f'%{pedido_id}%')).first()
+    venta = Venta.query.filter_by(pedido_id=pedido_id).first()
     
 
     if not venta and cliente and cliente.dni:
