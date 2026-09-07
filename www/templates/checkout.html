@@ -598,10 +598,6 @@ function mostrarConfirmacion(documento) {
                     confirmNombreCompleto.textContent = nombreCompleto.trim() || 'No encontrado';
                     badge.textContent = '✅ DNI Verificado';
                     badge.className = 'badge-verified';
-                    
-                    // Actualizar campos de nombre y apellido (solo visual)
-                    document.getElementById('nombresDisplay').textContent = data.nombres || '';
-                    document.getElementById('apellidosDisplay').textContent = data.apellidos || '';
                 } else {
                     confirmNombreCompleto.textContent = '⚠️ DNI no encontrado en el sistema';
                     badge.textContent = '⚠️ No verificado';
