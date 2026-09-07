@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import hmac
 from pathlib import Path
@@ -14,6 +15,13 @@ import secrets
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
+# Asegurar salida UTF-8 (evita UnicodeEncodeError con emojis en consolas Windows)
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 def cargar_entorno():
     """Carga variables desde ../.env sin sobrescribir las del servidor."""
