@@ -2520,7 +2520,7 @@ def registro_cliente():
                 dni=request.form.get("dni"),
                 nombres=request.form["nombres"],
                 apellidos=request.form["apellidos"],
-                email=request.form["email"],
+                correo=request.form["email"],
                 telefono=request.form.get("telefono"),
                 direccion=request.form.get("direccion"),
                 clave=bcrypt.generate_password_hash(request.form["clave"]).decode("utf-8"),
