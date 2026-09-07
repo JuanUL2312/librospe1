@@ -395,7 +395,7 @@
                     <div class="mb-0 mt-3">
                         <label class="field-label">Dirección de entrega</label>
                         <textarea id="direccionEntrega" class="form-control" rows="2" 
-                                  placeholder="Calle, número, urbanización, referencia...">{{ cliente.direccion if cliente else '' }}</textarea>
+                                  placeholder="Calle, número, urbanización, referencia...">{{ (cliente.direccion or '') if cliente else '' }}</textarea>
                     </div>
                 </div>
             </div>
@@ -851,6 +851,13 @@ function procesarPago() {
 // ============================================
 document.addEventListener('DOMContentLoaded', function() {
     cargarCarrito();
+
+    // Cargar dirección de entrega guardada en el carrito (localStorage)
+    var direccionGuardada = localStorage.getItem('direccionEntrega');
+    var direccionInput = document.getElementById('direccionEntrega');
+    if (direccionGuardada && direccionInput) {
+        direccionInput.value = direccionGuardada;
+    }
     
     // Actualizar contador del carrito
     var contador = document.getElementById('carritoContador');
