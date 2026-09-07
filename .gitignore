@@ -1,0 +1,9 @@
+.env
+venv/
+www/venv/
+__pycache__/
+*.py[cod]
+*.log
+sync.log
+sincronizacion.log
+www/cookies.txt

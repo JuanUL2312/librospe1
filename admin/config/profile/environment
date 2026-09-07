@@ -1,0 +1,4 @@
+LANG=en_US.UTF-8
+LC_ALL=en_US.UTF-8
+PATH=/home/librospe/.local/bin:/home/librospe/.local/share/gem/ruby/3.4.0/bin:/home/librospe/.gem/ruby/3.4.0/bin:/home/librospe/.composer/vendor/bin:/home/librospe/.npm-packages/bin:/usr/local/bin:/usr/bin:/bin
+TMPDIR=/home/librospe/admin/tmp

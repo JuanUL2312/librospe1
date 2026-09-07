@@ -1,0 +1,4 @@
+PassengerAppType wsgi
+PassengerStartupFile wsgi.py
+PassengerAppRoot /home/librospe/www
+PassengerPython /home/librospe/www/venv/bin/python

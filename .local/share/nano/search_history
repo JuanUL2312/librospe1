@@ -1,0 +1,87 @@
+"/ventas/nueva"
+with app.app_context():
+login
+"/acerca-de"
+class IntentosLogin
+login_cliente()
+db.create_all()
+"/login-cliente"
+if (total_intentos_ip >= 5 or emails_distintos >= 3) and not registro.ips_bloqueadas:
+if (total_intentos_ip >= 5 or emails_distinto
+verificar_bloqueo_ip
+def login():
+login_cliente
+def login_cliente():
+def limpiar_intentos_exitosos
+661
+login"
+/login
+"/login"
+registrar_intento_fallido()
+<!-- Datos del Cliente -->
+<!-- Datos del Cliente -->                    <div class="mb-4">                        <h6 class="fw-bold"><i class="fas fa-user me-2"></i>DATOS DEL CLIENTE</h6>                        <p class="mb-1"><strong>Nombre:</strong> {{ venta.Venta.cliente_nombre or 'Consumidor Final' }}                        </p>                        <p class="mb-1"><strong>Documento:</strong> {{ venta.Venta.cliente_documento or '—' }}</p>                        {% if venta.Venta.cliente_direccion %}                        <p class="mb-1"><strong>Dirección:</strong> {{ venta.Venta.cliente_direccion }}</p>                        {% endif %}                    </div>
+                    <!-- Datos del Cliente -->
+Enviar email si se proporcionó
+@app.route("/ventas/nueva"
+def limpiar_texto
+def enviar_comprobante_email
+venta
+class Venta(db.Model):
+if tipo_comprobante == "boleta":
+nueva = Venta(
+@app.route("/comprobante/<int:venta_id>")
+@app.route("/comprobante/<int:venta_id>
+<input type="text" name="cliente_documento" id="factura_ruc"
+if tipo_comprobante == "boleta"
+cliente_email = request.form.get
+cliente_direccion=cliente_direccion,
+class Venta(db.Model)
+def generar_comprobante_html
+else:  # factura
+cliente_documento = request.form.get("cliente_documento", "")    cliente_direccion = request.form.get("cliente_direccion", "")
+cliente_nombres = request.form.get("cliente_razon_social", "")
+def venta_nueva
+nano ~/www/app.py
+registrar_intento_fallido
+registrar_intento_fallido(correo, ip_cliente)
+def registrar_intento_fallido(
+bloqueado_ip = IntentosLogin.query.filter(
+tipo_comprobante = request.form.get("tipo_comprobante", "boleta")
+liente_documento
+/ventas/nueva
+document.addEventListener('DOMContentLoaded', function () 
+ventas/nueva
+except ValueError:            db.session.rollback()            flash("❌ Verifica los datos numéricos", "danger")
+except ValueError:            db.session.rollback()
+except ValueError:
+except ValueError
+        except ValueError:            db.session.rollback()            flash("❌ Verifica los datos numéricos", "danger")        except Exception as e:            db.session.rollback()            flash(f"❌ Error: {str(e)[:100]}", "danger")
+"❌ Verifica los datos numéricos", "danger"
+f"❌ Error: {str(e)[:100]}", "danger"
+<option value="" data-precio="0" data-stock="0">📦 Seleccione producto</option>
+    // Validar antes de enviar
+def venta_nueva(
+if __name__ == "__main__":    app.run(debug=False)
+if __name__ == "__main__":
+def registrar_intento_fallido
+# FUNCIONES MEJORADAS PARA BLOQUEO PROGRESIVO
+@app.route("/login",
+def obtener_ip_cliente()
+@app.route("/login"
+@app.route("/login-cliente"
+# Ventas por día (últimos 7 días)
+<div class="d-flex justify-content-between align-items-center mb-4">
+@app.route("/checkout")
+@app.route("/pago")
+@app.route("/api/pedidos/crear"
+def crear_pedido(
+data = request.get_json(
+https://canva.link/iy30q78kc9cwz46
+<input type="email" class="form-control" id="email" required>
+email: document.getElementById('email').value.trim(),
+irAPago(
+@app.route("/pedidos/detalle/<int:pedido_id>")
+@app.route("/mis-pedidos/detalle/<int:pedido_id>")
+
+
+
