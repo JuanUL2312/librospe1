@@ -46,6 +46,24 @@ python -m venv .venv-live
 - `programar_sincronizacion.sh` → agenda el job cada hora vía cron
 - `sincronizar_completo.sh` → versión con log
 
+## 🗺️ Ubigeo (departamento, provincia y distrito)
+
+Al registrar un cliente se solicitan **departamento, provincia y distrito** (selects en cascada).
+Estos valores se guardan en el cliente y se alimentan de las tablas `departamentos`, `provincias` y `distritos`
+(ubigeo del Perú, fuente INEI).
+
+Para poblar esas tablas la primera vez, ejecuta:
+
+```bash
+cd www
+python seed_ubigeo.py
+```
+
+El script es idempotente (no duplica datos si ya existen).
+
+Los **usuarios del sistema** (vendedores/administradores) pueden registrar su **DNI o Carnet de Extranjería**
+(campo `documento` en la tabla `usuarios_sistema`) al crear un nuevo usuario.
+
 ## ⚙️ Configuración
 
 Copia `.env.example` a `.env` y configura tus credenciales (BD, email, `SECRET_KEY`).

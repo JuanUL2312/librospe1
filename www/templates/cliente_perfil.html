@@ -45,6 +45,27 @@
                         <textarea name="direccion" class="form-control" rows="3">{{ cliente.direccion or '' }}</textarea>
                     </div>
 
+                    <div class="row g-3 mt-1">
+                        <div class="col-12 col-md-4">
+                            <label class="form-label">Departamento</label>
+                            <select name="departamento" id="departamento" class="form-control">
+                                <option value="">Seleccione departamento</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label">Provincia</label>
+                            <select name="provincia" id="provincia" class="form-control">
+                                <option value="">Seleccione provincia</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label">Distrito</label>
+                            <select name="distrito" id="distrito" class="form-control">
+                                <option value="">Seleccione distrito</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="d-flex justify-content-between gap-2 mt-4">
                         <a href="{{ url_for('catalogo_cliente') }}" class="btn btn-secondary flex-fill py-2">
                             <i class="fas fa-arrow-left me-2"></i> Volver
@@ -108,4 +129,67 @@
         }
     }
 </style>
+
+<script>
+(function() {
+    const depSel = document.getElementById('departamento');
+    const provSel = document.getElementById('provincia');
+    const distSel = document.getElementById('distrito');
+    const actual = {
+        departamento: {{ cliente.departamento|tojson }},
+        provincia: {{ cliente.provincia|tojson }},
+        distrito: {{ cliente.distrito|tojson }}
+    };
+    let departamentos = [];
+
+    function llenar(select, items, placeholder, seleccionado) {
+        select.innerHTML = '<option value="">' + placeholder + '</option>';
+        items.forEach(function(it) {
+            const opt = document.createElement('option');
+            opt.value = it.nombre;
+            opt.textContent = it.nombre;
+            if (seleccionado && it.nombre === seleccionado) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+
+    fetch('/api/departamentos')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            departamentos = data;
+            llenar(depSel, data, 'Seleccione departamento', actual.departamento);
+            if (actual.departamento) depSel.dispatchEvent(new Event('change'));
+        });
+
+    depSel.addEventListener('change', function() {
+        provSel.innerHTML = '<option value="">Seleccione provincia</option>';
+        distSel.innerHTML = '<option value="">Seleccione distrito</option>';
+        const dep = departamentos.find(function(d) { return d.nombre === depSel.value; });
+        if (!dep) return;
+        fetch('/api/provincias/' + dep.id)
+            .then(function(r) { return r.json(); })
+            .then(function(provincias) {
+                llenar(provSel, provincias, 'Seleccione provincia', actual.provincia);
+                if (actual.provincia) provSel.dispatchEvent(new Event('change'));
+            });
+    });
+
+    provSel.addEventListener('change', function() {
+        distSel.innerHTML = '<option value="">Seleccione distrito</option>';
+        const dep = departamentos.find(function(d) { return d.nombre === depSel.value; });
+        if (!dep) return;
+        fetch('/api/provincias/' + dep.id)
+            .then(function(r) { return r.json(); })
+            .then(function(provincias) {
+                const prov = provincias.find(function(p) { return p.nombre === provSel.value; });
+                if (!prov) return;
+                return fetch('/api/distritos/' + prov.id).then(function(r) { return r.json(); });
+            })
+            .then(function(distritos) {
+                if (!distritos) return;
+                llenar(distSel, distritos, 'Seleccione distrito', actual.distrito);
+            });
+    });
+})();
+</script>
 {% endblock %}

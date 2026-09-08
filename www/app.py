@@ -152,6 +152,7 @@ class UsuarioSistema(db.Model):
     estado = db.Column(db.Integer, default=1)
     rol_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
     rol = db.Column(db.String(20), nullable=False)  # ← Mantener para compatibilidad
+    documento = db.Column(db.String(20), nullable=True)  # DNI o Carnet de Extranjería
     ventas = db.relationship("Venta", back_populates="vendedor")
 
 class Categoria(db.Model):
@@ -206,6 +207,9 @@ class Cliente(db.Model):
     correo = db.Column(db.String(150), unique=True, nullable=False)  # ← CAMBIADO de email a correo
     telefono = db.Column(db.String(15))
     direccion = db.Column(db.Text)
+    departamento = db.Column(db.String(100), nullable=True)
+    provincia = db.Column(db.String(100), nullable=True)
+    distrito = db.Column(db.String(150), nullable=True)
     clave = db.Column(db.String(255), nullable=False)
     fecha_registro = db.Column(db.DateTime, default=datetime.now)
     puntos = db.Column(db.Integer, default=0)
@@ -220,6 +224,32 @@ class Rol(db.Model):
     nombre = db.Column(db.String(50), nullable=False)
     descripcion = db.Column(db.Text, nullable=True)
     estado = db.Column(db.Integer, default=1)
+
+class Departamento(db.Model):
+    __tablename__ = "departamentos"
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(100), nullable=False)
+    ubigeo = db.Column(db.String(2), nullable=True)
+    provincias = db.relationship("Provincia", back_populates="departamento")
+
+class Provincia(db.Model):
+    __tablename__ = "provincias"
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(100), nullable=False)
+    ubigeo = db.Column(db.String(4), nullable=True)
+    departamento_id = db.Column(db.Integer, db.ForeignKey("departamentos.id"), nullable=True)
+    departamento = db.relationship("Departamento", back_populates="provincias")
+    distritos = db.relationship("Distrito", back_populates="provincia")
+
+class Distrito(db.Model):
+    __tablename__ = "distritos"
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(150), nullable=False)
+    ubigeo = db.Column(db.String(6), nullable=True)
+    provincia_id = db.Column(db.Integer, db.ForeignKey("provincias.id"), nullable=True)
+    departamento_id = db.Column(db.Integer, db.ForeignKey("departamentos.id"), nullable=True)
+    provincia = db.relationship("Provincia", back_populates="distritos")
+
 class Pedido(db.Model):
     __tablename__ = "pedidos"
     id = db.Column(db.Integer, primary_key=True)
@@ -1346,6 +1376,7 @@ def nuevo_usuario():
                 nombres=request.form["nombres"],
                 apellidos=request.form["apellidos"],
                 rol=request.form["rol"],
+                documento=(request.form.get("documento") or "").strip() or None,
                 clave=clave_hash,
             )
             db.session.add(nuevo)
@@ -2548,6 +2579,9 @@ def registro_cliente():
                 correo=request.form["email"].strip(),
                 telefono=_nulo(request.form.get("telefono")),
                 direccion=_nulo(request.form.get("direccion")),
+                departamento=_nulo(request.form.get("departamento")),
+                provincia=_nulo(request.form.get("provincia")),
+                distrito=_nulo(request.form.get("distrito")),
                 clave=bcrypt.generate_password_hash(request.form["clave"]).decode("utf-8"),
             )
             db.session.add(cliente)
@@ -2558,6 +2592,24 @@ def registro_cliente():
             db.session.rollback()
             flash(f"❌ Error: {str(e)}", "danger")
     return render_template("registro_cliente.html")
+
+@app.route("/api/departamentos")
+def api_departamentos():
+    """Lista de departamentos para el formulario de registro."""
+    datos = Departamento.query.order_by(Departamento.nombre).all()
+    return jsonify([{"id": d.id, "nombre": d.nombre} for d in datos])
+
+@app.route("/api/provincias/<int:departamento_id>")
+def api_provincias(departamento_id):
+    """Provincias de un departamento."""
+    datos = Provincia.query.filter_by(departamento_id=departamento_id).order_by(Provincia.nombre).all()
+    return jsonify([{"id": p.id, "nombre": p.nombre} for p in datos])
+
+@app.route("/api/distritos/<int:provincia_id>")
+def api_distritos(provincia_id):
+    """Distritos de una provincia."""
+    datos = Distrito.query.filter_by(provincia_id=provincia_id).order_by(Distrito.nombre).all()
+    return jsonify([{"id": d.id, "nombre": d.nombre} for d in datos])
 
 @app.route("/cliente/perfil")
 @login_required_cliente
@@ -2577,6 +2629,9 @@ def cliente_actualizar_perfil():
         cliente.apellidos = request.form.get("apellidos")
         cliente.telefono = request.form.get("telefono")
         cliente.direccion = request.form.get("direccion")
+        cliente.departamento = request.form.get("departamento") or None
+        cliente.provincia = request.form.get("provincia") or None
+        cliente.distrito = request.form.get("distrito") or None
         
         nuevo_email = request.form.get("email")
         if nuevo_email != cliente.correo:
