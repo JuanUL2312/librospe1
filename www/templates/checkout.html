@@ -391,8 +391,33 @@
                         </div>
                     </div>
 
+                    <!-- ===== TIPO DE ENTREGA ===== -->
+                    <div class="mb-3 mt-3">
+                        <label class="field-label">Tipo de entrega <span class="text-danger">*</span></label>
+                        <div class="row g-2 mt-1">
+                            <div class="col-6">
+                                <div class="radio-card active" id="cardRecojo" onclick="seleccionarEntrega('recojo')">
+                                    <input type="radio" name="tipoEntrega" value="recojo" checked>
+                                    <div>
+                                        <div class="radio-label">🏪 Recojo en tienda</div>
+                                        <div class="radio-sub">Gratis</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="radio-card" id="cardDelivery" onclick="seleccionarEntrega('delivery')">
+                                    <input type="radio" name="tipoEntrega" value="delivery">
+                                    <div>
+                                        <div class="radio-label">🚚 Delivery</div>
+                                        <div class="radio-sub">S/. 5.00</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- ===== DIRECCIÓN (EDITABLE) ===== -->
-                    <div class="mb-0 mt-3">
+                    <div class="mb-0 mt-3" id="direccionSection" style="display:none;">
                         <label class="field-label">Dirección de entrega</label>
                         <textarea id="direccionEntrega" class="form-control" rows="2" 
                                   placeholder="Calle, número, urbanización, referencia...">{{ (cliente.direccion or '') if cliente else '' }}</textarea>
@@ -458,6 +483,8 @@
 // ============================================
 var carrito = [];
 var tipoComprobante = 'boleta';
+var tipoEntrega = 'recojo';
+var costoEnvio = 0;
 
 // ============================================
 // SELECCIONAR TIPO DE COMPROBANTE
@@ -702,13 +729,44 @@ function renderizarCarrito() {
     
     container.innerHTML = html;
     
-    // Actualizar totales
-    document.getElementById('subtotal').textContent = 'S/. ' + subtotal.toFixed(2);
-    document.getElementById('descuento').textContent = '-S/. 0.00';
-    document.getElementById('envio').textContent = 'S/. 0.00';
-    document.getElementById('total').textContent = 'S/. ' + subtotal.toFixed(2);
+    // Actualizar totales (incluye costo de envío si es delivery)
+    actualizarTotales();
     
     document.getElementById('btnPagar').disabled = false;
+}
+
+// ============================================
+// SELECCIONAR TIPO DE ENTREGA
+// ============================================
+function seleccionarEntrega(tipo) {
+    tipoEntrega = tipo;
+    
+    document.getElementById('cardRecojo').classList.toggle('active', tipo === 'recojo');
+    document.getElementById('cardDelivery').classList.toggle('active', tipo === 'delivery');
+    document.querySelectorAll('input[name="tipoEntrega"]').forEach(function(el) {
+        el.checked = el.value === tipo;
+    });
+    
+    var dirSection = document.getElementById('direccionSection');
+    if (tipo === 'delivery') {
+        dirSection.style.display = 'block';
+        costoEnvio = 5;
+    } else {
+        dirSection.style.display = 'none';
+        costoEnvio = 0;
+    }
+    actualizarTotales();
+}
+
+// ============================================
+// ACTUALIZAR TOTALES (con envío)
+// ============================================
+function actualizarTotales() {
+    var subtotal = carrito.reduce(function(s, i) { return s + (i.precio * i.cantidad); }, 0);
+    document.getElementById('subtotal').textContent = 'S/. ' + subtotal.toFixed(2);
+    document.getElementById('descuento').textContent = '-S/. 0.00';
+    document.getElementById('envio').textContent = 'S/. ' + costoEnvio.toFixed(2);
+    document.getElementById('total').textContent = 'S/. ' + (subtotal + costoEnvio).toFixed(2);
 }
 
 // ============================================
@@ -730,6 +788,19 @@ function procesarPago() {
             icon: 'warning',
             title: 'Campos incompletos',
             text: 'Por favor completa todos los campos obligatorios.',
+            confirmButtonColor: '#D4AF37'
+        });
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Continuar con el pago';
+        return;
+    }
+    
+    // Si es delivery, la dirección es obligatoria
+    if (tipoEntrega === 'delivery' && !direccion) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Dirección requerida',
+            text: 'Para entrega a domicilio, ingresa tu dirección.',
             confirmButtonColor: '#D4AF37'
         });
         btn.disabled = false;
@@ -776,81 +847,36 @@ function procesarPago() {
         return;
     }
     
-    // Preparar datos del pedido
-    var cliente = {
+    // Guardar datos del checkout en localStorage para la página de pago
+    var checkoutData = {
         nombres: document.getElementById('nombresDisplay').textContent || '',
         apellidos: document.getElementById('apellidosDisplay').textContent || '',
         email: email,
         telefono: telefono,
         documento: documento,
-        direccion: direccion
+        direccion: direccion,
+        tipo_comprobante: tipoComprobante,
+        razon_social: tipoComprobante === 'factura' ? (document.getElementById('confirmRazonSocial').textContent || '') : '',
+        direccion_fiscal: direccion
     };
-    
-    // Para factura, incluir razón social
-    if (tipoComprobante === 'factura') {
-        cliente.razon_social = document.getElementById('confirmRazonSocial').textContent || '';
-    }
-    
-    var datosPedido = {
-        cliente: cliente,
-        items: carrito,
-        total: parseFloat(document.getElementById('total').textContent.replace('S/. ', '')),
-        tipo_entrega: 'delivery',
-        comprobante: {
-            tipo: tipoComprobante
-        }
-    };
-    
-    // Enviar al servidor
-    fetch('/api/pedidos/crear', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(datosPedido)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            // Limpiar carrito
-            localStorage.removeItem('carritoCliente');
-            
-            Swal.fire({
-                icon: 'success',
-                title: '✅ ¡Pedido realizado!',
-                text: 'Tu pedido ha sido registrado exitosamente.',
-                confirmButtonColor: '#D4AF37',
-                confirmButtonText: 'Ver mis pedidos'
-            }).then(() => {
-                window.location.href = '/mis-pedidos';
-            });
-        } else {
-            Swal.fire({
-                icon: 'error',
-                title: '❌ Error al procesar',
-                text: data.error || 'Hubo un problema al procesar tu pedido.',
-                confirmButtonColor: '#D4AF37'
-            });
-        }
-    })
-    .catch(error => {
-        Swal.fire({
-            icon: 'error',
-            title: '❌ Error de conexión',
-            text: 'No se pudo conectar con el servidor. Intenta nuevamente.',
-            confirmButtonColor: '#D4AF37'
-        });
-    })
-    .finally(() => {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Continuar con el pago';
-    });
+    localStorage.setItem('checkoutData', JSON.stringify(checkoutData));
+    localStorage.setItem('tipoEntrega', tipoEntrega);
+    localStorage.setItem('direccionEntrega', direccion);
+
+    // Ir a la página de pago para elegir el método de pago
+    window.location.href = '/pago';
 }
 
 // ============================================
 // INICIALIZAR
 // ============================================
 document.addEventListener('DOMContentLoaded', function() {
+    // Cargar tipo de entrega guardado en el carrito (localStorage)
+    var tipoGuardado = localStorage.getItem('tipoEntrega');
+    if (tipoGuardado) {
+        seleccionarEntrega(tipoGuardado);
+    }
+
     cargarCarrito();
 
     // Cargar dirección de entrega guardada en el carrito (localStorage)
