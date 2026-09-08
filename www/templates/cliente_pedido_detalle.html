@@ -1,5 +1,5 @@
 {% extends "base_cliente.html" %}
-{% block titulito %}📋 Detalle Pedido #{{ pedido.id }}{% endblock %}
+{% block titulito %}📋 Detalle de Pedido{% endblock %}
 
 {% block contenido %}
 <div class="container py-3 py-md-4">
@@ -11,7 +11,7 @@
 
             <div class="card shadow-lg border-0 rounded-3 overflow-hidden">
                 <div class="card-header bg-primary text-white py-3 py-md-4">
-                    <h3 class="mb-0 fs-4 fs-md-3"><i class="fas fa-receipt me-2"></i>Pedido #{{ pedido.id }}</h3>
+                    <h3 class="mb-0 fs-4 fs-md-3"><i class="fas fa-receipt me-2"></i>Detalle de Pedido</h3>
                 </div>
                 <div class="card-body p-3 p-md-4">
                     <div class="row g-4">
@@ -46,7 +46,7 @@
                                 </p>
                                 
                                 <!-- RAZÓN SOCIAL -->
-                                {% if venta and venta.cliente_razon_social and venta.cliente_razon_social|length > 0 %}
+                                {% if venta and venta.tipo_comprobante == 'factura' and venta.cliente_razon_social and venta.cliente_razon_social|length > 0 %}
                                 <p class="mb-2 mt-3">
                                     <strong><i class="fas fa-building me-1"></i> Razón Social:</strong><br>
                                     <span class="text-success fw-bold small">{{ venta.cliente_razon_social }}</span>
@@ -54,7 +54,7 @@
                                 {% endif %}
                                 
                                 <!-- DIRECCIÓN FISCAL -->
-                                {% if venta and venta.cliente_direccion_fiscal and venta.cliente_direccion_fiscal|length > 0 %}
+                                {% if venta and venta.tipo_comprobante == 'factura' and venta.cliente_direccion_fiscal and venta.cliente_direccion_fiscal|length > 0 %}
                                 <p class="mb-0">
                                     <strong><i class="fas fa-map-marker-alt me-1"></i> Dirección Fiscal:</strong><br>
                                     <small>{{ venta.cliente_direccion_fiscal }}</small>

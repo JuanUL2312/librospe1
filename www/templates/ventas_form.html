@@ -253,6 +253,29 @@
                                         </small>
                                     </div>
                                 </div>
+                                <!-- ========================================= -->
+                                <!-- MÉTODO DE PAGO Y VUELTO -->
+                                <!-- ========================================= -->
+                                <div class="row g-4 mb-4 mb-md-5">
+                                    <div class="col-12 col-md-6">
+                                        <label class="form-label fw-semibold mb-2 mb-md-3">
+                                            <i class="fas fa-credit-card me-2 text-success"></i>Método de Pago
+                                        </label>
+                                        <select name="metodo_pago" id="metodo_pago" class="form-select form-select-lg shadow-sm">
+                                            <option value="efectivo">💵 Efectivo</option>
+                                            <option value="tarjeta">💳 Tarjeta</option>
+                                            <option value="yape">📱 Yape</option>
+                                            <option value="plin">📱 Plin</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-md-6" id="vueltoSection">
+                                        <label class="form-label fw-semibold mb-2 mb-md-3">
+                                            <i class="fas fa-hand-holding-usd me-2 text-warning"></i>Monto recibido (S/.)
+                                        </label>
+                                        <input type="number" name="monto_recibido" id="monto_recibido" class="form-control form-control-lg shadow-sm" step="0.01" min="0" placeholder="0.00">
+                                        <div class="mt-2" id="vueltoInfo"></div>
+                                    </div>
+                                </div>
                                 <div class="d-grid gap-3">
                                     <button type="submit" class="btn btn-success btn-lg px-5 py-3 shadow-lg fw-bold fs-5" id="submitBtn">
                                         <i class="fas fa-check-circle me-2"></i>¡REALIZAR VENTA!
@@ -706,6 +729,49 @@ document.addEventListener('DOMContentLoaded', function() {
         
         return true;
     });
+});
+</script>
+
+<script>
+// ============================================
+// MÉTODO DE PAGO Y CÁLCULO DE VUELTO
+// ============================================
+document.addEventListener('DOMContentLoaded', function() {
+    const metodoPago = document.getElementById('metodo_pago');
+    const montoRecibido = document.getElementById('monto_recibido');
+    const vueltoSection = document.getElementById('vueltoSection');
+    const totalDisplay = document.getElementById('total_display');
+    const vueltoInfo = document.getElementById('vueltoInfo');
+
+    function actualizarVuelto() {
+        const total = parseFloat(totalDisplay.value) || 0;
+        const recibido = parseFloat(montoRecibido.value) || 0;
+        const vuelto = recibido - total;
+        if (recibido > 0) {
+            if (vuelto >= 0) {
+                vueltoInfo.innerHTML = '<div class="alert alert-success py-2 mb-0"><i class="fas fa-hand-holding-usd me-1"></i>Vuelto: <strong>S/. ' + vuelto.toFixed(2) + '</strong></div>';
+            } else {
+                vueltoInfo.innerHTML = '<div class="alert alert-danger py-2 mb-0"><i class="fas fa-exclamation-triangle me-1"></i>Falta: <strong>S/. ' + Math.abs(vuelto).toFixed(2) + '</strong></div>';
+            }
+        } else {
+            vueltoInfo.innerHTML = '';
+        }
+    }
+
+    function toggleVuelto() {
+        if (metodoPago.value === 'efectivo') {
+            vueltoSection.style.display = 'block';
+            actualizarVuelto();
+        } else {
+            vueltoSection.style.display = 'none';
+            vueltoInfo.innerHTML = '';
+        }
+    }
+
+    metodoPago.addEventListener('change', toggleVuelto);
+    montoRecibido.addEventListener('input', actualizarVuelto);
+    totalDisplay.addEventListener('change', actualizarVuelto);
+    toggleVuelto();
 });
 </script>
 

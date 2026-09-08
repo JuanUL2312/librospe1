@@ -64,6 +64,25 @@ El script es idempotente (no duplica datos si ya existen).
 Los **usuarios del sistema** (vendedores/administradores) pueden registrar su **DNI o Carnet de Extranjería**
 (campo `documento` en la tabla `usuarios_sistema`) al crear un nuevo usuario.
 
+## 💵 Caja y vuelto (tienda presencial)
+
+- **Apertura y cierre de caja** (`/caja`): se abre la caja con un monto inicial, se registran las ventas
+del turno (resumen por método de pago) y al cerrar se compara el **monto esperado** vs. el **monto real**
+contado, calculando la **diferencia**.
+- **Método de pago y vuelto**: en el formulario de nueva venta (`/ventas/nueva`) se elige el método de pago
+(efectivo, tarjeta, Yape o Plin). Si pagas en **efectivo**, se ingresa el monto recibido y el sistema calcula
+automáticamente el **vuelto** (o el faltante).
+
+## ⚠️ Alertas de stock configurables
+
+Cada producto tiene **stock mínimo** y **stock máximo** configurables (en el formulario de producto).
+El sistema alerta automáticamente:
+- **Stock bajo** cuando la cantidad cae por debajo del mínimo.
+- **Agotado** cuando llega a 0.
+- **Exceso de stock** cuando supera el máximo.
+
+Las alertas se muestran en el **listado de productos** (badges) y en el **dashboard**.
+
 ## ⚙️ Configuración
 
 Copia `.env.example` a `.env` y configura tus credenciales (BD, email, `SECRET_KEY`).

@@ -191,11 +191,17 @@
                             <td class="small text-secondary d-none d-md-table-cell" style="font-size: 0.75rem;">
                                 {{ pr.descripcion[:40] }}{% if pr.descripcion|length > 40 %}...{% endif %}
                             </td>
-                            <td class="text-center fw-bold small 
-                                    {% if pr.cantidad == 0 %}text-danger
-                                    {% elif pr.cantidad <= 5 %}text-warning
-                                    {% else %}text-success{% endif %}">
-                                {{ pr.cantidad }}
+                            <td class="text-center">
+                                <span class="fw-bold small {% if pr.cantidad == 0 %}text-danger{% elif pr.cantidad <= (pr.stock_minimo or 5) %}text-warning{% elif pr.cantidad >= (pr.stock_maximo or 100) %}text-info{% else %}text-success{% endif %}">
+                                    {{ pr.cantidad }}
+                                </span>
+                                {% if pr.cantidad == 0 %}
+                                <span class="d-block badge bg-danger mt-1" style="font-size:0.6rem;">AGOTADO</span>
+                                {% elif pr.cantidad <= (pr.stock_minimo or 5) %}
+                                <span class="d-block badge bg-warning text-dark mt-1" style="font-size:0.6rem;">⚠️ Stock bajo</span>
+                                {% elif pr.cantidad >= (pr.stock_maximo or 100) %}
+                                <span class="d-block badge bg-info mt-1" style="font-size:0.6rem;">📦 Exceso</span>
+                                {% endif %}
                             </td>
                             <td class="text-center">
                                 <div>

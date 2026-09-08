@@ -219,7 +219,7 @@
         <div class="col-12 col-md-6">
             <div class="card shadow h-100">
                 <div class="card-header bg-white py-2 py-md-3">
-                    <h5 class="mb-0 fs-6 fs-md-5"><i class="fas fa-exclamation-triangle me-2 text-warning"></i>Stock Bajo (≤ 10)</h5>
+                    <h5 class="mb-0 fs-6 fs-md-5"><i class="fas fa-exclamation-triangle me-2 text-warning"></i>Stock Bajo (umbral configurable)</h5>
                 </div>
                 <div class="card-body p-2 p-md-3" style="max-height: 250px; overflow-y: auto;">
                     {% if stock_bajo %}
@@ -250,6 +250,25 @@
                         {% endfor %}
                     {% else %}
                     <p class="text-success text-center small mb-0"><i class="fas fa-check-circle me-2"></i>Todos los productos tienen stock</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card shadow h-100">
+                <div class="card-header bg-white py-2 py-md-3">
+                    <h5 class="mb-0 fs-6 fs-md-5"><i class="fas fa-arrow-up me-2 text-info"></i>Stock en Exceso (umbral configurable)</h5>
+                </div>
+                <div class="card-body p-2 p-md-3" style="max-height: 250px; overflow-y: auto;">
+                    {% if stock_exceso %}
+                        {% for producto in stock_exceso %}
+                        <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom p-2 rounded gap-2">
+                            <div class="small"><i class="fas fa-boxes me-2"></i>{{ producto.nombre[:35] }}{% if producto.nombre|length > 35 %}...{% endif %}</div>
+                            <span class="badge bg-info">{{ producto.cantidad }} unidades</span>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <p class="text-success text-center small mb-0"><i class="fas fa-check-circle me-2"></i>No hay productos con exceso de stock</p>
                     {% endif %}
                 </div>
             </div>

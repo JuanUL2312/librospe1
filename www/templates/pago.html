@@ -548,7 +548,7 @@ async function confirmarPedido(){
             Swal.fire({
                 icon:'success',
                 title:'¡Pedido realizado!',
-                html:`✅ Pedido #${data.pedido_id}<br>Total: S/. ${total.toFixed(2)}<br><br>📧 El comprobante ha sido enviado a tu correo`,
+                html:`✅ ¡Pedido realizado!<br>Total: S/. ${total.toFixed(2)}<br><br>📧 El comprobante ha sido enviado a tu correo`,
                 confirmButtonText:'Ver mis pedidos'
             }).then(()=>{
                 window.location.href='/mis-pedidos';

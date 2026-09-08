@@ -130,6 +130,8 @@ class Producto(db.Model):
     nombre = db.Column(db.String(150), nullable=False)
     descripcion = db.Column(db.Text)
     cantidad = db.Column(db.Integer, default=0)
+    stock_minimo = db.Column(db.Integer, default=5)
+    stock_maximo = db.Column(db.Integer, default=100)
     proveedor_id = db.Column(db.Integer, db.ForeignKey("proveedores.id"), nullable=True)
     precio = db.Column(db.Numeric(10,2), default=0.0)
     imagen = db.Column(db.String(255))
@@ -183,6 +185,9 @@ class Venta(db.Model):
     cliente_direccion = db.Column(db.Text, nullable=True)
     cliente_direccion_fiscal = db.Column(db.Text, nullable=True)
     cliente_razon_social = db.Column(db.String(200), nullable=True)
+    metodo_pago = db.Column(db.String(20), default="efectivo")
+    monto_recibido = db.Column(db.Numeric(10,2), nullable=True)
+    vuelto = db.Column(db.Numeric(10,2), nullable=True)
     producto = db.relationship("Producto", back_populates="ventas")
     vendedor = db.relationship("UsuarioSistema", back_populates="ventas")
     cliente = db.relationship("Cliente", back_populates="ventas")
@@ -196,6 +201,19 @@ class Venta(db.Model):
         if self.cliente_nombres and self.cliente_apellidos:
             return f"{self.cliente_nombres} {self.cliente_apellidos}"
         return self.cliente_nombres or ""
+
+class Caja(db.Model):
+    __tablename__ = "cajas"
+    id = db.Column(db.Integer, primary_key=True)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
+    monto_inicial = db.Column(db.Numeric(10,2), default=0)
+    fecha_apertura = db.Column(db.DateTime, default=datetime.now)
+    fecha_cierre = db.Column(db.DateTime, nullable=True)
+    monto_esperado = db.Column(db.Numeric(10,2), nullable=True)
+    monto_real = db.Column(db.Numeric(10,2), nullable=True)
+    diferencia = db.Column(db.Numeric(10,2), nullable=True)
+    estado = db.Column(db.String(20), default="abierta")
+    usuario = db.relationship("UsuarioSistema")
 
 class Cliente(db.Model):
     __tablename__ = "clientes"
@@ -1627,6 +1645,8 @@ def guardar_producto():
             nombre=request.form["nombre"],
             descripcion=request.form["descripcion"],
             cantidad=int(request.form["cantidad"]),
+            stock_minimo=int(request.form.get("stock_minimo") or 5),
+            stock_maximo=int(request.form.get("stock_maximo") or 100),
             proveedor_id=request.form.get("proveedor") or None,
             precio=float(request.form["precio"]),
             id_categoria=id_categoria,  
@@ -1691,6 +1711,8 @@ def actualizar_producto(id):
         producto_obj.nombre = request.form["nombre"]
         producto_obj.descripcion = request.form["descripcion"]
         producto_obj.cantidad = int(request.form["cantidad"])
+        producto_obj.stock_minimo = int(request.form.get("stock_minimo") or 5)
+        producto_obj.stock_maximo = int(request.form.get("stock_maximo") or 100)
         producto_obj.proveedor_id = request.form.get("proveedor") or None
         producto_obj.precio = float(request.form["precio"])
         producto_obj.id_categoria = id_categoria  # ← USAR id_categoria
@@ -1816,6 +1838,22 @@ def venta_nueva():
             total_venta = precio_unitario * cantidad
             
             # ============================================
+            # MÉTODO DE PAGO Y VUELTO (tienda presencial)
+            # ============================================
+            metodo_pago = request.form.get("metodo_pago", "efectivo")
+            monto_recibido = None
+            vuelto = None
+            if metodo_pago == "efectivo":
+                try:
+                    monto_recibido = float(request.form.get("monto_recibido", "0") or 0)
+                    vuelto = round(monto_recibido - total_venta, 2)
+                    if vuelto < 0:
+                        vuelto = 0
+                except (TypeError, ValueError):
+                    monto_recibido = None
+                    vuelto = None
+            
+            # ============================================
             # CREAR VENTA - SOLO COLUMNAS QUE EXISTEN
             # ============================================
             nueva_venta = Venta(
@@ -1825,6 +1863,9 @@ def venta_nueva():
                 vendedor_id=vendedor_id,
                 tipo_comprobante=tipo_comprobante,
                 numero_comprobante=numero_comprobante,
+                metodo_pago=metodo_pago,
+                monto_recibido=monto_recibido,
+                vuelto=vuelto,
                 # cliente_id se deja NULL (no tenemos el ID del cliente)
                 # estado = 1 (por defecto)
             )
@@ -1866,6 +1907,88 @@ def venta_nueva():
             return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
     
     return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+
+# ===============================
+# CAJA - APERTURA Y CIERRE
+# ===============================
+@app.route("/caja")
+@login_required
+def ver_caja():
+    caja_abierta = Caja.query.filter_by(estado="abierta").order_by(Caja.id.desc()).first()
+    historial = Caja.query.filter_by(estado="cerrada").order_by(Caja.id.desc()).limit(10).all()
+
+    # Resumen de ventas de la caja abierta (por método de pago)
+    resumen = {}
+    total_caja = 0
+    if caja_abierta:
+        ventas = Venta.query.filter(
+            Venta.fecha_venta >= caja_abierta.fecha_apertura,
+            Venta.estado == 1
+        ).all()
+        for v in ventas:
+            if not v.producto:
+                continue
+            subtotal = float(v.cantidad) * float(v.producto.precio or 0)
+            total_caja += subtotal
+            metodo = v.metodo_pago or "efectivo"
+            resumen[metodo] = resumen.get(metodo, 0) + subtotal
+        caja_abierta._total_ventas = total_caja
+        caja_abierta._resumen = resumen
+
+    total_esperado = round(float(caja_abierta.monto_inicial or 0) + total_caja, 2) if caja_abierta else 0
+    return render_template("caja.html", caja=caja_abierta, historial=historial, total_caja=total_caja, resumen=resumen, total_esperado=total_esperado)
+
+@app.route("/caja/apertura", methods=["POST"])
+@login_required
+def abrir_caja():
+    if session.get("rol") not in ["administrador", "vendedor"]:
+        flash("❌ No autorizado", "danger")
+        return redirect(url_for("ver_caja"))
+    if Caja.query.filter_by(estado="abierta").first():
+        flash("⚠️ Ya hay una caja abierta", "warning")
+        return redirect(url_for("ver_caja"))
+    try:
+        monto_inicial = float(request.form.get("monto_inicial", "0") or 0)
+    except ValueError:
+        monto_inicial = 0
+    caja = Caja(usuario_id=session["usuario_id"], monto_inicial=monto_inicial, estado="abierta")
+    db.session.add(caja)
+    db.session.commit()
+    flash("✅ Caja abierta correctamente", "success")
+    return redirect(url_for("ver_caja"))
+
+@app.route("/caja/cierre", methods=["POST"])
+@login_required
+def cerrar_caja():
+    caja = Caja.query.filter_by(estado="abierta").first()
+    if not caja:
+        flash("❌ No hay caja abierta", "danger")
+        return redirect(url_for("ver_caja"))
+
+    ventas = Venta.query.filter(
+        Venta.fecha_venta >= caja.fecha_apertura,
+        Venta.estado == 1
+    ).all()
+    total_ventas = 0
+    for v in ventas:
+        if v.producto:
+            total_ventas += float(v.cantidad) * float(v.producto.precio or 0)
+
+    monto_esperado = round(float(caja.monto_inicial or 0) + total_ventas, 2)
+    try:
+        monto_real = float(request.form.get("monto_real", "0") or 0)
+    except ValueError:
+        monto_real = 0
+    diferencia = round(monto_real - monto_esperado, 2)
+
+    caja.fecha_cierre = datetime.now()
+    caja.monto_esperado = monto_esperado
+    caja.monto_real = monto_real
+    caja.diferencia = diferencia
+    caja.estado = "cerrada"
+    db.session.commit()
+    flash(f"✅ Caja cerrada. Esperado: S/. {monto_esperado:.2f} | Real: S/. {monto_real:.2f} | Diferencia: S/. {diferencia:.2f}", "success")
+    return redirect(url_for("ver_caja"))
 
 # ===============================
 # BLOQUEOS - VER Y DESBLOQUEAR
@@ -3553,9 +3676,10 @@ def dashboard():
         func.date(Venta.fecha_venta) >= hace_30_dias.date()
     ).group_by(Producto.id).order_by(func.sum(Venta.cantidad).desc()).limit(5).all()
     
-    # Stock
-    stock_bajo = Producto.query.filter(Producto.cantidad <= 10, Producto.cantidad > 0).order_by(Producto.cantidad.asc()).limit(10).all()
+    # Stock (usando umbrales configurables)
+    stock_bajo = Producto.query.filter(Producto.cantidad > 0, Producto.cantidad <= Producto.stock_minimo).order_by(Producto.cantidad.asc()).limit(10).all()
     stock_critico = Producto.query.filter(Producto.cantidad == 0).order_by(Producto.nombre.asc()).limit(10).all()
+    stock_exceso = Producto.query.filter(Producto.cantidad >= Producto.stock_maximo).order_by(Producto.cantidad.desc()).limit(10).all()
     
     # ========== 2. GRÁFICOS CON PLOTLY ==========
     
@@ -3699,6 +3823,7 @@ def dashboard():
                           top_productos=top_productos,
                           stock_bajo=stock_bajo,
                           stock_critico=stock_critico,
+                          stock_exceso=stock_exceso,
                           graph_ventas=graph_ventas,
                           graph_top=graph_top,
                           graph_cat=graph_cat,
