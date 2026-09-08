@@ -88,6 +88,7 @@
                                 <th>Esperado</th>
                                 <th>Real</th>
                                 <th>Diferencia</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -98,6 +99,7 @@
                             <td>S/. {{ "%.2f"|format(c.monto_esperado or 0) }}</td>
                             <td>S/. {{ "%.2f"|format(c.monto_real or 0) }}</td>
                             <td class="{{ 'text-danger' if (c.diferencia or 0) < 0 else 'text-success' }}">S/. {{ "%.2f"|format(c.diferencia or 0) }}</td>
+                            <td class="text-center"><a href="/caja/cierre/pdf?caja_id={{ c.id }}" class="btn btn-outline-danger btn-sm" title="Exportar PDF"><i class="fas fa-file-pdf"></i></a></td>
                         </tr>
                         {% endfor %}
                         </tbody>

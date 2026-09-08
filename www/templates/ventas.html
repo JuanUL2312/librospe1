@@ -14,9 +14,15 @@
               </h1>
               <p class="h5 mb-0 opacity-90">{{ ventas|length }} registros encontrados</p>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 flex-wrap">
               <a href="/ventas/nueva" class="btn btn-success btn-lg shadow hover-lift">
                 <i class="fas fa-plus-circle me-2"></i>Nueva Venta
+              </a>
+              <a href="/reportes/ventas/pdf{% if vendedor_id_actual %}?vendedor_id={{ vendedor_id_actual }}{% endif %}" class="btn btn-danger btn-lg shadow hover-lift">
+                <i class="fas fa-file-pdf me-2"></i>Exportar PDF
+              </a>
+              <a href="/reportes/ventas/excel{% if vendedor_id_actual %}?vendedor_id={{ vendedor_id_actual }}{% endif %}" class="btn btn-success btn-lg shadow hover-lift">
+                <i class="fas fa-file-excel me-2"></i>Exportar Excel
               </a>
               <a href="/productos" class="btn btn-warning btn-lg shadow hover-lift text-dark fw-bold">
                 <i class="fas fa-arrow-left me-2"></i>Volver

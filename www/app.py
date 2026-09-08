@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
-from flask import Flask, abort, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, abort, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from werkzeug.utils import secure_filename
 from flask_bcrypt import Bcrypt
 from flask_sqlalchemy import SQLAlchemy
@@ -155,6 +155,7 @@ class UsuarioSistema(db.Model):
     rol_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
     rol = db.Column(db.String(20), nullable=False)  # ← Mantener para compatibilidad
     documento = db.Column(db.String(20), nullable=True)  # DNI o Carnet de Extranjería
+    debe_cambiar_clave = db.Column(db.Integer, default=0)  # 1 = debe cambiar la contraseña al entrar
     ventas = db.relationship("Venta", back_populates="vendedor")
 
 class Categoria(db.Model):
@@ -214,6 +215,15 @@ class Caja(db.Model):
     diferencia = db.Column(db.Numeric(10,2), nullable=True)
     estado = db.Column(db.String(20), default="abierta")
     usuario = db.relationship("UsuarioSistema")
+
+class Auditoria(db.Model):
+    __tablename__ = "auditoria"
+    id = db.Column(db.Integer, primary_key=True)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=True)
+    accion = db.Column(db.String(50), nullable=False)
+    modulo = db.Column(db.String(50), nullable=False)
+    detalle = db.Column(db.Text, nullable=True)
+    fecha = db.Column(db.DateTime, default=datetime.now)
 
 class Cliente(db.Model):
     __tablename__ = "clientes"
@@ -803,6 +813,19 @@ def allowed_file(filename):
 def generar_token_recuperacion():
     return secrets.token_urlsafe(32)
 
+def registrar_auditoria(accion, modulo, detalle=""):
+    """Registra una acción en la tabla de auditoría."""
+    try:
+        db.session.add(Auditoria(
+            usuario_id=session.get("usuario_id"),
+            accion=accion,
+            modulo=modulo,
+            detalle=detalle,
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
 def generar_comprobante_html(venta, producto, precio, cantidad, total, vendedor_nombre=""):
     titulo = "LIBRERÍA SALESIANA DON BOSCO"
     gracias = "¡Gracias por su compra! Que Dios lo bendiga."
@@ -1039,6 +1062,9 @@ def login():
                     session["usuario_id"] = usuario.id
                     session["rol"] = usuario.rol
                     session["nombre"] = usuario.nombres
+                    if usuario.debe_cambiar_clave:
+                        flash("⚠️ Debes cambiar tu contraseña antes de continuar", "warning")
+                        return redirect(url_for("cambiar_clave"))
                     flash(f"✅ Bienvenido {usuario.nombres}", "success")
                     return redirect(url_for("productos"))
                 else:
@@ -1395,11 +1421,13 @@ def nuevo_usuario():
                 apellidos=request.form["apellidos"],
                 rol=request.form["rol"],
                 documento=(request.form.get("documento") or "").strip() or None,
+                debe_cambiar_clave=1,
                 clave=clave_hash,
             )
             db.session.add(nuevo)
             db.session.commit()
-            flash("✅ Usuario registrado. Contraseña: 123456", "success")
+            registrar_auditoria("CREAR", "usuarios_sistema", f"Se creó el usuario {request.form['nombres']} {request.form['apellidos']} (rol: {request.form['rol']})")
+            flash("✅ Usuario registrado. Contraseña: 123456 (debe cambiarla al primer ingreso)", "success")
             return redirect(url_for("proveedores"))
         except Exception:
             db.session.rollback()
@@ -1523,7 +1551,9 @@ def cambiar_clave():
             return render_template("cambiar_clave.html")
 
         usuario.clave = bcrypt.generate_password_hash(nueva).decode("utf-8")
+        usuario.debe_cambiar_clave = 0
         db.session.commit()
+        registrar_auditoria("CAMBIAR_CLAVE", "usuarios_sistema", f"El usuario {usuario.nombres} cambió su contraseña")
         flash("✅ Contraseña actualizada", "success")
         return redirect(url_for("productos"))
 
@@ -1553,6 +1583,7 @@ def guardar_proveedor():
     )
     db.session.add(nuevo)
     db.session.commit()
+    registrar_auditoria("CREAR", "proveedores", f"Se creó el proveedor: {nuevo.nombre}")
     flash("✅ Proveedor registrado", "success")
     return redirect(url_for("proveedores"))
 
@@ -1667,6 +1698,7 @@ def guardar_producto():
                 nuevo.imagen = filename
         
         db.session.commit()
+        registrar_auditoria("CREAR", "productos", f"Se creó el producto: {nuevo.nombre}")
         flash("✅ Producto creado exitosamente", "success")
         return redirect(url_for("productos"))
         
@@ -1732,6 +1764,7 @@ def actualizar_producto(id):
             producto_obj.imagen = filename
         
         db.session.commit()
+        registrar_auditoria("EDITAR", "productos", f"Se actualizó el producto: {producto_obj.nombre}")
         flash("✅ Producto actualizado exitosamente", "success")
         return redirect(url_for("productos"))
         
@@ -1759,6 +1792,7 @@ def eliminar_producto(id):
         
         db.session.delete(producto_obj)
         db.session.commit()
+        registrar_auditoria("ELIMINAR", "productos", f"Se eliminó el producto: {producto_obj.nombre}")
         flash("✅ Producto eliminado exitosamente", "success")
         
     except Exception as e:
@@ -1872,6 +1906,7 @@ def venta_nueva():
             db.session.add(nueva_venta)
             producto.cantidad -= cantidad
             db.session.commit()
+            registrar_auditoria("VENTA", "ventas", f"Venta #{nueva_venta.id} - {producto.nombre} x{cantidad} - Total: S/ {total_venta:.2f} ({metodo_pago})")
             
             print(f"✅ Venta #{nueva_venta.id} registrada - Total: S/. {total_venta:.2f}")
             
@@ -1914,6 +1949,9 @@ def venta_nueva():
 @app.route("/caja")
 @login_required
 def ver_caja():
+    if session.get("rol") != "administrador":
+        flash("❌ Solo administradores pueden acceder a la caja", "danger")
+        return redirect(url_for("dashboard"))
     caja_abierta = Caja.query.filter_by(estado="abierta").order_by(Caja.id.desc()).first()
     historial = Caja.query.filter_by(estado="cerrada").order_by(Caja.id.desc()).limit(10).all()
 
@@ -1941,8 +1979,8 @@ def ver_caja():
 @app.route("/caja/apertura", methods=["POST"])
 @login_required
 def abrir_caja():
-    if session.get("rol") not in ["administrador", "vendedor"]:
-        flash("❌ No autorizado", "danger")
+    if session.get("rol") != "administrador":
+        flash("❌ Solo administradores pueden abrir la caja", "danger")
         return redirect(url_for("ver_caja"))
     if Caja.query.filter_by(estado="abierta").first():
         flash("⚠️ Ya hay una caja abierta", "warning")
@@ -1960,6 +1998,9 @@ def abrir_caja():
 @app.route("/caja/cierre", methods=["POST"])
 @login_required
 def cerrar_caja():
+    if session.get("rol") != "administrador":
+        flash("❌ Solo administradores pueden cerrar la caja", "danger")
+        return redirect(url_for("ver_caja"))
     caja = Caja.query.filter_by(estado="abierta").first()
     if not caja:
         flash("❌ No hay caja abierta", "danger")
@@ -1989,6 +2030,207 @@ def cerrar_caja():
     db.session.commit()
     flash(f"✅ Caja cerrada. Esperado: S/. {monto_esperado:.2f} | Real: S/. {monto_real:.2f} | Diferencia: S/. {diferencia:.2f}", "success")
     return redirect(url_for("ver_caja"))
+
+# ===============================
+# EXPORTAR REPORTES A PDF
+# ===============================
+def _generar_pdf(titulo, encabezados, filas, subtitulo=""):
+    """Genera un PDF con reportlab y devuelve el buffer."""
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=20, leftMargin=20, topMargin=25, bottomMargin=20)
+    estilos = getSampleStyleSheet()
+    elementos = []
+    elementos.append(Paragraph(titulo, estilos['Title']))
+    if subtitulo:
+        elementos.append(Paragraph(subtitulo, estilos['Italic']))
+    elementos.append(Spacer(1, 14))
+
+    data = [encabezados] + filas
+    tabla = Table(data, repeatRows=1)
+    tabla.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A8A')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F1F5F9')]),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+    ]))
+    elementos.append(tabla)
+    doc.build(elementos)
+    buffer.seek(0)
+    return buffer
+
+@app.route("/reportes/ventas/pdf")
+@login_required
+def reporte_ventas_pdf():
+    """Exporta el reporte de ventas a PDF (vendedor ve solo las suyas)."""
+    if session.get("rol") == "vendedor":
+        vendedor_filtro = session.get("usuario_id")
+    else:
+        vendedor_filtro = request.args.get('vendedor_id', type=int)
+
+    query = """
+        SELECT v.id, v.fecha_venta, p.nombre AS producto, v.cantidad,
+               p.precio, (v.cantidad * p.precio) AS total,
+               v.metodo_pago, u.nombres AS vendedor
+        FROM ventas v
+        JOIN productos p ON v.producto_id = p.id
+        LEFT JOIN usuarios_sistema u ON v.vendedor_id = u.id
+        WHERE v.estado = 1
+    """
+    params = {}
+    if vendedor_filtro:
+        query += " AND v.vendedor_id = :vid"
+        params['vid'] = vendedor_filtro
+    query += " ORDER BY v.fecha_venta DESC"
+
+    rows = db.session.execute(db.text(query), params).mappings().all()
+
+    encabezados = ["N°", "Fecha", "Producto", "Cant.", "P. Unit.", "Total", "Método", "Vendedor"]
+    filas = []
+    total_gral = 0
+    for i, r in enumerate(rows, 1):
+        total = float(r['total'] or 0)
+        total_gral += total
+        filas.append([
+            i,
+            r['fecha_venta'].strftime('%d/%m/%Y %H:%M') if r['fecha_venta'] else '',
+            r['producto'],
+            r['cantidad'],
+            f"S/ {float(r['precio'] or 0):.2f}",
+            f"S/ {total:.2f}",
+            (r['metodo_pago'] or 'efectivo').capitalize(),
+            r['vendedor'] or '-',
+        ])
+    filas.append(["", "", "", "", "TOTAL", f"S/ {total_gral:.2f}", "", ""])
+
+    buffer = _generar_pdf("Reporte de Ventas - Librería Salesiana", encabezados, filas,
+                          f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    return send_file(buffer, as_attachment=True, download_name="reporte_ventas.pdf", mimetype="application/pdf")
+
+@app.route("/reportes/ventas/excel")
+@login_required
+def reporte_ventas_excel():
+    """Exporta el reporte de ventas a Excel (vendedor ve solo las suyas)."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    if session.get("rol") == "vendedor":
+        vendedor_filtro = session.get("usuario_id")
+    else:
+        vendedor_filtro = request.args.get('vendedor_id', type=int)
+
+    query = """
+        SELECT v.id, v.fecha_venta, p.nombre AS producto, v.cantidad,
+               p.precio, (v.cantidad * p.precio) AS total,
+               v.metodo_pago, u.nombres AS vendedor
+        FROM ventas v
+        JOIN productos p ON v.producto_id = p.id
+        LEFT JOIN usuarios_sistema u ON v.vendedor_id = u.id
+        WHERE v.estado = 1
+    """
+    params = {}
+    if vendedor_filtro:
+        query += " AND v.vendedor_id = :vid"
+        params['vid'] = vendedor_filtro
+    query += " ORDER BY v.fecha_venta DESC"
+    rows = db.session.execute(db.text(query), params).mappings().all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Ventas"
+    encabezados = ["N°", "Fecha", "Producto", "Cantidad", "Precio Unit.", "Total", "Método", "Vendedor"]
+    ws.append(encabezados)
+    for celda in ws[1]:
+        celda.font = Font(bold=True, color="FFFFFF")
+        celda.fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+        celda.alignment = Alignment(horizontal="center")
+
+    total_gral = 0
+    for i, r in enumerate(rows, 1):
+        total = float(r['total'] or 0)
+        total_gral += total
+        ws.append([
+            i,
+            r['fecha_venta'].strftime('%d/%m/%Y %H:%M') if r['fecha_venta'] else '',
+            r['producto'],
+            r['cantidad'],
+            float(r['precio'] or 0),
+            total,
+            (r['metodo_pago'] or 'efectivo').capitalize(),
+            r['vendedor'] or '-',
+        ])
+    ws.append(["", "", "", "", "TOTAL", total_gral, "", ""])
+    ws.append([])
+    ws.append(["Generado: " + datetime.now().strftime('%d/%m/%Y %H:%M')])
+
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) for c in col if c.value is not None), default=10)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 40)
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name="reporte_ventas.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/caja/cierre/pdf")
+@login_required
+def caja_cierre_pdf():
+    """Exporta el cierre de caja a PDF (solo administrador)."""
+    if session.get("rol") != "administrador":
+        flash("❌ Solo administradores", "danger")
+        return redirect(url_for("ver_caja"))
+    caja_id = request.args.get('caja_id', type=int)
+    caja = db.session.get(Caja, caja_id) if caja_id else Caja.query.filter_by(estado="cerrada").order_by(Caja.id.desc()).first()
+    if not caja:
+        flash("❌ Caja no encontrada", "danger")
+        return redirect(url_for("ver_caja"))
+
+    ventas = Venta.query.filter(Venta.fecha_venta >= caja.fecha_apertura, Venta.estado == 1).all()
+    total_ventas = 0
+    resumen = {}
+    for v in ventas:
+        if not v.producto:
+            continue
+        subtotal = float(v.cantidad) * float(v.producto.precio or 0)
+        total_ventas += subtotal
+        metodo = v.metodo_pago or "efectivo"
+        resumen[metodo] = resumen.get(metodo, 0) + subtotal
+
+    encabezados = ["Método de pago", "Monto"]
+    filas = [[m.capitalize(), f"S/ {monto:.2f}"] for m, monto in resumen.items()]
+    filas.append(["TOTAL VENTAS", f"S/ {total_ventas:.2f}"])
+    filas.append(["Monto inicial", f"S/ {float(caja.monto_inicial or 0):.2f}"])
+    filas.append(["Monto esperado", f"S/ {float(caja.monto_esperado or 0):.2f}"])
+    filas.append(["Monto real contado", f"S/ {float(caja.monto_real or 0):.2f}"])
+    filas.append(["DIFERENCIA", f"S/ {float(caja.diferencia or 0):.2f}"])
+
+    buffer = _generar_pdf("Cierre de Caja - Librería Salesiana", encabezados, filas,
+                          f"Caja N° {caja.id} | Apertura: {caja.fecha_apertura.strftime('%d/%m/%Y %H:%M')} | Cierre: {(caja.fecha_cierre or datetime.now()).strftime('%d/%m/%Y %H:%M')}")
+    return send_file(buffer, as_attachment=True, download_name=f"cierre_caja_{caja.id}.pdf", mimetype="application/pdf")
+
+# ===============================
+# AUDITORÍA
+# ===============================
+@app.route("/auditoria")
+@login_required
+def ver_auditoria():
+    if session.get("rol") != "administrador":
+        flash("❌ Solo administradores pueden ver la auditoría", "danger")
+        return redirect(url_for("dashboard"))
+    registros = db.session.query(Auditoria, UsuarioSistema.nombres.label("usuario_nombre"), UsuarioSistema.apellidos.label("usuario_apellido"))\
+        .outerjoin(UsuarioSistema, Auditoria.usuario_id == UsuarioSistema.id)\
+        .order_by(Auditoria.id.desc()).limit(200).all()
+    return render_template("auditoria.html", registros=registros)
 
 # ===============================
 # BLOQUEOS - VER Y DESBLOQUEAR
@@ -2403,6 +2645,85 @@ def ver_comprobante(venta_id):
     total = venta.Venta.cantidad * venta.precio
     
     return render_template("comprobante.html", venta=venta, total=total)
+
+@app.route("/comprobante/<int:venta_id>/pdf")
+@login_required
+def comprobante_pdf(venta_id):
+    """Genera el PDF del comprobante (boleta/factura) con autorización SUNAT simulada."""
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    venta = db.session.query(Venta,
+                              Producto.nombre.label("producto_nombre"),
+                              Producto.precio,
+                              UsuarioSistema.nombres.label("vendedor_nombres"),
+                              UsuarioSistema.apellidos.label("vendedor_apellidos")
+                             ).join(Producto, Venta.producto_id == Producto.id)\
+                              .outerjoin(UsuarioSistema, Venta.vendedor_id == UsuarioSistema.id)\
+                              .filter(Venta.id == venta_id).first()
+    if not venta:
+        flash("❌ Venta no encontrada", "danger")
+        return redirect(url_for("ventas"))
+
+    v = venta.Venta
+    total = v.cantidad * venta.precio
+
+    # Simulación de autorización SUNAT
+    serie_numero = v.numero_comprobante or f"B001-{venta_id:06d}"
+    hash_cpe = secrets.token_hex(8).upper()
+    codigo_autorizacion = f"{serie_numero} | {hash_cpe}"
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=25*mm, leftMargin=25*mm, topMargin=25*mm, bottomMargin=25*mm)
+    estilos = getSampleStyleSheet()
+    elementos = []
+
+    elementos.append(Paragraph("LIBRERÍA SALESIANA DON BOSCO", estilos['Title']))
+    elementos.append(Paragraph(f"<b>{v.tipo_comprobante.upper()} ELECTRÓNICA</b> N° {serie_numero}", estilos['Heading2']))
+    elementos.append(Spacer(1, 8))
+
+    datos = [
+        ["Fecha", v.fecha_venta.strftime('%d/%m/%Y %H:%M')],
+        ["Cliente", v.cliente_nombre_completo or "Consumidor Final"],
+        ["Documento", v.cliente_documento or "—"],
+        ["Vendedor", f"{venta.vendedor_nombres or ''} {venta.vendedor_apellidos or ''}".strip() or "—"],
+        ["Producto", venta.producto_nombre],
+        ["Cantidad", str(v.cantidad)],
+        ["Precio Unit.", f"S/ {float(venta.precio or 0):.2f}"],
+        ["TOTAL", f"S/ {total:.2f}"],
+    ]
+    t = Table(datos, colWidths=[80*mm, 100*mm])
+    t.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#EEF2FF')),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#D4AF37')),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+    ]))
+    elementos.append(t)
+    elementos.append(Spacer(1, 12))
+
+    # Autorización SUNAT simulada
+    autorizacion = Table([["AUTORIZACIÓN SUNAT (SIMULADA)"], [codigo_autorizacion]], colWidths=[180*mm])
+    autorizacion.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#16A34A')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F0FDF4')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+    ]))
+    elementos.append(autorizacion)
+    elementos.append(Spacer(1, 8))
+    elementos.append(Paragraph("<small>Este es un comprobante de venta electrónico válido. ¡Gracias por su compra!</small>", estilos['Italic']))
+
+    doc.build(elementos)
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name=f"comprobante_{serie_numero}.pdf", mimetype="application/pdf")
 
 @app.route("/ver_ventas", methods=["GET", "POST"])
 @login_required
@@ -3623,6 +3944,9 @@ if os.environ.get("AUTO_CREATE_SCHEMA", "false").lower() == "true":
 @app.route("/dashboard")
 @login_required
 def dashboard():
+    if session.get("rol") != "administrador":
+        flash("❌ Solo administradores pueden ver el dashboard", "danger")
+        return redirect(url_for("productos"))
     import pandas as pd
     import plotly
     import plotly.graph_objs as go

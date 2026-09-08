@@ -83,6 +83,28 @@ El sistema alerta automáticamente:
 
 Las alertas se muestran en el **listado de productos** (badges) y en el **dashboard**.
 
+## 📄 Exportar reportes a PDF
+
+- **Reporte de ventas** (`/reportes/ventas/pdf`): exporta las ventas a PDF (el vendedor ve solo las suyas).
+  Botón **"Exportar PDF"** en la página de ventas.
+- **Cierre de caja** (`/caja/cierre/pdf`): exporta el cierre de caja a PDF con el resumen por método de pago,
+  montos esperado/real y diferencia. Botón de PDF en el historial de caja.
+
+Requiere las librerías `reportlab` y `openpyxl` (incluidas en `requirements.txt`).
+
+## 🔐 Seguridad y auditoría
+
+- **Cambio de contraseña obligatorio**: los usuarios nuevos (vendedores) se crean con clave `123456` y
+  deben cambiarla al primer ingreso (campo `debe_cambiar_clave`).
+- **Auditoría** (`/auditoria`): registra quién creó/modificó/eliminó productos, proveedores, ventas y usuarios.
+  Solo visible para administradores.
+
+## 🧾 Comprobante PDF con autorización SUNAT simulada
+
+En la vista del comprobante hay un botón **"Descargar PDF"** que genera el PDF de la boleta/factura con una
+**autorización SUNAT simulada** (serie-número + hash), ideal para la demostración del proyecto sin pagar
+un proveedor SUNAT real.
+
 ## ⚙️ Configuración
 
 Copia `.env.example` a `.env` y configura tus credenciales (BD, email, `SECRET_KEY`).

@@ -755,16 +755,20 @@
                                 <i class="fas fa-cash-register"></i>
                                 <span>Nueva Venta</span>
                             </a>
-                            <a href="/caja" class="btn-card btn-card-warning" title="Apertura y Cierre de Caja">
-                                <i class="fas fa-coins"></i>
-                                <span>Caja</span>
-                            </a>
 
                             <!-- ===== BOTONES SOLO PARA ADMIN ===== -->
                             {% if session.rol == 'administrador' %}
                             <a href="/ventas" class="btn-card btn-card-purple" title="Reportes Vendedores">
                                 <i class="fas fa-chart-bar"></i>
                                 <span>Reportes</span>
+                            </a>
+                            <a href="/caja" class="btn-card btn-card-warning" title="Apertura y Cierre de Caja">
+                                <i class="fas fa-coins"></i>
+                                <span>Caja</span>
+                            </a>
+                            <a href="/auditoria" class="btn-card btn-card-dark" title="Registro de Auditoría">
+                                <i class="fas fa-clipboard-list"></i>
+                                <span>Auditoría</span>
                             </a>
                             {% endif %}
                         </div>
