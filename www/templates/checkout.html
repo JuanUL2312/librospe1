@@ -391,31 +391,6 @@
                         </div>
                     </div>
 
-                    <!-- ===== TIPO DE ENTREGA ===== -->
-                    <div class="mb-3 mt-3">
-                        <label class="field-label">Tipo de entrega <span class="text-danger">*</span></label>
-                        <div class="row g-2 mt-1">
-                            <div class="col-6">
-                                <div class="radio-card active" id="cardRecojo" onclick="seleccionarEntrega('recojo')">
-                                    <input type="radio" name="tipoEntrega" value="recojo" checked>
-                                    <div>
-                                        <div class="radio-label">🏪 Recojo en tienda</div>
-                                        <div class="radio-sub">Gratis</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="radio-card" id="cardDelivery" onclick="seleccionarEntrega('delivery')">
-                                    <input type="radio" name="tipoEntrega" value="delivery">
-                                    <div>
-                                        <div class="radio-label">🚚 Delivery</div>
-                                        <div class="radio-sub">S/. 5.00</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- ===== DIRECCIÓN (EDITABLE) ===== -->
                     <div class="mb-0 mt-3" id="direccionSection" style="display:none;">
                         <label class="field-label">Dirección de entrega</label>
@@ -740,12 +715,6 @@ function renderizarCarrito() {
 // ============================================
 function seleccionarEntrega(tipo) {
     tipoEntrega = tipo;
-    
-    document.getElementById('cardRecojo').classList.toggle('active', tipo === 'recojo');
-    document.getElementById('cardDelivery').classList.toggle('active', tipo === 'delivery');
-    document.querySelectorAll('input[name="tipoEntrega"]').forEach(function(el) {
-        el.checked = el.value === tipo;
-    });
     
     var dirSection = document.getElementById('direccionSection');
     if (tipo === 'delivery') {
