@@ -134,6 +134,7 @@ class Producto(db.Model):
     stock_maximo = db.Column(db.Integer, default=100)
     proveedor_id = db.Column(db.Integer, db.ForeignKey("proveedores.id"), nullable=True)
     precio = db.Column(db.Numeric(10,2), default=0.0)
+    costo = db.Column(db.Numeric(10,2), nullable=True)  # precio de compra (solo admin)
     imagen = db.Column(db.String(255))
     destacado = db.Column(db.Integer, default=0)
     precio_oferta = db.Column(db.Numeric(10,2), nullable=True) 
@@ -224,6 +225,18 @@ class Auditoria(db.Model):
     modulo = db.Column(db.String(50), nullable=False)
     detalle = db.Column(db.Text, nullable=True)
     fecha = db.Column(db.DateTime, default=datetime.now)
+
+class Permiso(db.Model):
+    __tablename__ = "permisos"
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(50), nullable=False, unique=True)
+    descripcion = db.Column(db.String(200), nullable=True)
+
+class RolPermiso(db.Model):
+    __tablename__ = "rol_permisos"
+    id = db.Column(db.Integer, primary_key=True)
+    rol_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
+    permiso_id = db.Column(db.Integer, db.ForeignKey("permisos.id"), nullable=False)
 
 class Cliente(db.Model):
     __tablename__ = "clientes"
@@ -763,6 +776,57 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# ============================================
+# PERMISOS POR ROL CONFIGURABLES
+# ============================================
+PERMISOS_DISPONIBLES = {
+    "gestionar_productos": "Crear, editar y eliminar productos",
+    "gestionar_proveedores": "Crear, editar y eliminar proveedores",
+    "gestionar_usuarios": "Gestionar usuarios del sistema",
+    "ver_dashboard": "Ver el dashboard",
+    "ver_caja": "Abrir y cerrar caja",
+    "ver_auditoria": "Ver registro de auditoría",
+    "ver_reportes": "Ver reportes y exportar",
+    "gestionar_bloqueos": "Gestionar bloqueos de seguridad",
+}
+
+def tiene_permiso(rol, permiso):
+    """Verifica si un rol tiene asignado un permiso."""
+    if rol == "administrador":
+        return True
+    rol_obj = Rol.query.filter_by(nombre=rol).first()
+    if not rol_obj:
+        return False
+    return db.session.query(RolPermiso.id).join(Permiso, RolPermiso.permiso_id == Permiso.id)\
+        .filter(RolPermiso.rol_id == rol_obj.id, Permiso.nombre == permiso).first() is not None
+
+def permiso_requerido(nombre_permiso):
+    """Decorador: exige que el rol tenga el permiso (el admin siempre lo tiene)."""
+    def decorador(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if session.get("rol") != "administrador" and not tiene_permiso(session.get("rol"), nombre_permiso):
+                flash("❌ No tienes permiso para esta acción", "danger")
+                return redirect(url_for("productos"))
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorador
+
+def seed_permisos():
+    """Crea los permisos y asigna todos al rol administrador."""
+    admin = Rol.query.filter_by(nombre="admin").first() or Rol.query.filter_by(nombre="administrador").first()
+    for nombre, desc in PERMISOS_DISPONIBLES.items():
+        p = Permiso.query.filter_by(nombre=nombre).first()
+        if not p:
+            p = Permiso(nombre=nombre, descripcion=desc)
+            db.session.add(p)
+            db.session.flush()
+        if admin:
+            existe = RolPermiso.query.filter_by(rol_id=admin.id, permiso_id=p.id).first()
+            if not existe:
+                db.session.add(RolPermiso(rol_id=admin.id, permiso_id=p.id))
+    db.session.commit()
+
 def requerir_permisos_escritura(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -825,6 +889,38 @@ def registrar_auditoria(accion, modulo, detalle=""):
         db.session.commit()
     except Exception:
         db.session.rollback()
+
+def verificar_stock_bajo_y_notificar():
+    """Envía un correo al administrador si hay productos con stock bajo/agotado."""
+    try:
+        bajos = Producto.query.filter(Producto.cantidad <= Producto.stock_minimo).all()
+        if not bajos:
+            return
+        admins = UsuarioSistema.query.filter_by(rol="administrador").all()
+        destinatarios = [a.correo for a in admins if a.correo]
+        if not destinatarios:
+            return
+        lineas = "".join(
+            f"<li><b>{p.nombre}</b>: {p.cantidad} unidades (mínimo {p.stock_minimo or 5})</li>"
+            for p in bajos
+        )
+        asunto = "⚠️ Alerta de stock bajo - Librería Salesiana"
+        html = f"<h3>Productos con stock bajo o agotado</h3><ul>{lineas}</ul>"
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_FROM or EMAIL_USER
+        msg['To'] = ", ".join(destinatarios)
+        msg['Subject'] = asunto
+        msg.attach(MIMEText(html, 'html'))
+        server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
+        server.starttls()
+        server.login(EMAIL_USER, EMAIL_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+    except Exception as e:
+        print(f"❌ Error notificando stock bajo: {e}")
 
 def generar_comprobante_html(venta, producto, precio, cantidad, total, vendedor_nombre=""):
     titulo = "LIBRERÍA SALESIANA DON BOSCO"
@@ -1568,13 +1664,13 @@ def proveedores():
 
 @app.route("/proveedores/nuevo")
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("gestionar_proveedores")
 def nuevo_proveedor():
     return render_template("proveedor_form.html")
 
 @app.route("/proveedores/guardar", methods=["POST"])
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("gestionar_proveedores")
 def guardar_proveedor():
     nuevo = Proveedor(
         nombre=request.form["nombre"],
@@ -1589,7 +1685,7 @@ def guardar_proveedor():
 
 @app.route("/proveedores/editar/<int:id>")
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("gestionar_proveedores")
 def editar_proveedor(id):
     proveedor = db.session.get(Proveedor, id)
     if not proveedor:
@@ -1599,7 +1695,7 @@ def editar_proveedor(id):
 
 @app.route("/proveedores/actualizar/<int:id>", methods=["POST"])
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("gestionar_proveedores")
 def actualizar_proveedor(id):
     proveedor = db.session.get(Proveedor, id)
     if not proveedor:
@@ -1614,7 +1710,7 @@ def actualizar_proveedor(id):
 
 @app.route("/proveedores/eliminar/<int:id>", methods=["POST"])
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("gestionar_proveedores")
 @csrf_protect
 def eliminar_proveedor(id):
     proveedor = db.session.get(Proveedor, id)
@@ -1651,7 +1747,7 @@ def productos():
 
 @app.route("/productos/nuevo", methods=["GET"])
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("gestionar_productos")
 def nuevo_producto():
     proveedores = Proveedor.query.all()
     categorias = Categoria.query.filter_by(activo=True).all()  # ← Obtener categorías activas
@@ -1661,7 +1757,7 @@ def nuevo_producto():
 
 @app.route("/productos/guardar", methods=["POST"])
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("gestionar_productos")
 def guardar_producto():
     try:
         precio_oferta = request.form.get("precio_oferta")
@@ -1672,6 +1768,9 @@ def guardar_producto():
         id_categoria = request.form.get("id_categoria")
         id_categoria = int(id_categoria) if id_categoria and id_categoria.strip() else None
         
+        costo_val = request.form.get("costo")
+        costo = float(costo_val) if costo_val and costo_val.strip() else None
+
         nuevo = Producto(
             nombre=request.form["nombre"],
             descripcion=request.form["descripcion"],
@@ -1680,6 +1779,7 @@ def guardar_producto():
             stock_maximo=int(request.form.get("stock_maximo") or 100),
             proveedor_id=request.form.get("proveedor") or None,
             precio=float(request.form["precio"]),
+            costo=costo,
             id_categoria=id_categoria,  
             precio_oferta=precio_oferta,
             destacado=destacado,
@@ -1709,7 +1809,7 @@ def guardar_producto():
 
 @app.route("/productos/editar/<int:id>")
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("gestionar_productos")
 def editar_producto(id):
     producto = db.session.get(Producto, id)
     if not producto:
@@ -1726,7 +1826,7 @@ def editar_producto(id):
 
 @app.route("/productos/actualizar/<int:id>", methods=["POST"])
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("gestionar_productos")
 def actualizar_producto(id):
     producto_obj = db.session.get(Producto, id)
     if not producto_obj:
@@ -1747,6 +1847,8 @@ def actualizar_producto(id):
         producto_obj.stock_maximo = int(request.form.get("stock_maximo") or 100)
         producto_obj.proveedor_id = request.form.get("proveedor") or None
         producto_obj.precio = float(request.form["precio"])
+        costo_val = request.form.get("costo")
+        producto_obj.costo = float(costo_val) if costo_val and costo_val.strip() else None
         producto_obj.id_categoria = id_categoria  # ← USAR id_categoria
         producto_obj.precio_oferta = precio_oferta
         producto_obj.destacado = 1 if request.form.get("destacado") else 0
@@ -1765,6 +1867,7 @@ def actualizar_producto(id):
         
         db.session.commit()
         registrar_auditoria("EDITAR", "productos", f"Se actualizó el producto: {producto_obj.nombre}")
+        verificar_stock_bajo_y_notificar()
         flash("✅ Producto actualizado exitosamente", "success")
         return redirect(url_for("productos"))
         
@@ -1775,7 +1878,7 @@ def actualizar_producto(id):
 
 @app.route("/productos/eliminar/<int:id>", methods=["POST"])
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("gestionar_productos")
 @csrf_protect
 def eliminar_producto(id):
     producto_obj = db.session.get(Producto, id)
@@ -1837,6 +1940,13 @@ def venta_nueva():
     
     if request.method == "POST":
         try:
+            # Control anti-doble clic: evitar ventas duplicadas
+            ultima_venta = session.get("ultima_venta_ts")
+            if ultima_venta and (time.time() - ultima_venta) < 2:
+                flash("⚠️ Estás registrando ventas muy rápido. Espera un momento.", "warning")
+                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+            session["ultima_venta_ts"] = time.time()
+
             producto_id = int(request.form["producto_id"])
             cantidad = int(request.form["cantidad"])
             fecha_venta = datetime.now()
@@ -1907,6 +2017,7 @@ def venta_nueva():
             producto.cantidad -= cantidad
             db.session.commit()
             registrar_auditoria("VENTA", "ventas", f"Venta #{nueva_venta.id} - {producto.nombre} x{cantidad} - Total: S/ {total_venta:.2f} ({metodo_pago})")
+            verificar_stock_bajo_y_notificar()
             
             print(f"✅ Venta #{nueva_venta.id} registrada - Total: S/. {total_venta:.2f}")
             
@@ -1948,10 +2059,8 @@ def venta_nueva():
 # ===============================
 @app.route("/caja")
 @login_required
+@permiso_requerido("ver_caja")
 def ver_caja():
-    if session.get("rol") != "administrador":
-        flash("❌ Solo administradores pueden acceder a la caja", "danger")
-        return redirect(url_for("dashboard"))
     caja_abierta = Caja.query.filter_by(estado="abierta").order_by(Caja.id.desc()).first()
     historial = Caja.query.filter_by(estado="cerrada").order_by(Caja.id.desc()).limit(10).all()
 
@@ -1978,10 +2087,8 @@ def ver_caja():
 
 @app.route("/caja/apertura", methods=["POST"])
 @login_required
+@permiso_requerido("ver_caja")
 def abrir_caja():
-    if session.get("rol") != "administrador":
-        flash("❌ Solo administradores pueden abrir la caja", "danger")
-        return redirect(url_for("ver_caja"))
     if Caja.query.filter_by(estado="abierta").first():
         flash("⚠️ Ya hay una caja abierta", "warning")
         return redirect(url_for("ver_caja"))
@@ -1997,10 +2104,8 @@ def abrir_caja():
 
 @app.route("/caja/cierre", methods=["POST"])
 @login_required
+@permiso_requerido("ver_caja")
 def cerrar_caja():
-    if session.get("rol") != "administrador":
-        flash("❌ Solo administradores pueden cerrar la caja", "danger")
-        return redirect(url_for("ver_caja"))
     caja = Caja.query.filter_by(estado="abierta").first()
     if not caja:
         flash("❌ No hay caja abierta", "danger")
@@ -2070,6 +2175,7 @@ def _generar_pdf(titulo, encabezados, filas, subtitulo=""):
 
 @app.route("/reportes/ventas/pdf")
 @login_required
+@permiso_requerido("ver_reportes")
 def reporte_ventas_pdf():
     """Exporta el reporte de ventas a PDF (vendedor ve solo las suyas)."""
     if session.get("rol") == "vendedor":
@@ -2118,6 +2224,7 @@ def reporte_ventas_pdf():
 
 @app.route("/reportes/ventas/excel")
 @login_required
+@permiso_requerido("ver_reportes")
 def reporte_ventas_excel():
     """Exporta el reporte de ventas a Excel (vendedor ve solo las suyas)."""
     from io import BytesIO
@@ -2184,11 +2291,9 @@ def reporte_ventas_excel():
 
 @app.route("/caja/cierre/pdf")
 @login_required
+@permiso_requerido("ver_caja")
 def caja_cierre_pdf():
     """Exporta el cierre de caja a PDF (solo administrador)."""
-    if session.get("rol") != "administrador":
-        flash("❌ Solo administradores", "danger")
-        return redirect(url_for("ver_caja"))
     caja_id = request.args.get('caja_id', type=int)
     caja = db.session.get(Caja, caja_id) if caja_id else Caja.query.filter_by(estado="cerrada").order_by(Caja.id.desc()).first()
     if not caja:
@@ -2223,10 +2328,8 @@ def caja_cierre_pdf():
 # ===============================
 @app.route("/auditoria")
 @login_required
+@permiso_requerido("ver_auditoria")
 def ver_auditoria():
-    if session.get("rol") != "administrador":
-        flash("❌ Solo administradores pueden ver la auditoría", "danger")
-        return redirect(url_for("dashboard"))
     registros = db.session.query(Auditoria, UsuarioSistema.nombres.label("usuario_nombre"), UsuarioSistema.apellidos.label("usuario_apellido"))\
         .outerjoin(UsuarioSistema, Auditoria.usuario_id == UsuarioSistema.id)\
         .order_by(Auditoria.id.desc()).limit(200).all()
@@ -2727,7 +2830,7 @@ def comprobante_pdf(venta_id):
 
 @app.route("/ver_ventas", methods=["GET", "POST"])
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("ver_reportes")
 def ver_ventas():
     ventas_lista = []
     totalProductos = 0
@@ -2769,7 +2872,7 @@ def ver_ventas():
 
 @app.route("/ver_productos_proveedor", methods=["GET", "POST"])
 @login_required
-@requerir_permisos_escritura
+@permiso_requerido("ver_reportes")
 def ver_productos_proveedor():
     proveedores = Proveedor.query.all()
     productos = []
@@ -3668,11 +3771,9 @@ def cambiar_estado_pedido(pedido_id):
 
 @app.route("/usuarios-sistema")
 @login_required
+@permiso_requerido("gestionar_usuarios")
 def usuarios_sistema():
     """Panel de gestión de usuarios del sistema con bloqueo/desbloqueo"""
-    if session.get("rol") != "administrador":
-        flash("❌ Solo administradores pueden gestionar usuarios", "danger")
-        return redirect(url_for("dashboard"))
     
     try:
         # ============================================
@@ -3936,6 +4037,11 @@ if os.environ.get("AUTO_CREATE_SCHEMA", "false").lower() == "true":
         except Exception as e:
             print(f"Migración omitida: {e}")
             db.session.rollback()
+        try:
+            seed_permisos()
+        except Exception as e:
+            print(f"Seed permisos omitido: {e}")
+            db.session.rollback()
 
 # ===============================
 # DASHBOARD
@@ -3943,10 +4049,8 @@ if os.environ.get("AUTO_CREATE_SCHEMA", "false").lower() == "true":
 
 @app.route("/dashboard")
 @login_required
+@permiso_requerido("ver_dashboard")
 def dashboard():
-    if session.get("rol") != "administrador":
-        flash("❌ Solo administradores pueden ver el dashboard", "danger")
-        return redirect(url_for("productos"))
     import pandas as pd
     import plotly
     import plotly.graph_objs as go

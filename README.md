@@ -105,6 +105,19 @@ En la vista del comprobante hay un botón **"Descargar PDF"** que genera el PDF 
 **autorización SUNAT simulada** (serie-número + hash), ideal para la demostración del proyecto sin pagar
 un proveedor SUNAT real.
 
+## 🔑 Permisos por rol configurables
+
+- Tablas `permisos` y `rol_permisos` (el rol **administrador** tiene todos los permisos).
+- Decorador `@permiso_requerido(...)` aplicado a dashboard, caja, auditoría, gestión de productos/proveedores,
+  usuarios y reportes. Se puede asignar permisos a otros roles desde la BD.
+
+## 🛡️ Otras mejoras de seguridad
+
+- **Límite de intentos en el POS**: control anti-doble clic para evitar ventas duplicadas.
+- **Costo oculto al vendedor**: campo `costo` en productos (precio de compra) que solo ve/edita el admin.
+- **Notificación de stock bajo**: se envía un correo automático al administrador cuando un producto cae
+  por debajo de su stock mínimo.
+
 ## ⚙️ Configuración
 
 Copia `.env.example` a `.env` y configura tus credenciales (BD, email, `SECRET_KEY`).
