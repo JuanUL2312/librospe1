@@ -890,6 +890,19 @@ def registrar_auditoria(accion, modulo, detalle=""):
     except Exception:
         db.session.rollback()
 
+def rango_periodo(periodo):
+    """Devuelve (fecha_inicio, fecha_fin) según el período seleccionado."""
+    hoy = datetime.now().date()
+    if periodo == "hoy":
+        return hoy, hoy
+    if periodo == "semana":
+        return hoy - timedelta(days=hoy.weekday()), hoy
+    if periodo == "mes":
+        return hoy.replace(day=1), hoy
+    if periodo == "anio":
+        return hoy.replace(month=1, day=1), hoy
+    return None, None
+
 def verificar_stock_bajo_y_notificar():
     """Envía un correo al administrador si hay productos con stock bajo/agotado."""
     try:
@@ -1958,10 +1971,12 @@ def venta_nueva():
                 vendedor_id = session.get("usuario_id")
             
             # ============================================
-            # RECOLECTAR DATOS DEL CLIENTE (SOLO PARA EMAIL)
+            # RECOLECTAR DATOS DEL CLIENTE
             # ============================================
             cliente_email = request.form.get("cliente_email", "")
             cliente_nombres = request.form.get("cliente_nombres", "")
+            cliente_apellidos = request.form.get("cliente_apellidos", "")
+            cliente_documento = request.form.get("cliente_documento", "")
             enviar_email = request.form.get("enviar_email", "0")
             
             print(f"\n📋 VENTA: Producto ID={producto_id}, Cantidad={cantidad}, Email={cliente_email}")
@@ -2010,6 +2025,9 @@ def venta_nueva():
                 metodo_pago=metodo_pago,
                 monto_recibido=monto_recibido,
                 vuelto=vuelto,
+                cliente_nombres=cliente_nombres or None,
+                cliente_apellidos=cliente_apellidos or None,
+                cliente_documento=cliente_documento or None,
                 # cliente_id se deja NULL (no tenemos el ID del cliente)
                 # estado = 1 (por defecto)
             )
@@ -2249,6 +2267,12 @@ def reporte_ventas_excel():
     if vendedor_filtro:
         query += " AND v.vendedor_id = :vid"
         params['vid'] = vendedor_filtro
+    periodo = request.args.get('periodo', 'todo')
+    inicio, fin = rango_periodo(periodo)
+    if inicio and fin:
+        query += " AND DATE(v.fecha_venta) >= :fini AND DATE(v.fecha_venta) <= :ffin"
+        params['fini'] = inicio
+        params['ffin'] = fin
     query += " ORDER BY v.fecha_venta DESC"
     rows = db.session.execute(db.text(query), params).mappings().all()
 
@@ -2670,6 +2694,14 @@ def ventas():
             vendedor_filtro = request.args.get('vendedor_id', type=int)
         
         # ============================================
+        # PERÍODO (día, semana, mes, año, todo)
+        # ============================================
+        periodo = request.args.get('periodo', 'todo')
+        fecha_desde = request.args.get('fecha_desde', '')
+        fecha_hasta = request.args.get('fecha_hasta', '')
+        inicio, fin = rango_periodo(periodo)
+
+        # ============================================
         # CONSULTA SIN COLUMNAS QUE NO EXISTEN
         # ============================================
         query = """
@@ -2683,16 +2715,30 @@ def ventas():
                 p.precio,
                 u.id as vendedor_id, 
                 u.nombres as vendedor_nombres, 
-                u.apellidos as vendedor_apellidos
+                u.apellidos as vendedor_apellidos,
+                v.cliente_nombres,
+                v.cliente_apellidos,
+                v.cliente_documento
             FROM ventas v
             JOIN productos p ON v.producto_id = p.id
             LEFT JOIN usuarios_sistema u ON v.vendedor_id = u.id
+            WHERE v.estado = 1
         """
         
         params = {}
         if vendedor_filtro:
-            query += " WHERE v.vendedor_id = :vendedor_id"
+            query += " AND v.vendedor_id = :vendedor_id"
             params['vendedor_id'] = vendedor_filtro
+        if inicio and fin:
+            query += " AND DATE(v.fecha_venta) >= :fini AND DATE(v.fecha_venta) <= :ffin"
+            params['fini'] = inicio
+            params['ffin'] = fin
+        elif fecha_desde:
+            query += " AND DATE(v.fecha_venta) >= :fdesde"
+            params['fdesde'] = fecha_desde
+        if fecha_hasta:
+            query += " AND DATE(v.fecha_venta) <= :fhasta"
+            params['fhasta'] = fecha_hasta
         
         query += " ORDER BY v.id DESC"
         
@@ -2722,7 +2768,10 @@ def ventas():
                               vendedores=vendedores,
                               vendedor_seleccionado=vendedor_seleccionado,
                               vendedor_id_actual=vendedor_id_actual,
-                              rol_usuario=session.get("rol"))
+                              rol_usuario=session.get("rol"),
+                              periodo=periodo,
+                              fecha_desde=fecha_desde,
+                              fecha_hasta=fecha_hasta)
         
     except Exception as e:
         print(f"Error en ventas: {e}")
