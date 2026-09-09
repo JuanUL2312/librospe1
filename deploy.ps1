@@ -138,4 +138,11 @@ Write-Host ("HTTP {0}: {1}" -f $resp.StatusCode, $resp.Content)
 Write-Host "[4/5] Limpiando temporal ..."
 Remove-Item -LiteralPath $tarFile -Force
 
-Write-Host "Deploy completado."
+Write-Host ""
+Write-Host "============================================================"
+Write-Host " DEPLOY COMPLETADO"
+Write-Host "============================================================"
+Write-Host " IMPORTANTE: reinicia la app en el panel de alwaysdata"
+Write-Host " (Web > Sites > librospe > Restart) para que el cambio"
+Write-Host " tome efecto. tmp/restart.txt NO reinicia el proceso uWSGI."
+Write-Host "============================================================"
