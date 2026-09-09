@@ -18,6 +18,36 @@ Los archivos de configuración del servidor son:
 
 La base de datos y el email se configuran en `.env` (no se sube a Git).
 
+**Despliegue de cambios (vía SSH):**
+
+```bash
+# 1) Descargar el código actualizado a una carpeta temporal
+cd ~
+git clone https://github.com/JuanUL2312/librospe1.git librospe1
+
+# 2) Sincronizar SOLO los archivos de la web a la raíz del sitio
+#    (conserva venv/ y .env del servidor)
+rsync -a --exclude 'venv' --exclude '.env' librospe1/www/ ~/www/
+
+# 3) Reiniciar Passenger
+mkdir -p ~/www/tmp
+touch ~/www/tmp/restart.txt
+```
+
+> NO usar `rsync --delete`: borraría `~/www/venv/`. Tampoco sobrescribir `~/www/.env`
+> (mantiene la SECRET_KEY, BD y correo del servidor). Los `static/css` y `static/js`
+> nuevos se incluyen en el rsync.
+
+**Verificación tras el despliegue:**
+
+```bash
+curl -s https://librospe.alwaysdata.net/api/health
+# {"status":"OK","services":{"comercial":"active","inventario":"active"}, "version":"2.0"}
+```
+
+Alternativa desde el panel: activar la integración **Git** del sitio en alwaysdata
+apuntando a este repositorio y reiniciar la app desde el panel.
+
 ### 2. Local (desarrollo) — Live Server
 
 Para correr en tu máquina (Windows) usa el entorno virtual local **`.venv-live`**.
