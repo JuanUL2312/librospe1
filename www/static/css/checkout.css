@@ -1,0 +1,269 @@
+
+    .checkout-card {
+        border-radius: 16px;
+        border: none;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+        transition: all 0.3s ease;
+    }
+    .checkout-card:hover {
+        box-shadow: 0 15px 50px rgba(0,0,0,0.12);
+    }
+    .section-title {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #1e3a8a;
+        border-bottom: 3px solid #D4AF37;
+        padding-bottom: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+    .field-label {
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: #4b5563;
+    }
+    .field-value {
+        font-weight: 500;
+        color: #1f2937;
+        padding: 0.4rem 0;
+        border-bottom: 1px dashed #e5e7eb;
+    }
+    .field-value.editable {
+        border-bottom: 2px solid #D4AF37;
+        background: #fffbeb;
+        padding: 0.4rem 0.6rem;
+        border-radius: 6px;
+    }
+    .field-value.editable:focus {
+        outline: none;
+        border-color: #1e3a8a;
+        box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.1);
+    }
+    .field-value.readonly {
+        background: #f3f4f6;
+        padding: 0.4rem 0.6rem;
+        border-radius: 6px;
+        color: #4b5563;
+    }
+    .documento-input {
+        font-size: 1.2rem;
+        font-weight: 600;
+        letter-spacing: 2px;
+        text-align: center;
+    }
+    .documento-input::placeholder {
+        letter-spacing: normal;
+        font-weight: 400;
+        font-size: 0.9rem;
+    }
+    .documento-input:focus {
+        border-color: #D4AF37;
+        box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2);
+    }
+    .radio-card {
+        padding: 0.75rem 1rem;
+        border: 2px solid #e5e7eb;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .radio-card:hover {
+        border-color: #D4AF37;
+        background: #fffbeb;
+    }
+    .radio-card.active {
+        border-color: #D4AF37;
+        background: #fffbeb;
+        box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.1);
+    }
+    .radio-card input[type="radio"] {
+        width: 18px;
+        height: 18px;
+        accent-color: #D4AF37;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+    .radio-card .radio-label {
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #1f2937;
+    }
+    .radio-card .radio-sub {
+        font-size: 0.75rem;
+        color: #6b7280;
+    }
+    .producto-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    .producto-item:last-child {
+        border-bottom: none;
+    }
+    .producto-nombre {
+        font-weight: 500;
+        color: #1f2937;
+    }
+    .producto-cantidad {
+        color: #6b7280;
+        font-size: 0.85rem;
+    }
+    .producto-precio {
+        font-weight: 600;
+        color: #1e3a8a;
+    }
+    .total-line {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        font-size: 0.9rem;
+    }
+    .total-line.total-final {
+        font-size: 1.2rem;
+        font-weight: 700;
+        border-top: 3px solid #D4AF37;
+        padding-top: 1rem;
+        margin-top: 0.5rem;
+        color: #1e3a8a;
+    }
+    .btn-pagar {
+        background: linear-gradient(135deg, #D4AF37, #c8a82e);
+        color: #1e3a8a;
+        font-weight: 700;
+        padding: 0.8rem 2rem;
+        border: none;
+        border-radius: 50px;
+        font-size: 1.1rem;
+        transition: all 0.3s ease;
+        width: 100%;
+    }
+    .btn-pagar:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 30px rgba(212, 175, 55, 0.3);
+        color: #1e3a8a;
+    }
+    .btn-pagar:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
+    .documento-info {
+        font-size: 0.75rem;
+        color: #6b7280;
+        margin-top: 0.25rem;
+    }
+    .documento-error {
+        color: #dc2626;
+        font-size: 0.75rem;
+        margin-top: 0.25rem;
+        display: none;
+    }
+    .documento-error.show {
+        display: block;
+    }
+    
+    /* ===== BLOQUE DE CONFIRMACIÓN ===== */
+    .confirmacion-block {
+        background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+        border: 2px solid #86efac;
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        margin-top: 1rem;
+        display: none;
+        animation: fadeInUp 0.4s ease;
+    }
+    .confirmacion-block.show {
+        display: block;
+    }
+    .confirmacion-block .confirm-icon {
+        font-size: 1.5rem;
+        color: #16a34a;
+        margin-right: 0.75rem;
+    }
+    .confirmacion-block .confirm-title {
+        font-weight: 700;
+        color: #15803d;
+        font-size: 0.95rem;
+    }
+    .confirmacion-block .confirm-data {
+        font-weight: 600;
+        color: #1f2937;
+        font-size: 1.05rem;
+        padding: 0.3rem 0;
+    }
+    .confirmacion-block .confirm-label {
+        font-size: 0.75rem;
+        color: #6b7280;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .confirmacion-block .badge-verified {
+        background: #16a34a;
+        color: white;
+        font-size: 0.7rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 50px;
+        font-weight: 600;
+    }
+    .confirmacion-block .badge-error {
+        background: #dc2626;
+        color: white;
+        font-size: 0.7rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 50px;
+        font-weight: 600;
+    }
+
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .razon-social-display {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #1e3a8a;
+        padding: 0.5rem 0.75rem;
+        background: #f0fdf4;
+        border-radius: 8px;
+        border: 2px solid #86efac;
+        display: none;
+    }
+    .razon-social-display.show {
+        display: block;
+    }
+    .nombre-completo-display {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #1e3a8a;
+        padding: 0.5rem 0.75rem;
+        background: #f0fdf4;
+        border-radius: 8px;
+        border: 2px solid #86efac;
+        display: none;
+    }
+    .nombre-completo-display.show {
+        display: block;
+    }
+    @media (max-width: 768px) {
+        .radio-card {
+            padding: 0.5rem 0.75rem;
+        }
+        .radio-card .radio-label {
+            font-size: 0.8rem;
+        }
+        .btn-pagar {
+            font-size: 1rem;
+            padding: 0.6rem 1.5rem;
+        }
+    }

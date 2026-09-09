@@ -1,14 +1,24 @@
 #!/bin/bash
-echo "🔄 Reiniciando LibrosPE..."
+# Reinicia LibrosPE (local o alwaysdata).
+# Resuelve las rutas desde la ubicacion de este script, no desde rutas fijas.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$SCRIPT_DIR/www"
+
+echo "================"
+echo "Reiniciando LibrosPE..."
+echo "App: $APP_DIR"
+echo "================"
 
 # Crear directorio tmp si no existe
-mkdir -p /home/librospe/www/tmp
+mkdir -p "$APP_DIR/tmp"
 
-# Tocar archivo de reinicio
-touch /home/librospe/www/tmp/restart.txt
+# Tocar archivo de reinicio (Passenger)
+touch "$APP_DIR/tmp/restart.txt"
 
-# También tocar passenger_wsgi.py para forzar recarga
-touch /home/librospe/www/passenger_wsgi.py
+# Tocar wsgi.py y passenger_wsgi.py para forzar recarga
+touch "$APP_DIR/passenger_wsgi.py"
+touch "$APP_DIR/wsgi.py"
 
-echo "✅ Aplicación reiniciada correctamente"
-echo "📝 Espera 5-10 segundos para que Passenger recargue"
+echo "Aplicacion reiniciada correctamente"
+echo "Espera 5-10 segundos para que Passenger recargue"

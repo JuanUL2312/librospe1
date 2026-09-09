@@ -1,0 +1,42 @@
+
+    .badge { font-size: 0.75rem; padding: 4px 8px; }
+    .table td, .table th { vertical-align: middle; }
+    .bg-light { background-color: #f8f9fa !important; }
+    .card { border-radius: 15px; overflow: hidden; }
+    .rounded-3 { border-radius: 12px !important; }
+    .text-break { word-break: break-word; }
+    
+    /* Responsive */
+    @media (max-width: 576px) {
+        .badge {
+            font-size: 0.65rem !important;
+            padding: 3px 6px !important;
+        }
+        .btn {
+            font-size: 0.75rem !important;
+        }
+        .table td, .table th {
+            font-size: 0.7rem;
+        }
+        .table .badge {
+            font-size: 0.6rem !important;
+        }
+        .alert {
+            font-size: 0.75rem;
+        }
+        h5 {
+            font-size: 0.9rem !important;
+        }
+        .fs-5 {
+            font-size: 0.85rem !important;
+        }
+    }
+    
+    @media (min-width: 577px) and (max-width: 768px) {
+        .badge {
+            font-size: 0.7rem;
+        }
+        .table td, .table th {
+            font-size: 0.75rem;
+        }
+    }

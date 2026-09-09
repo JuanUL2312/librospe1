@@ -1,0 +1,17 @@
+
+        .card-micro {
+            transition: transform 0.3s;
+        }
+        .card-micro:hover {
+            transform: translateY(-5px);
+        }
+        .status-active {
+            color: #28a745;
+        }
+        .status-warning {
+            color: #ffc107;
+        }
+        .status-danger {
+            color: #dc3545;
+        }
+    

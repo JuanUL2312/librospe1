@@ -102,15 +102,5 @@
 </div>
 
 <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
-<script>
-    $(document).ready(function() {
-        $('#tabla-usuarios').DataTable({
-            language: {
-                url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/es-ES.json'
-            },
-            order: [[0, 'asc']],
-            pageLength: 25
-        });
-    });
-</script>
+<script src="{{ url_for('static', filename='js/usuarios_sistema_gestion_2.js') }}"></script>
 {% endblock %}

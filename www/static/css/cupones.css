@@ -1,0 +1,45 @@
+
+    /* Responsive */
+    @media (max-width: 576px) {
+        h2 {
+            font-size: 1.2rem !important;
+        }
+        .btn {
+            font-size: 0.7rem !important;
+            padding: 0.35rem 0.7rem !important;
+        }
+        .table th, .table td {
+            font-size: 0.65rem !important;
+            padding: 0.4rem 0.3rem !important;
+        }
+        .badge {
+            font-size: 0.55rem !important;
+            padding: 0.2rem 0.4rem !important;
+        }
+        .btn-sm {
+            font-size: 0.6rem !important;
+        }
+        .text-nowrap {
+            white-space: nowrap;
+        }
+    }
+    
+    @media (min-width: 577px) and (max-width: 768px) {
+        .table th, .table td {
+            font-size: 0.7rem !important;
+            padding: 0.5rem 0.3rem !important;
+        }
+        .badge {
+            font-size: 0.6rem !important;
+        }
+    }
+    
+    @media (max-width: 768px) {
+        .table-responsive {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .table {
+            min-width: 650px;
+        }
+    }

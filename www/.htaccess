@@ -1,4 +1,8 @@
+# Configuracion Phusion Passenger para alwaysdata
+# PassengerAppRoot relativo: apunta al directorio de este archivo (www/)
+# de modo que el mismo .htaccess funciona en cualquier ubicacion de despliegue.
 PassengerAppType wsgi
 PassengerStartupFile wsgi.py
-PassengerAppRoot /home/librospe/www
+PassengerAppRoot .
+# Ruta del Python del venv en alwaysdata (unica absoluta; no existe en local).
 PassengerPython /home/librospe/www/venv/bin/python

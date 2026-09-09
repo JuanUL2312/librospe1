@@ -1,0 +1,31 @@
+
+  .hover-row {
+    transition: background-color 0.2s ease-in-out;
+  }
+  .hover-row:hover {
+    background-color: rgba(0, 123, 255, 0.01) !important;
+  }
+  .hover-lift {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.12) !important;
+  }
+  .text-shadow-primary {
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.2);
+  }
+  .fs-7 {
+    font-size: 0.785rem;
+  }
+  .text-warning-dark {
+    color: #664d03;
+  }
+  .tracking-wider {
+    letter-spacing: 0.05em;
+  }
+  @media (max-width: 768px) {
+    .table-responsive {
+      font-size: 0.85rem;
+    }
+  }

@@ -1,2 +1,12 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Scripts shell y configuración del servidor: SIEMPRE LF (Linux / alwaysdata)
+*.sh text eol=lf
+.htaccess text eol=lf
+
+# Python: LF en repositorio y working tree
+*.py text eol=lf
+
+# Batch de Windows: CRLF
+*.bat text eol=crlf

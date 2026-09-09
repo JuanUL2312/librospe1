@@ -1,7 +1,6 @@
-import sys
-import os
+"""Punto de entrada WSGI para Passenger (alwaysdata).
 
-sys.path.insert(0, '/home/librospe/www')
-os.chdir('/home/librospe/www')
-
-from app import app as application
+Reutiliza :mod:`wsgi` para no duplicar la configuracion. Passenger busca por
+defecto este archivo; ``.htaccess`` tambien puede apuntar a ``wsgi.py``.
+"""
+from wsgi import application

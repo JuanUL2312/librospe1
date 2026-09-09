@@ -6,63 +6,7 @@
     <title>Registro - Librería Salesiana</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <style>
-        body {
-            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
-            min-height: 100vh;
-        }
-        .register-card {
-            border-radius: 20px;
-            overflow: hidden;
-        }
-        
-        /* Responsive */
-        @media (max-width: 576px) {
-            .register-card {
-                margin: 0.5rem;
-                border-radius: 15px;
-            }
-            .card-header {
-                padding: 1rem !important;
-            }
-            .card-header i {
-                font-size: 1.5rem !important;
-            }
-            .card-header h4 {
-                font-size: 1.1rem !important;
-            }
-            .card-header small {
-                font-size: 0.65rem !important;
-            }
-            .card-body {
-                padding: 1rem !important;
-            }
-            .form-label {
-                font-size: 0.8rem;
-            }
-            .form-control {
-                font-size: 0.8rem;
-                padding: 0.4rem 0.6rem;
-            }
-            .btn {
-                font-size: 0.8rem;
-                padding: 0.5rem;
-            }
-            .card-footer {
-                padding: 0.75rem !important;
-            }
-            .card-footer small {
-                font-size: 0.7rem;
-            }
-        }
-        
-        @media (min-width: 577px) and (max-width: 768px) {
-            .col-md-6 {
-                width: 75%;
-                margin: 0 auto;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/registro_cliente.css') }}">
 </head>
 <body>
     <div class="container px-3 px-md-4">
@@ -161,67 +105,7 @@
             </div>
         </div>
     </div>
-    <script>
-        // --- Selects en cascada: departamento -> provincia -> distrito ---
-        const depSel = document.getElementById('departamento');
-        const provSel = document.getElementById('provincia');
-        const distSel = document.getElementById('distrito');
-        let departamentos = [];
-
-        function llenar(select, items, placeholder) {
-            select.innerHTML = '<option value="">' + placeholder + '</option>';
-            items.forEach(function(it) {
-                const opt = document.createElement('option');
-                opt.value = it.nombre;
-                opt.textContent = it.nombre;
-                select.appendChild(opt);
-            });
-        }
-
-        // Cargar departamentos al cargar la página
-        fetch('/api/departamentos')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                departamentos = data;
-                llenar(depSel, data, 'Seleccione departamento');
-            });
-
-        depSel.addEventListener('change', function() {
-            provSel.innerHTML = '<option value="">Seleccione provincia</option>';
-            distSel.innerHTML = '<option value="">Seleccione distrito</option>';
-            const dep = departamentos.find(function(d) { return d.nombre === depSel.value; });
-            if (!dep) return;
-            fetch('/api/provincias/' + dep.id)
-                .then(function(r) { return r.json(); })
-                .then(function(provincias) { llenar(provSel, provincias, 'Seleccione provincia'); });
-        });
-
-        provSel.addEventListener('change', function() {
-            distSel.innerHTML = '<option value="">Seleccione distrito</option>';
-            const dep = departamentos.find(function(d) { return d.nombre === depSel.value; });
-            if (!dep) return;
-            fetch('/api/provincias/' + dep.id)
-                .then(function(r) { return r.json(); })
-                .then(function(provincias) {
-                    const prov = provincias.find(function(p) { return p.nombre === provSel.value; });
-                    if (!prov) return;
-                    return fetch('/api/distritos/' + prov.id).then(function(r) { return r.json(); });
-                })
-                .then(function(distritos) {
-                    if (!distritos) return;
-                    llenar(distSel, distritos, 'Seleccione distrito');
-                });
-        });
-
-        document.querySelector('form').addEventListener('submit', function(e) {
-            let clave = document.querySelector('input[name="clave"]').value;
-            let confirmar = document.getElementById('confirmar_clave').value;
-            if (clave !== confirmar) {
-                e.preventDefault();
-                alert('❌ Las contraseñas no coinciden');
-            }
-        });
-    </script>
+    <script src="{{ url_for('static', filename='js/registro_cliente.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

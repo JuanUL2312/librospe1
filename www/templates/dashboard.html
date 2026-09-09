@@ -2,68 +2,7 @@
 {% block titulito %}📊 Dashboard - Librería Salesiana{% endblock %}
 
 {% block extra_css %}
-<style>
-    .stat-card { transition: transform 0.2s; cursor: pointer; }
-    .stat-card:hover { transform: translateY(-5px); }
-    .stock-bajo { background-color: #fff3cd; border-left: 4px solid #ffc107; }
-    .stock-critico { background-color: #f8d7da; border-left: 4px solid #dc3545; }
-    .bg-primary-light, .bg-success-light, .bg-warning-light, .bg-info-light {
-        width: 50px; height: 50px; border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-    }
-    .bg-primary-light { background-color: rgba(30, 58, 138, 0.1); }
-    .bg-success-light { background-color: rgba(16, 185, 129, 0.1); }
-    .bg-warning-light { background-color: rgba(245, 158, 11, 0.1); }
-    .bg-info-light { background-color: rgba(6, 182, 212, 0.1); }
-    
-    .producto-imagen {
-        width: 40px;
-        height: 40px;
-        object-fit: cover;
-        border-radius: 8px;
-        background-color: #f8f9fa;
-        border: 1px solid #e9ecef;
-    }
-    .producto-imagen-placeholder {
-        width: 40px;
-        height: 40px;
-        background: #e9ecef;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid #dee2e6;
-    }
-    
-    @media (max-width: 576px) {
-        .stat-card .card-body { padding: 0.75rem !important; }
-        .stat-card h3 { font-size: 1rem !important; }
-        .stat-card h6 { font-size: 0.7rem !important; }
-        .stat-card small { font-size: 0.6rem !important; }
-        .bg-primary-light, .bg-success-light, .bg-warning-light, .bg-info-light {
-            width: 35px; height: 35px;
-        }
-        .bg-primary-light i, .bg-success-light i, .bg-warning-light i, .bg-info-light i {
-            font-size: 1rem !important;
-        }
-        .card-header h5 { font-size: 0.9rem !important; }
-        .card-body { padding: 0.75rem !important; }
-        .d-flex.justify-content-between { gap: 0.5rem; }
-        .badge { font-size: 0.6rem !important; padding: 0.2rem 0.4rem !important; }
-        .producto-imagen { width: 30px; height: 30px; }
-        .producto-imagen-placeholder { width: 30px; height: 30px; }
-        .producto-imagen-placeholder i { font-size: 0.8rem !important; }
-    }
-    
-    @media (min-width: 577px) and (max-width: 768px) {
-        .stat-card h3 { font-size: 1.2rem !important; }
-        .card-header h5 { font-size: 1rem !important; }
-    }
-    
-    .chart-container {
-        min-height: 300px;
-    }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 {% endblock %}
 
 {% block contenido %}

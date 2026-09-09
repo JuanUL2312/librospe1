@@ -1,0 +1,146 @@
+
+    .bg-gradient-primary {
+        background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+    }
+    
+    .bg-gradient-secondary {
+        background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+    }
+    
+    .pedido-row {
+        transition: all 0.2s ease;
+    }
+    
+    .pedido-row:hover {
+        background-color: #f0f7ff !important;
+        transform: scale(1.01);
+    }
+    
+    .estado-select {
+        font-size: 0.7rem;
+        border-radius: 20px;
+        padding: 4px 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .estado-select:hover {
+        border-color: #3b82f6;
+        box-shadow: 0 0 5px rgba(59,130,246,0.3);
+    }
+    
+    .estado-select:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    
+    .table {
+        font-size: 0.8rem;
+    }
+    
+    .badge {
+        border-radius: 20px;
+        font-weight: 500;
+    }
+    
+    .rounded-4 {
+        border-radius: 1rem !important;
+    }
+    
+    .btn-outline-primary {
+        border-radius: 20px;
+        transition: all 0.2s;
+    }
+    
+    .btn-outline-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    
+    .text-break {
+        word-break: break-word;
+    }
+    
+    /* Notificación personalizada */
+    .custom-notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        min-width: 300px;
+        max-width: 500px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        border-radius: 10px;
+        animation: slideIn 0.3s ease;
+    }
+    
+    @keyframes slideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    /* Responsive */
+    @media (max-width: 576px) {
+        .estado-select {
+            min-width: 100px !important;
+            font-size: 0.6rem;
+            padding: 3px 5px;
+        }
+        .badge {
+            font-size: 0.55rem !important;
+            padding: 0.2rem 0.4rem !important;
+        }
+        .table th, .table td {
+            font-size: 0.65rem !important;
+            padding: 0.3rem 0.2rem !important;
+        }
+        .btn {
+            font-size: 0.65rem !important;
+            padding: 0.3rem 0.5rem !important;
+        }
+        h3 {
+            font-size: 0.9rem !important;
+        }
+        small {
+            font-size: 0.6rem !important;
+        }
+        .fs-5 {
+            font-size: 0.8rem !important;
+        }
+        .custom-notification {
+            min-width: 250px;
+            max-width: 350px;
+            top: 10px;
+            right: 10px;
+            font-size: 0.8rem;
+        }
+    }
+    
+    @media (min-width: 577px) and (max-width: 768px) {
+        .estado-select {
+            min-width: 120px !important;
+            font-size: 0.7rem;
+        }
+        .badge {
+            font-size: 0.65rem !important;
+        }
+        .table th, .table td {
+            font-size: 0.7rem !important;
+        }
+    }
+    
+    @media (max-width: 768px) {
+        .table-responsive {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .table {
+            min-width: 800px;
+        }
+    }

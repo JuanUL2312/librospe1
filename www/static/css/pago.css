@@ -1,0 +1,74 @@
+
+.payment-method-card{
+    border:2px solid #e0e0e0;
+    border-radius:12px;
+    padding:12px;
+    margin-bottom:12px;
+    cursor:pointer;
+    transition:all 0.3s ease
+}
+.payment-method-card:hover{
+    border-color:#0d6efd;
+    background-color:#f8f9fa
+}
+.payment-method-card.selected{
+    border-color:#28a745;
+    background-color:#f0fff4
+}
+.payment-icon{
+    width:80px;
+}
+.payment-radio{
+    width:30px
+}
+
+/* Responsive */
+@media (max-width: 576px) {
+    .payment-method-card {
+        padding: 10px !important;
+        margin-bottom: 10px !important;
+    }
+    .payment-icon {
+        width: 60px;
+    }
+    .payment-icon i {
+        font-size: 1.2rem !important;
+    }
+    .payment-method-card strong {
+        font-size: 0.8rem !important;
+    }
+    .payment-method-card p {
+        font-size: 0.65rem !important;
+    }
+    .badge {
+        font-size: 0.6rem !important;
+        padding: 0.3rem 0.5rem !important;
+    }
+    .alert {
+        font-size: 0.7rem !important;
+        padding: 0.4rem 0.6rem !important;
+    }
+    .btn {
+        font-size: 0.7rem !important;
+        padding: 0.4rem 0.6rem !important;
+    }
+    .form-control-sm {
+        font-size: 0.7rem !important;
+        padding: 0.3rem 0.5rem !important;
+    }
+    .sticky-top {
+        position: relative;
+        top: 0;
+        margin-top: 1rem;
+    }
+}
+
+@media (min-width: 577px) and (max-width: 768px) {
+    .payment-method-card {
+        padding: 15px !important;
+    }
+    .sticky-top {
+        position: relative;
+        top: 0;
+    }
+}

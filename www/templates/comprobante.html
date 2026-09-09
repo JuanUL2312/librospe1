@@ -94,54 +94,5 @@
     </div>
 </div>
 
-<style>
-    @media print {
-        .navbar, .btn, .card-footer { display: none !important; }
-        .card { box-shadow: none !important; border: none !important; }
-        body { background: white !important; }
-        .container { padding: 0 !important; margin: 0 !important; }
-    }
-    
-    /* Responsive */
-    @media (max-width: 576px) {
-        .card-header {
-            padding: 0.75rem !important;
-        }
-        .card-header h3 {
-            font-size: 1rem !important;
-        }
-        .card-header i {
-            font-size: 1.5rem !important;
-        }
-        .card-body {
-            padding: 1rem !important;
-        }
-        h5, h6 {
-            font-size: 0.85rem !important;
-        }
-        .small, p, .text-muted {
-            font-size: 0.7rem !important;
-        }
-        .table-sm td, .table-sm th {
-            padding: 0.3rem !important;
-            font-size: 0.65rem !important;
-        }
-        .btn {
-            font-size: 0.7rem !important;
-            padding: 0.3rem 0.6rem !important;
-        }
-        .fs-6 {
-            font-size: 0.8rem !important;
-        }
-    }
-    
-    @media (min-width: 577px) and (max-width: 768px) {
-        .card-body {
-            padding: 1.25rem !important;
-        }
-        .small, p {
-            font-size: 0.75rem !important;
-        }
-    }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/comprobante.css') }}">
 {% endblock %}

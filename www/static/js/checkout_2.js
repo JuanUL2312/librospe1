@@ -1,0 +1,416 @@
+
+// ============================================
+// VARIABLES GLOBALES
+// ============================================
+var carrito = [];
+var tipoComprobante = 'boleta';
+var tipoEntrega = 'recojo';
+var costoEnvio = 0;
+
+// ============================================
+// SELECCIONAR TIPO DE COMPROBANTE
+// ============================================
+function seleccionarComprobante(tipo) {
+    tipoComprobante = tipo;
+    
+    // Actualizar clases activas
+    document.getElementById('cardBoleta').classList.toggle('active', tipo === 'boleta');
+    document.getElementById('cardFactura').classList.toggle('active', tipo === 'factura');
+    
+    // Actualizar radios
+    document.querySelectorAll('input[name="tipoComprobante"]').forEach(el => {
+        el.checked = el.value === tipo;
+    });
+    
+    // Actualizar labels y placeholders
+    var input = document.getElementById('documentoInput');
+    var label = document.getElementById('documentoLabel');
+    var info = document.getElementById('documentoInfo');
+    var error = document.getElementById('documentoError');
+    var confirmBlock = document.getElementById('confirmacionBlock');
+    var confirmNombre = document.getElementById('confirmNombreBlock');
+    var confirmRazon = document.getElementById('confirmRazonBlock');
+    
+    // Ocultar confirmación
+    confirmBlock.classList.remove('show');
+    confirmNombre.style.display = 'none';
+    confirmRazon.style.display = 'none';
+    
+    if (tipo === 'boleta') {
+        label.innerHTML = 'DNI <span class="text-danger">*</span>';
+        input.placeholder = '8 dígitos numéricos';
+        input.maxLength = 8;
+        input.value = '';
+        info.textContent = 'Ingresa tu número de DNI (8 dígitos)';
+        info.style.display = 'block';
+        info.style.color = '#6b7280';
+        error.style.display = 'none';
+        input.classList.remove('is-invalid');
+        document.getElementById('documentoSection').style.display = 'block';
+    } else {
+        label.innerHTML = 'RUC <span class="text-danger">*</span>';
+        input.placeholder = '11 dígitos numéricos';
+        input.maxLength = 11;
+        input.value = '';
+        info.textContent = 'Ingresa tu número de RUC (11 dígitos)';
+        info.style.display = 'block';
+        info.style.color = '#6b7280';
+        error.style.display = 'none';
+        input.classList.remove('is-invalid');
+        document.getElementById('documentoSection').style.display = 'block';
+    }
+}
+
+// ============================================
+// VALIDAR DOCUMENTO Y MOSTRAR CONFIRMACIÓN
+// ============================================
+function validarDocumento(input) {
+    var value = input.value.replace(/\D/g, '');
+    var maxLength = tipoComprobante === 'boleta' ? 8 : 11;
+    
+    // Limitar a dígitos
+    input.value = value.slice(0, maxLength);
+    
+    var error = document.getElementById('documentoError');
+    var info = document.getElementById('documentoInfo');
+    var confirmBlock = document.getElementById('confirmacionBlock');
+    var confirmNombre = document.getElementById('confirmNombreBlock');
+    var confirmRazon = document.getElementById('confirmRazonBlock');
+    var badge = document.getElementById('badgeEstado');
+    
+    // Ocultar confirmación mientras escribe
+    confirmBlock.classList.remove('show');
+    confirmNombre.style.display = 'none';
+    confirmRazon.style.display = 'none';
+    
+    if (value.length === 0) {
+        input.classList.remove('is-invalid');
+        error.classList.remove('show');
+        info.style.display = 'block';
+        if (tipoComprobante === 'boleta') {
+            info.textContent = 'Ingresa tu número de DNI (8 dígitos)';
+        } else {
+            info.textContent = 'Ingresa tu número de RUC (11 dígitos)';
+        }
+        info.style.color = '#6b7280';
+        return;
+    }
+    
+    if (value.length === maxLength) {
+        input.classList.remove('is-invalid');
+        error.classList.remove('show');
+        info.style.display = 'block';
+        info.textContent = '✅ Documento válido';
+        info.style.color = '#16a34a';
+        
+        // Mostrar confirmación
+        mostrarConfirmacion(value);
+    } else {
+        input.classList.add('is-invalid');
+        error.classList.add('show');
+        info.style.display = 'none';
+        info.style.color = '#6b7280';
+    }
+}
+
+// ============================================
+// MOSTRAR BLOQUE DE CONFIRMACIÓN
+// ============================================
+function mostrarConfirmacion(documento) {
+    var confirmBlock = document.getElementById('confirmacionBlock');
+    var confirmNombre = document.getElementById('confirmNombreBlock');
+    var confirmRazon = document.getElementById('confirmRazonBlock');
+    var confirmNombreCompleto = document.getElementById('confirmNombreCompleto');
+    var confirmRazonSocial = document.getElementById('confirmRazonSocial');
+    var confirmDocumento = document.getElementById('confirmDocumento');
+    var badge = document.getElementById('badgeEstado');
+    
+    // Mostrar bloque
+    confirmBlock.classList.add('show');
+    
+    // Actualizar documento
+    confirmDocumento.textContent = documento;
+    
+    if (tipoComprobante === 'boleta') {
+        // Mostrar nombre completo
+        confirmNombre.style.display = 'block';
+        confirmRazon.style.display = 'none';
+        badge.textContent = '✅ DNI Verificado';
+        badge.className = 'badge-verified';
+        
+        // Buscar nombre del cliente por DNI
+        fetch('/api/consultar-dni/' + documento)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.nombres) {
+                    var nombreCompleto = (data.nombres || '') + ' ' + (data.apellidos || '');
+                    confirmNombreCompleto.textContent = nombreCompleto.trim() || 'No encontrado';
+                    badge.textContent = '✅ DNI Verificado';
+                    badge.className = 'badge-verified';
+                } else {
+                    confirmNombreCompleto.textContent = '⚠️ DNI no encontrado en el sistema';
+                    badge.textContent = '⚠️ No verificado';
+                    badge.className = 'badge-error';
+                }
+            })
+            .catch(() => {
+                confirmNombreCompleto.textContent = '⚠️ Error al consultar DNI';
+                badge.textContent = '⚠️ Error';
+                badge.className = 'badge-error';
+            });
+    } else {
+        // Mostrar razón social
+        confirmNombre.style.display = 'none';
+        confirmRazon.style.display = 'block';
+        badge.textContent = '✅ RUC Verificado';
+        badge.className = 'badge-verified';
+        
+        // Buscar razón social por RUC
+        fetch('/api/consultar-ruc/' + documento)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.razon_social) {
+                    confirmRazonSocial.textContent = data.razon_social;
+                    badge.textContent = '✅ RUC Verificado';
+                    badge.className = 'badge-verified';
+                } else {
+                    confirmRazonSocial.textContent = '⚠️ RUC no encontrado en el sistema';
+                    badge.textContent = '⚠️ No verificado';
+                    badge.className = 'badge-error';
+                }
+            })
+            .catch(() => {
+                confirmRazonSocial.textContent = '⚠️ Error al consultar RUC';
+                badge.textContent = '⚠️ Error';
+                badge.className = 'badge-error';
+            });
+    }
+}
+
+// ============================================
+// CARGAR CARRITO
+// ============================================
+function cargarCarrito() {
+    var carritoData = localStorage.getItem('carritoCliente');
+    if (!carritoData) {
+        document.getElementById('productosCarrito').innerHTML = `
+            <div class="text-center py-4">
+                <i class="fas fa-shopping-cart fa-3x text-muted mb-3"></i>
+                <p class="text-muted">Tu carrito está vacío</p>
+                <a href="/catalogo" class="btn btn-gold">Ir a la tienda</a>
+            </div>
+        `;
+        document.getElementById('btnPagar').disabled = true;
+        return;
+    }
+    
+    try {
+        carrito = JSON.parse(carritoData);
+        if (!carrito || carrito.length === 0) {
+            document.getElementById('productosCarrito').innerHTML = `
+                <div class="text-center py-4">
+                    <i class="fas fa-shopping-cart fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">Tu carrito está vacío</p>
+                    <a href="/catalogo" class="btn btn-gold">Ir a la tienda</a>
+                </div>
+            `;
+            document.getElementById('btnPagar').disabled = true;
+            return;
+        }
+        
+        renderizarCarrito();
+    } catch (e) {
+        document.getElementById('productosCarrito').innerHTML = `
+            <div class="text-center py-4 text-danger">Error al cargar el carrito</div>
+        `;
+    }
+}
+
+// ============================================
+// RENDERIZAR CARRITO
+// ============================================
+function renderizarCarrito() {
+    var container = document.getElementById('productosCarrito');
+    var html = '';
+    var subtotal = 0;
+    
+    carrito.forEach(function(item) {
+        var totalItem = item.precio * item.cantidad;
+        subtotal += totalItem;
+        html += `
+            <div class="producto-item">
+                <div>
+                    <div class="producto-nombre">${item.nombre}</div>
+                    <div class="producto-cantidad">x${item.cantidad}</div>
+                </div>
+                <div class="producto-precio">S/. ${totalItem.toFixed(2)}</div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+    
+    // Actualizar totales (incluye costo de envío si es delivery)
+    actualizarTotales();
+    
+    document.getElementById('btnPagar').disabled = false;
+}
+
+// ============================================
+// SELECCIONAR TIPO DE ENTREGA
+// ============================================
+function seleccionarEntrega(tipo) {
+    tipoEntrega = tipo;
+    
+    var dirSection = document.getElementById('direccionSection');
+    if (tipo === 'delivery') {
+        dirSection.style.display = 'block';
+        costoEnvio = 5;
+    } else {
+        dirSection.style.display = 'none';
+        costoEnvio = 0;
+    }
+    actualizarTotales();
+}
+
+// ============================================
+// ACTUALIZAR TOTALES (con envío)
+// ============================================
+function actualizarTotales() {
+    var subtotal = carrito.reduce(function(s, i) { return s + (i.precio * i.cantidad); }, 0);
+    document.getElementById('subtotal').textContent = 'S/. ' + subtotal.toFixed(2);
+    document.getElementById('descuento').textContent = '-S/. 0.00';
+    document.getElementById('envio').textContent = 'S/. ' + costoEnvio.toFixed(2);
+    document.getElementById('total').textContent = 'S/. ' + (subtotal + costoEnvio).toFixed(2);
+}
+
+// ============================================
+// PROCESAR PAGO
+// ============================================
+function procesarPago() {
+    var btn = document.getElementById('btnPagar');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Procesando...';
+    
+    // Validar campos
+    var email = document.getElementById('clienteEmail').value.trim();
+    var telefono = document.getElementById('clienteTelefono').value.trim();
+    var documento = document.getElementById('documentoInput').value.trim();
+    var direccion = document.getElementById('direccionEntrega').value.trim();
+    
+    if (!email || !telefono || !documento) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Campos incompletos',
+            text: 'Por favor completa todos los campos obligatorios.',
+            confirmButtonColor: '#D4AF37'
+        });
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Continuar con el pago';
+        return;
+    }
+    
+    // Si es delivery, la dirección es obligatoria
+    if (tipoEntrega === 'delivery' && !direccion) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Dirección requerida',
+            text: 'Para entrega a domicilio, ingresa tu dirección.',
+            confirmButtonColor: '#D4AF37'
+        });
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Continuar con el pago';
+        return;
+    }
+    
+    // Validar documento según tipo
+    if (tipoComprobante === 'boleta' && documento.length !== 8) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'DNI inválido',
+            text: 'El DNI debe tener exactamente 8 dígitos.',
+            confirmButtonColor: '#D4AF37'
+        });
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Continuar con el pago';
+        return;
+    }
+    
+    if (tipoComprobante === 'factura' && documento.length !== 11) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'RUC inválido',
+            text: 'El RUC debe tener exactamente 11 dígitos.',
+            confirmButtonColor: '#D4AF37'
+        });
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Continuar con el pago';
+        return;
+    }
+    
+    // Verificar que el documento esté verificado (confirmación mostrada)
+    var confirmBlock = document.getElementById('confirmacionBlock');
+    if (!confirmBlock.classList.contains('show')) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Documento no verificado',
+            text: 'Por favor ingresa un documento válido para continuar.',
+            confirmButtonColor: '#D4AF37'
+        });
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Continuar con el pago';
+        return;
+    }
+    
+    // Guardar datos del checkout en localStorage para la página de pago
+    var checkoutData = {
+        nombres: document.getElementById('nombresDisplay').textContent || '',
+        apellidos: document.getElementById('apellidosDisplay').textContent || '',
+        email: email,
+        telefono: telefono,
+        documento: documento,
+        direccion: direccion,
+        tipo_comprobante: tipoComprobante,
+        razon_social: tipoComprobante === 'factura' ? (document.getElementById('confirmRazonSocial').textContent || '') : '',
+        direccion_fiscal: direccion
+    };
+    localStorage.setItem('checkoutData', JSON.stringify(checkoutData));
+    localStorage.setItem('tipoEntrega', tipoEntrega);
+    localStorage.setItem('direccionEntrega', direccion);
+
+    // Ir a la página de pago para elegir el método de pago
+    window.location.href = '/pago';
+}
+
+// ============================================
+// INICIALIZAR
+// ============================================
+document.addEventListener('DOMContentLoaded', function() {
+    // Cargar tipo de entrega guardado en el carrito (localStorage)
+    var tipoGuardado = localStorage.getItem('tipoEntrega');
+    if (tipoGuardado) {
+        seleccionarEntrega(tipoGuardado);
+    }
+
+    cargarCarrito();
+
+    // Cargar dirección de entrega guardada en el carrito (localStorage)
+    var direccionGuardada = localStorage.getItem('direccionEntrega');
+    var direccionInput = document.getElementById('direccionEntrega');
+    if (direccionGuardada && direccionInput) {
+        direccionInput.value = direccionGuardada;
+    }
+    
+    // Actualizar contador del carrito
+    var contador = document.getElementById('carritoContador');
+    if (contador) {
+        var carritoData = JSON.parse(localStorage.getItem('carritoCliente') || '[]');
+        var total = carritoData.reduce((sum, item) => sum + item.cantidad, 0);
+        if (total > 0) {
+            contador.textContent = total;
+            contador.style.display = 'flex';
+        } else {
+            contador.style.display = 'none';
+        }
+    }
+});
