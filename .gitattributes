@@ -10,3 +10,6 @@
 
 # Batch de Windows: CRLF
 *.bat text eol=crlf
+
+# PowerShell de Windows: CRLF
+*.ps1 text eol=crlf
