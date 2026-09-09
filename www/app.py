@@ -14,6 +14,9 @@ from flask_sqlalchemy import SQLAlchemy
 from functools import wraps
 from datetime import datetime, timedelta
 from sqlalchemy import func, text
+
+# Paquete de microservicios (blueprints independientes: comercial, inventario, monitor)
+from microservicios import register_microservicios
 import secrets
 import smtplib
 from email.mime.text import MIMEText
@@ -4446,227 +4449,10 @@ def cliente_detalle_pedido(pedido_id):
 
 
 
-@app.route("/api/comercial/pedidos", methods=["GET"])
-@login_required
-def api_comercial_pedidos():
-    """Obtener todos los pedidos (microservicio comercial)"""
-    try:
-        pedidos = db.session.execute(text("""
-            SELECT * FROM comercial_pedidos 
-            ORDER BY fecha_pedido DESC
-        """)).mappings().all()
-        
-        return jsonify([dict(p) for p in pedidos])
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/comercial/pedidos/<int:id>", methods=["GET"])
-@login_required
-def api_comercial_pedido(id):
-    """Obtener pedido específico con detalles"""
-    try:
-        pedido = db.session.execute(text("""
-            SELECT * FROM comercial_pedidos WHERE id = :id
-        """), {"id": id}).mappings().first()
-        
-        if not pedido:
-            return jsonify({"error": "Pedido no encontrado"}), 404
-        
-        detalles = db.session.execute(text("""
-            SELECT * FROM comercial_detalle_pedido WHERE pedido_id = :id
-        """), {"id": id}).mappings().all()
-        
-        pedido_dict = dict(pedido)
-        pedido_dict["detalles"] = [dict(d) for d in detalles]
-        
-        return jsonify(pedido_dict)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/comercial/pedidos/<int:id>/estado", methods=["PUT"])
-@login_required
-def api_comercial_actualizar_estado(id):
-    """Actualizar estado de un pedido"""
-    if session.get("rol") != "administrador":
-        return jsonify({"error": "No autorizado"}), 403
-    
-    try:
-        data = request.get_json()
-        estado = data.get("estado")
-        
-        if not estado:
-            return jsonify({"error": "Estado requerido"}), 400
-        
-        result = db.session.execute(text("""
-            UPDATE comercial_pedidos 
-            SET estado = :estado 
-            WHERE id = :id
-        """), {"estado": estado, "id": id})
-        
-        db.session.commit()
-        
-        if result.rowcount == 0:
-            return jsonify({"error": "Pedido no encontrado"}), 404
-        
-        return jsonify({"success": True, "message": "Estado actualizado"})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/comercial/ventas", methods=["GET"])
-@login_required
-def api_comercial_ventas():
-    """Obtener todas las ventas"""
-    try:
-        ventas = db.session.execute(text("""
-            SELECT * FROM comercial_ventas 
-            ORDER BY fecha_venta DESC
-        """)).mappings().all()
-        
-        return jsonify([dict(v) for v in ventas])
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 # =============================================
-# MICROSERVICIO INVENTARIO - APIs
+# MICROSERVICIOS - Blueprints registrados desde el paquete www/microservicios
+# (comercial -> /api/comercial, inventario -> /api/inventario, monitor -> /api/health)
 # =============================================
-
-@app.route("/api/inventario/productos", methods=["GET"])
-@login_required
-def api_inventario_productos():
-    """Obtener todos los productos (microservicio inventario)"""
-    try:
-        productos = db.session.execute(text("""
-            SELECT * FROM inventario_productos 
-            ORDER BY nombre
-        """)).mappings().all()
-        
-        return jsonify([dict(p) for p in productos])
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/inventario/productos/<int:id>", methods=["GET"])
-@login_required
-def api_inventario_producto(id):
-    """Obtener producto específico"""
-    try:
-        producto = db.session.execute(text("""
-            SELECT * FROM inventario_productos WHERE id = :id
-        """), {"id": id}).mappings().first()
-        
-        if not producto:
-            return jsonify({"error": "Producto no encontrado"}), 404
-        
-        return jsonify(dict(producto))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/inventario/stock/<int:id>", methods=["PUT"])
-@login_required
-def api_inventario_actualizar_stock(id):
-    """Actualizar stock de un producto"""
-    if session.get("rol") not in ["administrador"]:
-        return jsonify({"error": "No autorizado"}), 403
-    
-    try:
-        data = request.get_json()
-        cantidad = data.get("cantidad")
-        
-        if cantidad is None:
-            return jsonify({"error": "Cantidad requerida"}), 400
-        
-        result = db.session.execute(text("""
-            UPDATE inventario_productos 
-            SET cantidad = :cantidad 
-            WHERE id = :id
-        """), {"cantidad": cantidad, "id": id})
-        
-        db.session.commit()
-        
-        if result.rowcount == 0:
-            return jsonify({"error": "Producto no encontrado"}), 404
-        
-        return jsonify({"success": True, "message": "Stock actualizado"})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/inventario/stock/bajo/<int:minimo>", methods=["GET"])
-@login_required
-def api_inventario_bajo_stock(minimo):
-    """Obtener productos con stock bajo"""
-    try:
-        productos = db.session.execute(text("""
-            SELECT * FROM inventario_productos 
-            WHERE cantidad < :minimo 
-            ORDER BY cantidad
-        """), {"minimo": minimo}).mappings().all()
-        
-        return jsonify([dict(p) for p in productos])
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/inventario/verificar-stock/<int:id>/<int:cantidad>", methods=["GET"])
-@login_required
-def api_inventario_verificar_stock(id, cantidad):
-    """Verificar si hay stock disponible"""
-    try:
-        producto = db.session.execute(text("""
-            SELECT cantidad FROM inventario_productos WHERE id = :id
-        """), {"id": id}).mappings().first()
-        
-        if not producto:
-            return jsonify({"error": "Producto no encontrado"}), 404
-        
-        disponible = producto["cantidad"] >= cantidad
-        
-        return jsonify({
-            "producto_id": id,
-            "disponible": disponible,
-            "stock_actual": producto["cantidad"],
-            "cantidad_solicitada": cantidad
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-
-@app.route("/api/health", methods=["GET"])
-def api_health():
-    """Verificar estado de los microservicios"""
-    try:
-
-        db.session.execute(text("SELECT 1"))
-        
-
-        comercial_existe = db.session.execute(text("""
-            SELECT COUNT(*) FROM information_schema.tables 
-            WHERE table_schema = 'librospe_db' 
-            AND table_name = 'comercial_pedidos'
-        """)).scalar()
-        
-        inventario_existe = db.session.execute(text("""
-            SELECT COUNT(*) FROM information_schema.tables 
-            WHERE table_schema = 'librospe_db' 
-            AND table_name = 'inventario_productos'
-        """)).scalar()
-        
-        return jsonify({
-            "status": "OK",
-            "services": {
-                "comercial": "active" if comercial_existe else "not_configured",
-                "inventario": "active" if inventario_existe else "not_configured"
-            },
-            "timestamp": datetime.now().isoformat()
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "ERROR",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }), 500
-
-
 
 @app.route("/microservicios/dashboard")
 @login_required
@@ -4708,6 +4494,15 @@ def microservicios_dashboard():
                           total_productos=total_productos,
                           productos_bajo_stock=productos_bajo_stock,
                           productos_agotados=productos_agotados)
+
+
+# =============================================
+# REGISTRO DE MICROSERVICIOS
+# Los blueprints (comercial, inventario y monitor) viven en el paquete
+# independiente www/microservicios. Aqui se inyectan las dependencias
+# compartidas (db y login_required).
+# =============================================
+register_microservicios(app, db, login_required)
 
 
 if __name__ == "__main__":
