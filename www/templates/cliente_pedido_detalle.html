@@ -28,7 +28,7 @@
                                 </p>
                                 <p class="mb-2">
                                     <strong><i class="fas fa-envelope me-1"></i> Email:</strong><br>
-                                    <small class="text-break">{% if venta and venta.cliente_email %}{{ venta.cliente_email }}{% else %}{{ cliente.email if cliente else 'No registrado' }}{% endif %}</small>
+                                    <small class="text-break">{% if venta and venta.cliente_email %}{{ venta.cliente_email }}{% else %}{{ (cliente.correo if cliente else '') or (cliente.email if cliente else '') or 'No registrado' }}{% endif %}</small>
                                 </p>
                                 <p class="mb-2">
                                     <strong><i class="fas fa-phone me-1"></i> Teléfono:</strong><br>

@@ -13,7 +13,7 @@ from flask_bcrypt import Bcrypt
 from flask_sqlalchemy import SQLAlchemy
 from functools import wraps
 from datetime import datetime, timedelta
-from sqlalchemy import func, text
+from sqlalchemy import func, text, or_
 
 # Paquete de microservicios (blueprints independientes: comercial, inventario, monitor)
 from microservicios import register_microservicios
@@ -2309,6 +2309,35 @@ def venta_nueva():
             cliente_documento = request.form.get("cliente_documento", "")
             enviar_email = request.form.get("enviar_email", "0")
             
+            # Si el documento está registrado, completar el correo/nombre faltante automáticamente;
+            # si no hay documento, buscar el cliente por nombre/apellido exacto para jalar su DNI y correo.
+            cliente_existente = None
+            try:
+                if cliente_documento:
+                    cliente_existente = Cliente.query.filter(
+                        or_(Cliente.dni == cliente_documento, Cliente.ruc == cliente_documento)
+                    ).first()
+                elif (cliente_nombres or "").strip():
+                    busqueda = Cliente.query.filter(
+                        func.lower(Cliente.nombres) == cliente_nombres.strip().lower()
+                    )
+                    if (cliente_apellidos or "").strip():
+                        busqueda = busqueda.filter(
+                            func.lower(Cliente.apellidos) == cliente_apellidos.strip().lower()
+                        )
+                    cliente_existente = busqueda.first()
+                if cliente_existente:
+                    if not cliente_email and cliente_existente.correo:
+                        cliente_email = cliente_existente.correo.strip()
+                    if not cliente_nombres:
+                        cliente_nombres = cliente_existente.nombres or ""
+                    if not cliente_apellidos:
+                        cliente_apellidos = cliente_existente.apellidos or ""
+                    if not cliente_documento:
+                        cliente_documento = cliente_existente.dni or cliente_existente.ruc or ""
+            except Exception as e:
+                print(f"⚠️ No se pudo buscar cliente: {e}")
+            
             print(f"\n📋 VENTA: Producto ID={producto_id}, Cantidad={cantidad}, Email={cliente_email}")
             
             # Generar número de comprobante
@@ -2358,6 +2387,7 @@ def venta_nueva():
                 cliente_nombres=cliente_nombres or None,
                 cliente_apellidos=cliente_apellidos or None,
                 cliente_documento=cliente_documento or None,
+                cliente_email=cliente_email or None,
                 # cliente_id se deja NULL (no tenemos el ID del cliente)
                 # estado = 1 (por defecto)
             )
@@ -2381,7 +2411,11 @@ def venta_nueva():
                         numero_comprobante=numero_comprobante,
                         fecha=fecha_venta,
                         productos=[{'nombre': producto.nombre, 'cantidad': cantidad, 'precio_unitario': precio_unitario, 'total': total_venta}],
-                        total_venta=total_venta
+                        total_venta=total_venta,
+                        documento=cliente_documento,
+                        tipo_documento="RUC" if tipo_comprobante == "factura" else ("DNI" if cliente_documento else ""),
+                        razon_social=request.form.get("cliente_razon_social", ""),
+                        direccion_fiscal=request.form.get("factura_direccion", ""),
                     )
                     flash(f"✅ {tipo_comprobante.upper()} registrada y enviada a {cliente_email}", "success")
                 except Exception as e:
@@ -3325,13 +3359,18 @@ def ventas():
 @app.route("/comprobante/<int:venta_id>")
 @login_required
 def ver_comprobante(venta_id):
-    venta = db.session.query(Venta, 
-                              Producto.nombre.label("producto_nombre"), 
+    venta = db.session.query(Venta,
+                              Producto.nombre.label("producto_nombre"),
                               Producto.precio,
                               UsuarioSistema.nombres.label("vendedor_nombres"),
-                              UsuarioSistema.apellidos.label("vendedor_apellidos")
+                              UsuarioSistema.apellidos.label("vendedor_apellidos"),
+                              Cliente.correo.label("cliente_email_db"),
+                              Cliente.nombres.label("cliente_nombres_db"),
+                              Cliente.apellidos.label("cliente_apellidos_db")
                              ).join(Producto, Venta.producto_id == Producto.id)\
                               .outerjoin(UsuarioSistema, Venta.vendedor_id == UsuarioSistema.id)\
+                              .outerjoin(Cliente, or_(Venta.cliente_documento == Cliente.dni,
+                                                      Venta.cliente_documento == Cliente.ruc))\
                               .filter(Venta.id == venta_id).first()
     
     if not venta:
@@ -4069,6 +4108,9 @@ def crear_pedido():
         # Datos de facturación (para RUC)
         cliente_razon_social = cliente_data.get("razon_social", "").strip()
         cliente_direccion_fiscal = cliente_data.get("direccion_fiscal", "").strip()  # ← AGREGAR
+
+        # Tipo de documento (DNI / Carnet de Extranjería / RUC)
+        cliente_tipo_documento = cliente_data.get("tipo_documento", "").strip()
         
         # Dirección de entrega
         cliente_direccion = data.get("direccion", "").strip()
@@ -4212,7 +4254,7 @@ def crear_pedido():
                 productos=productos_para_correo,
                 total_venta=float(data["total"]),
                 documento=cliente_documento,
-                tipo_documento="RUC" if tipo_comp == "factura" else ("DNI" if cliente_documento else ""),
+                tipo_documento="RUC" if tipo_comp == "factura" else (cliente_tipo_documento or ("DNI" if cliente_documento else "")),
                 razon_social=cliente_razon_social,
                 direccion_fiscal=cliente_direccion_fiscal,
             )

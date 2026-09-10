@@ -63,7 +63,7 @@
                                     <input type="radio" name="tipoComprobante" value="boleta" checked>
                                     <div>
                                         <div class="radio-label">📄 Boleta de venta</div>
-                                        <div class="radio-sub">Para personas naturales (DNI)</div>
+                                        <div class="radio-sub">Para personas naturales (DNI o Carnet de Extranjería)</div>
                                     </div>
                                 </div>
                             </div>
@@ -81,6 +81,13 @@
 
                     <!-- ===== NÚMERO DE DOCUMENTO ===== -->
                     <div class="mb-3" id="documentoSection">
+                        <div class="mb-2" id="tipoDocumentoRow">
+                            <label class="field-label">Tipo de documento</label>
+                            <select class="form-select documento-input" id="tipoDocumentoSelect" onchange="cambiarTipoDocumento()">
+                                <option value="DNI">DNI</option>
+                                <option value="CE">Carnet de Extranjería</option>
+                            </select>
+                        </div>
                         <label class="field-label" id="documentoLabel">DNI <span class="text-muted small">(opcional)</span></label>
                         <input type="text" id="documentoInput" class="form-control documento-input" 
                                placeholder="8 dígitos numéricos" maxlength="8"

@@ -279,6 +279,7 @@ async function confirmarPedido(){
             email:checkoutData.email || '',
             telefono:checkoutData.telefono || '',
             documento: checkoutData.documento || '',
+            tipo_documento: checkoutData.tipo_documento || '',
             razon_social: checkoutData.razon_social || '',
             direccion_fiscal: checkoutData.direccion_fiscal || ''
         }

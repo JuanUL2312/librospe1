@@ -24,10 +24,10 @@
                     <div class="mb-3 mb-md-4">
                         <h6 class="fw-bold fs-6 fs-md-5"><i class="fas fa-user me-2"></i>DATOS DEL CLIENTE</h6>
                         <div class="small">
-                            <p class="mb-1"><strong>Nombre/Razón Social:</strong> {{ venta.Venta.cliente_nombres or 'Consumidor Final' }} {{ venta.Venta.cliente_apellidos or '' }}</p>
+                            <p class="mb-1"><strong>Nombre/Razón Social:</strong> {{ venta.Venta.cliente_nombres or venta.cliente_nombres_db or 'Consumidor Final' }} {{ venta.Venta.cliente_apellidos or venta.cliente_apellidos_db or '' }}</p>
                             <p class="mb-1"><strong>RUC/DNI:</strong> {% if venta.Venta.cliente_documento and venta.Venta.cliente_documento != '' %}{{ venta.Venta.cliente_documento }}{% else %}—{% endif %}</p>
                             <p class="mb-1"><strong>Dirección:</strong> {{ venta.Venta.cliente_direccion or 'No registrada' }}</p>
-                            <p class="mb-1"><strong>Email:</strong> {{ venta.Venta.cliente_email or 'No registrado' }}</p>
+                            <p class="mb-1"><strong>Email:</strong> {{ venta.Venta.cliente_email or venta.cliente_email_db or 'No registrado' }}</p>
                         </div>
                     </div>
 
