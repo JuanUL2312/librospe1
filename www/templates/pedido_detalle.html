@@ -107,10 +107,35 @@
                                         <span class="badge bg-warning">⏳ PENDIENTE</span>
                                     {% elif pedido.estado == 'confirmado' %}
                                         <span class="badge bg-success">✅ CONFIRMADO</span>
+                                    {% elif pedido.estado == 'preparando' %}
+                                        <span class="badge bg-primary">📦 PREPARANDO</span>
+                                    {% elif pedido.estado == 'enviado' %}
+                                        <span class="badge bg-info">🚚 ENVIADO</span>
+                                    {% elif pedido.estado == 'listo_tienda' %}
+                                        <span class="badge bg-secondary">🏪 LISTO EN TIENDA</span>
+                                    {% elif pedido.estado == 'entregado' %}
+                                        <span class="badge bg-success">🎁 ENTREGADO</span>
+                                    {% elif pedido.estado == 'recogido' %}
+                                        <span class="badge bg-info">🙌 RECOGIDO</span>
                                     {% elif pedido.estado == 'cancelado' %}
                                         <span class="badge bg-danger">❌ CANCELADO</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ pedido.estado }}</span>
                                     {% endif %}
                                 </p>
+                                {% if pedido.tipo_entrega == 'delivery' and pedido.estado == 'entregado' and pedido.nombre_recibe %}
+                                <p class="mt-2 pt-2 border-top">
+                                    <strong>📦 Constancia de entrega:</strong><br>
+                                    🙋 <strong>Recibido por:</strong> {{ pedido.nombre_recibe }}{% if pedido.dni_recibe %} (DNI: {{ pedido.dni_recibe }}){% endif %}<br>
+                                    📅 <strong>Fecha entrega:</strong> {{ pedido.fecha_entrega.strftime('%d/%m/%Y %H:%M') if pedido.fecha_entrega else '—' }}<br>
+                                    👨‍💼 <strong>Registrado por:</strong> {{ pedido.confirmado_por or '—' }}
+                                    {% if pedido.cliente_confirmo %}
+                                    <br>✅ <span class="text-success fw-bold">Cliente confirmó recepción</span>{% if pedido.fecha_confirmacion_cliente %} ({{ pedido.fecha_confirmacion_cliente.strftime('%d/%m/%Y %H:%M') }}){% endif %}
+                                    {% else %}
+                                    <br>⏳ <span class="text-warning">El cliente aún no confirma la recepción</span>
+                                    {% endif %}
+                                </p>
+                                {% endif %}
                                 <p><strong>📄 Tipo Comprobante:</strong><br>
                                     {% if venta and venta.tipo_comprobante == 'factura' %}
                                         <span class="badge bg-primary">🏢 FACTURA</span>

@@ -1,5 +1,5 @@
 
-    function cambiarEstado(event, select) {
+    async function cambiarEstado(event, select) {
         // Prevenir cualquier comportamiento por defecto (recarga de página)
         if (event) {
             event.preventDefault();
@@ -21,64 +21,96 @@
         
         console.log('📤 Cambiando pedido:', pedidoId, 'a:', nuevoEstado);
         
+        // Si es delivery y se marca como "Entregado", pedir constancia de entrega
+        let extra = '';
+        if (nuevoEstado === 'entregado') {
+            const { value: datosRecibo } = await Swal.fire({
+                title: '🎁 Confirmar entrega (Delivery)',
+                html: `
+                    <p style="font-size:14px;text-align:left">El pedido es <strong>Delivery</strong>. Ingresa quién recibió el pedido:</p>
+                    <input id="nombreRecibe" class="swal2-input" placeholder="Nombre de quien recibió *" autocomplete="off">
+                    <input id="dniRecibe" class="swal2-input" placeholder="DNI de quien recibió (opcional)" maxlength="8" autocomplete="off">
+                `,
+                showCancelButton: true,
+                confirmButtonText: '✅ Confirmar entrega',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#28a745',
+                preConfirm: () => {
+                    const nombre = document.getElementById('nombreRecibe').value.trim();
+                    if (!nombre) {
+                        Swal.showValidationMessage('Ingresa el nombre de quien recibió el pedido');
+                        return false;
+                    }
+                    return { nombre: nombre, dni: document.getElementById('dniRecibe').value.trim() };
+                }
+            });
+            
+            if (!datosRecibo || !datosRecibo.nombre) {
+                select.value = oldValue || 'pendiente';
+                select.disabled = false;
+                select.style.opacity = '';
+                return false;
+            }
+            extra = '&nombre_recibe=' + encodeURIComponent(datosRecibo.nombre) +
+                    '&dni_recibe=' + encodeURIComponent(datosRecibo.dni || '');
+        }
+        
         // Enviar petición AJAX
-        fetch(`/pedidos/cambiar-estado/${pedidoId}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: `estado=${nuevoEstado}`
-        })
-        .then(response => {
-            console.log('📥 Respuesta:', response.status);
-            if (!response.ok) {
+        try {
+            const response = await fetch(`/pedidos/cambiar-estado/${pedidoId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: `estado=${nuevoEstado}${extra}`
+            });
+            
+            let data;
+            try {
+                data = await response.json();
+            } catch (e) {
                 throw new Error('Error en la respuesta del servidor');
             }
-            return response.json();
-        })
-        .then(data => {
-            console.log('📦 Datos:', data);
-            if (data.success) {
-                // Actualizar el badge de estado en la fila
-                const row = document.getElementById(`pedido-${pedidoId}`);
-                if (row) {
-                    const badge = row.querySelector('.estado-badge');
-                    if (badge) {
-                        const estadosMap = {
-                            'pendiente': { text: '⏳ Pendiente', class: 'bg-warning' },
-                            'confirmado': { text: '✅ Confirmado', class: 'bg-info' },
-                            'preparando': { text: '📦 Preparando', class: 'bg-primary' },
-                            'enviado': { text: '🚚 Enviado', class: 'bg-info' },
-                            'listo_tienda': { text: '🏪 Listo', class: 'bg-success' },
-                            'entregado': { text: '🎁 Entregado', class: 'bg-success' },
-                            'recogido': { text: '🙌 Recogido', class: 'bg-success' },
-                            'cancelado': { text: '❌ Cancelado', class: 'bg-danger' }
-                        };
-                        const info = estadosMap[nuevoEstado] || { text: nuevoEstado, class: 'bg-secondary' };
-                        badge.textContent = info.text;
-                        badge.className = `badge estado-badge ${info.class} fs-6 px-2 px-md-3 py-1 py-md-2`;
-                    }
-                }
-                
-                select.dataset.oldValue = nuevoEstado;
-                mostrarNotificacion('✅ ' + data.message, 'success');
-                
-                // Actualizar contadores
-                actualizarContadores();
-            } else {
+            
+            if (!response.ok || !data.success) {
                 throw new Error(data.error || 'Error al actualizar el estado');
             }
-        })
-        .catch(error => {
+            
+            // Actualizar el badge de estado en la fila
+            const row = document.getElementById(`pedido-${pedidoId}`);
+            if (row) {
+                const badge = row.querySelector('.estado-badge');
+                if (badge) {
+                    const estadosMap = {
+                        'pendiente': { text: '⏳ Pendiente', class: 'bg-warning' },
+                        'confirmado': { text: '✅ Confirmado', class: 'bg-info' },
+                        'preparando': { text: '📦 Preparando', class: 'bg-primary' },
+                        'enviado': { text: '🚚 Enviado', class: 'bg-info' },
+                        'listo_tienda': { text: '🏪 Listo', class: 'bg-success' },
+                        'entregado': { text: '🎁 Entregado', class: 'bg-success' },
+                        'recogido': { text: '🙌 Recogido', class: 'bg-success' },
+                        'cancelado': { text: '❌ Cancelado', class: 'bg-danger' }
+                    };
+                    const info = estadosMap[nuevoEstado] || { text: nuevoEstado, class: 'bg-secondary' };
+                    badge.textContent = info.text;
+                    badge.className = `badge estado-badge ${info.class} fs-6 px-2 px-md-3 py-1 py-md-2`;
+                }
+            }
+            
+            select.dataset.oldValue = nuevoEstado;
+            mostrarNotificacion('✅ ' + data.message, 'success');
+            
+            // Actualizar contadores
+            actualizarContadores();
+        } catch (error) {
             console.error('❌ Error:', error);
             select.value = oldValue || 'pendiente';
             mostrarNotificacion('❌ Error: ' + error.message, 'danger');
-        })
-        .finally(() => {
+        } finally {
             select.disabled = false;
             select.style.opacity = '1';
-        });
+        }
         
         return false;
     }

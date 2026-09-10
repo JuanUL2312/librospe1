@@ -89,11 +89,40 @@
                                         {% elif pedido.estado == 'confirmado' %}✅ CONFIRMADO
                                         {% elif pedido.estado == 'preparando' %}📦 PREPARANDO
                                         {% elif pedido.estado == 'enviado' %}🚚 ENVIADO
+                                        {% elif pedido.estado == 'listo_tienda' %}🏪 LISTO EN TIENDA
                                         {% elif pedido.estado == 'entregado' %}🎉 ENTREGADO
+                                        {% elif pedido.estado == 'recogido' %}🙌 RECOGIDO
                                         {% elif pedido.estado == 'cancelado' %}❌ CANCELADO
                                         {% else %}{{ pedido.estado|upper }}{% endif %}
                                     </span>
                                 </p>
+                                {% if pedido.tipo_entrega == 'delivery' and pedido.estado == 'entregado' %}
+                                <div class="mt-3 pt-2 border-top">
+                                    {% if pedido.cliente_confirmo %}
+                                        <div class="alert alert-success mb-0 py-2">
+                                            <i class="fas fa-check-circle me-2"></i><strong>Recepción confirmada</strong>
+                                            {% if pedido.fecha_confirmacion_cliente %}
+                                                <small class="text-muted"> el {{ pedido.fecha_confirmacion_cliente.strftime('%d/%m/%Y %H:%M') }}</small>
+                                            {% endif %}
+                                        </div>
+                                    {% else %}
+                                        <p class="mb-2">
+                                            <strong><i class="fas fa-truck me-1"></i> Constancia de entrega:</strong><br>
+                                            <small>Recibido por <strong>{{ pedido.nombre_recibe }}</strong>
+                                            el {{ pedido.fecha_entrega.strftime('%d/%m/%Y %H:%M') if pedido.fecha_entrega else 'hoy' }}
+                                            {% if pedido.dni_recibe %}(DNI: {{ pedido.dni_recibe }}){% endif %}</small>
+                                        </p>
+                                        <p class="mb-2 text-warning">
+                                            <i class="fas fa-question-circle me-1"></i> ¿Confirmas que recibiste tu pedido?
+                                        </p>
+                                        <form method="POST" action="/pedidos/confirmar-recepcion/{{ pedido.id }}">
+                                            <button type="submit" class="btn btn-success btn-sm">
+                                                <i class="fas fa-check-circle me-1"></i>Sí, confirmo que recibí mi pedido
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
                                 <p class="mb-0 mt-2">
                                     <strong><i class="fas fa-file-invoice me-1"></i> Tipo Comprobante:</strong><br>
                                     {% if venta and venta.tipo_comprobante %}

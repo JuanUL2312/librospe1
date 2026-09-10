@@ -304,6 +304,13 @@ class Pedido(db.Model):
     direccion_entrega = db.Column(db.Text)
     tipo_entrega = db.Column(db.String(20), default="recojo")
     nota = db.Column(db.Text)
+    # Confirmación de entrega (delivery)
+    nombre_recibe = db.Column(db.String(200), nullable=True)
+    dni_recibe = db.Column(db.String(20), nullable=True)
+    fecha_entrega = db.Column(db.DateTime, nullable=True)
+    confirmado_por = db.Column(db.String(100), nullable=True)
+    cliente_confirmo = db.Column(db.Integer, default=0)
+    fecha_confirmacion_cliente = db.Column(db.DateTime, nullable=True)
     cliente = db.relationship("Cliente", back_populates="pedidos")
     detalles = db.relationship("DetallePedido", back_populates="pedido")
 
@@ -1083,6 +1090,76 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
         return False
 
 
+
+def enviar_entrega_email(cliente_obj, pedido):
+    """Envía el correo de entrega con la constancia y la solicitud de confirmación de recepción."""
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+
+        destinatario = cliente_obj.correo
+        if not destinatario or '@' not in destinatario:
+            print(f"❌ Email inválido para entrega: {destinatario}")
+            return False
+
+        nombre = f"{cliente_obj.nombres or ''} {cliente_obj.apellidos or ''}".strip() or destinatario
+        url_pedidos = url_for("mis_pedidos", _external=True)
+
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_USER
+        msg['To'] = destinatario
+        msg['Subject'] = f"🚚 Tu pedido N° {pedido.id} fue entregado - Confirma tu recepción"
+
+        html = f"""
+        <!DOCTYPE html>
+        <html><head><meta charset="UTF-8">
+            <style>
+                body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #f8f9fa; }}
+                .card {{ max-width: 560px; margin: 30px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,.08); }}
+                .header {{ background: linear-gradient(135deg, #16a34a, #4ade80); color: white; padding: 26px; text-align: center; }}
+                .content {{ padding: 24px; color: #333; }}
+                .btn {{ display: inline-block; background: #16a34a; color: #fff; padding: 12px 26px; border-radius: 8px;
+                        text-decoration: none; font-weight: bold; margin: 14px 0; }}
+                .footer {{ background: #e9ecef; padding: 14px; text-align: center; font-size: 12px; color: #6c757d; }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="header">
+                    <h2>✅ ¡Tu pedido fue entregado!</h2>
+                    <p>Pedido N° {pedido.id}</p>
+                </div>
+                <div class="content">
+                    <p>Hola <strong>{nombre}</strong>,</p>
+                    <p>Tu pedido <strong>N° {pedido.id}</strong> fue <strong>entregado</strong> el
+                       <strong>{pedido.fecha_entrega.strftime('%d/%m/%Y %H:%M') if pedido.fecha_entrega else 'hoy'}</strong>
+                       y fue recibido por <strong>{pedido.nombre_recibe or 'la persona indicada'}</strong>.</p>
+                    <p>Para completar el proceso, confírmanos que lo recibiste:</p>
+                    <p style="text-align:center;">
+                        <a class="btn" href="{url_pedidos}">✅ Confirmo que recibí mi pedido</a>
+                    </p>
+                    <p>Si tienes algún problema con tu pedido, escríbenos respondiendo este correo.</p>
+                </div>
+                <div class="footer">
+                    <p>Librería Salesiana Don Bosco | Todos los derechos reservados</p>
+                </div>
+            </div>
+        </body></html>
+        """
+        msg.attach(MIMEText(html, 'html'))
+
+        print(f"📧 Enviando correo de entrega a {destinatario}...")
+        server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
+        server.starttls()
+        server.login(EMAIL_USER, EMAIL_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        print(f"✅ Correo de entrega enviado a {destinatario}")
+        return True
+    except Exception as e:
+        print(f"❌ Error al enviar correo de entrega: {e}")
+        return False
 
 @app.route("/")
 def inicio():
@@ -3760,6 +3837,49 @@ def mis_pedidos():
     pedidos = Pedido.query.filter_by(cliente_id=session["cliente_id"]).order_by(Pedido.fecha_pedido.desc()).all()
     return render_template("mis_pedidos.html", pedidos=pedidos)
 
+@app.route("/pedidos/confirmar-recepcion/<int:pedido_id>", methods=["POST"])
+@login_required_cliente
+def confirmar_recepcion_pedido(pedido_id):
+    """El cliente confirma que recibió su pedido delivery."""
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    pedido = Pedido.query.get_or_404(pedido_id)
+
+    if pedido.cliente_id != session.get("cliente_id"):
+        if is_ajax:
+            return jsonify({"success": False, "error": "No autorizado"}), 403
+        flash("❌ No tienes permiso para confirmar este pedido", "danger")
+        return redirect(url_for("mis_pedidos"))
+
+    if pedido.tipo_entrega != "delivery":
+        if is_ajax:
+            return jsonify({"success": False, "error": "Este pedido no fue despachado por delivery"}), 400
+        flash("❌ Este pedido no fue despachado por delivery", "danger")
+        return redirect(url_for("mis_pedidos"))
+
+    if pedido.estado != "entregado":
+        if is_ajax:
+            return jsonify({"success": False, "error": "El pedido aún no está marcado como entregado"}), 400
+        flash("❌ El pedido aún no está marcado como entregado", "danger")
+        return redirect(url_for("mis_pedidos"))
+
+    if pedido.cliente_confirmo:
+        if is_ajax:
+            return jsonify({"success": False, "error": "Ya confirmaste la recepción de este pedido"}), 400
+        flash("✅ Ya habías confirmado la recepción de este pedido", "info")
+        return redirect(url_for("mis_pedidos"))
+
+    pedido.cliente_confirmo = 1
+    pedido.fecha_confirmacion_cliente = datetime.now()
+    db.session.commit()
+
+    print(f"✅ Cliente confirmó recepción del pedido #{pedido_id} ({datetime.now()})")
+
+    if is_ajax:
+        return jsonify({"success": True, "message": "¡Gracias por confirmar la recepción!"})
+
+    flash("✅ ¡Gracias por confirmar la recepción de tu pedido!", "success")
+    return redirect(url_for("mis_pedidos"))
+
 @app.route("/api/mis-pedidos")
 @login_required_cliente
 def api_mis_pedidos():
@@ -4157,11 +4277,35 @@ def cambiar_estado_pedido(pedido_id):
     }
     
     if nuevo_estado in estados_validos:
+        # Confirmación de entrega: al marcar "entregado" en un delivery se pide quién recibió
+        if nuevo_estado == "entregado" and pedido.tipo_entrega == "delivery":
+            nombre_recibe = (request.form.get("nombre_recibe") or "").strip()
+            if not nombre_recibe:
+                mensaje_error = "Para confirmar la entrega, ingresa el nombre de quien recibió el pedido."
+                if is_ajax:
+                    return jsonify({"success": False, "error": mensaje_error}), 400
+                flash(f"❌ {mensaje_error}", "danger")
+                return redirect(url_for("ver_pedidos"))
+            pedido.nombre_recibe = nombre_recibe
+            pedido.dni_recibe = (request.form.get("dni_recibe") or "").strip() or None
+            pedido.fecha_entrega = datetime.now()
+            pedido.confirmado_por = session.get("nombre") or session.get("usuario_nombre") or "Administrador"
+
         # Guardar el cambio
         pedido.estado = nuevo_estado
         db.session.commit()
         
         mensaje = mensajes.get(nuevo_estado, f"✅ Pedido #{pedido_id} actualizado a: {nuevo_estado}")
+        
+        # Al entregar un delivery: correo al cliente con solicitud de confirmación de recepción
+        # (se envía antes de responder, tanto en AJAX como en navegación normal)
+        if nuevo_estado == "entregado" and pedido.tipo_entrega == "delivery":
+            try:
+                cliente = Cliente.query.get(pedido.cliente_id)
+                if cliente and cliente.correo:
+                    enviar_entrega_email(cliente, pedido)
+            except Exception as e:
+                print(f"Error enviando correo de entrega: {e}")
         
         # Si es AJAX, devolver JSON
         if is_ajax:
@@ -4174,15 +4318,6 @@ def cambiar_estado_pedido(pedido_id):
         
         # Si es normal, mostrar flash
         flash(mensaje, "success")
-        
-        # Enviar correo al cliente (opcional)
-        try:
-            cliente = Cliente.query.get(pedido.cliente_id)
-            if cliente and cliente.correo:
-                # Aquí puedes agregar el envío de correo
-                print(f"📧 Enviando correo a {cliente.correo} sobre el pedido #{pedido_id}")
-        except Exception as e:
-            print(f"Error enviando correo: {e}")
             
     else:
         if is_ajax:
@@ -4463,6 +4598,26 @@ if os.environ.get("AUTO_CREATE_SCHEMA", "false").lower() == "true":
                 print("Columna email_bloqueado agregada")
         except Exception as e:
             print(f"Migración omitida: {e}")
+            db.session.rollback()
+        try:
+            migraciones_pedidos = {
+                "nombre_recibe": "VARCHAR(200) NULL",
+                "dni_recibe": "VARCHAR(20) NULL",
+                "fecha_entrega": "DATETIME NULL",
+                "confirmado_por": "VARCHAR(100) NULL",
+                "cliente_confirmo": "INT DEFAULT 0",
+                "fecha_confirmacion_cliente": "DATETIME NULL",
+            }
+            for col, tipo in migraciones_pedidos.items():
+                resultado = db.session.execute(
+                    text(f"SHOW COLUMNS FROM pedidos LIKE '{col}'")
+                )
+                if not resultado.fetchone():
+                    db.session.execute(text(f"ALTER TABLE pedidos ADD COLUMN {col} {tipo}"))
+                    print(f"Columna {col} agregada a pedidos")
+            db.session.commit()
+        except Exception as e:
+            print(f"Migración pedidos omitida: {e}")
             db.session.rollback()
         try:
             seed_permisos()
