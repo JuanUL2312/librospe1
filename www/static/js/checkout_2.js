@@ -6,6 +6,7 @@ var carrito = [];
 var tipoComprobante = 'boleta';
 var tipoEntrega = 'recojo';
 var costoEnvio = 0;
+var ubigeoCliente = null;
 
 // ============================================
 // SELECCIONAR TIPO DE COMPROBANTE
@@ -262,15 +263,56 @@ function renderizarCarrito() {
 function seleccionarEntrega(tipo) {
     tipoEntrega = tipo;
     
+    cargarUbigeoCliente();
+
     var dirSection = document.getElementById('direccionSection');
     if (tipo === 'delivery') {
         dirSection.style.display = 'block';
         costoEnvio = 5;
+        actualizarDireccionEntrega();
     } else {
         dirSection.style.display = 'none';
         costoEnvio = 0;
     }
     actualizarTotales();
+}
+
+// ============================================
+// UBIGEO DE RESIDENCIA (desde el perfil del cliente)
+// ============================================
+function cargarUbigeoCliente() {
+    var section = document.getElementById('direccionSection');
+    if (section) {
+        var d = section.dataset;
+        ubigeoCliente = (d.dep && d.prov && d.dist) ? {
+            departamento: d.dep,
+            provincia: d.prov,
+            distrito: d.dist
+        } : null;
+    }
+}
+
+// ============================================
+// VALIDAR UBIGEO PARA DELIVERY Y MOSTRAR DESTINO
+// ============================================
+function actualizarDireccionEntrega() {
+    var faltante = document.getElementById('ubicacionFaltante');
+    var destino = document.getElementById('destinoEntrega');
+    var btn = document.getElementById('btnPagar');
+    var completo = ubigeoCliente !== null;
+
+    if (faltante) faltante.classList.toggle('d-none', completo);
+    if (destino) {
+        if (completo) {
+            document.getElementById('destinoDistrito').textContent =
+                ubigeoCliente.distrito + ' (' + ubigeoCliente.departamento + ' - ' + ubigeoCliente.provincia + ')';
+            destino.style.display = 'block';
+        } else {
+            destino.style.display = 'none';
+        }
+    }
+    if (btn) btn.disabled = !completo;
+    return completo;
 }
 
 // ============================================
@@ -316,6 +358,19 @@ function procesarPago() {
             icon: 'warning',
             title: 'Dirección requerida',
             text: 'Para entrega a domicilio, ingresa tu dirección.',
+            confirmButtonColor: '#D4AF37'
+        });
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Continuar con el pago';
+        return;
+    }
+
+    // Si es delivery, el cliente debe tener distrito de residencia
+    if (tipoEntrega === 'delivery' && !actualizarDireccionEntrega()) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Distrito de residencia requerido',
+            text: 'Completa tu lugar de residencia (departamento, provincia y distrito) en Mi Perfil para poder entregarte el pedido.',
             confirmButtonColor: '#D4AF37'
         });
         btn.disabled = false;
@@ -412,5 +467,10 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             contador.style.display = 'none';
         }
+    }
+
+    // Revalidar el botón de pago (carrito pudo habilitarlo pero falta ubigeo para delivery)
+    if (tipoEntrega === 'delivery') {
+        actualizarDireccionEntrega();
     }
 });

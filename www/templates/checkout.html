@@ -122,11 +122,24 @@
                         </div>
                     </div>
 
-                    <!-- ===== DIRECCIÓN (EDITABLE) ===== -->
-                    <div class="mb-0 mt-3" id="direccionSection" style="display:none;">
-                        <label class="field-label">Dirección de entrega</label>
+                    <!-- ===== ENTREGA A DOMICILIO (DELIVERY) ===== -->
+                    <div class="mb-0 mt-3" id="direccionSection" style="display:none;"
+                         data-dep="{{ (cliente.departamento or '') if cliente else '' }}"
+                         data-prov="{{ (cliente.provincia or '') if cliente else '' }}"
+                         data-dist="{{ (cliente.distrito or '') if cliente else '' }}">
+                        <div class="alert alert-warning py-2 small d-none" id="ubicacionFaltante">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            Falta tu distrito de residencia. Actualízalo en
+                            <a href="/cliente/perfil" class="alert-link">Mi Perfil</a> para poder usar el delivery.
+                        </div>
+                        <label class="field-label">Dirección de entrega <span class="text-danger">*</span></label>
                         <textarea id="direccionEntrega" class="form-control" rows="2" 
                                   placeholder="Calle, número, urbanización, referencia...">{{ (cliente.direccion or '') if cliente else '' }}</textarea>
+                        <div class="mt-2" id="destinoEntrega" style="display:none;">
+                            <span class="badge bg-success">
+                                <i class="fas fa-map-marker-alt me-1"></i>Distrito de entrega: <span id="destinoDistrito">-</span>
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>

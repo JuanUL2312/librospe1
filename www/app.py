@@ -3385,6 +3385,16 @@ def registro_cliente():
                 """Convierte cadenas vacías en None (NULL) para columnas únicas/opcionales."""
                 return valor.strip() if valor and valor.strip() else None
 
+            # Ubigeo de residencia OBLIGATORIO (departamento -> provincia -> distrito)
+            ubigeo = {
+                "departamento": _nulo(request.form.get("departamento")),
+                "provincia": _nulo(request.form.get("provincia")),
+                "distrito": _nulo(request.form.get("distrito")),
+            }
+            if not all(ubigeo.values()):
+                flash("❌ Debes indicar tu lugar de residencia: departamento, provincia y distrito", "danger")
+                return redirect(url_for("registro_cliente"))
+
             cliente = Cliente(
                 dni=_nulo(request.form.get("dni")),
                 nombres=request.form["nombres"].strip(),
@@ -3392,9 +3402,9 @@ def registro_cliente():
                 correo=request.form["email"].strip(),
                 telefono=_nulo(request.form.get("telefono")),
                 direccion=_nulo(request.form.get("direccion")),
-                departamento=_nulo(request.form.get("departamento")),
-                provincia=_nulo(request.form.get("provincia")),
-                distrito=_nulo(request.form.get("distrito")),
+                departamento=ubigeo["departamento"],
+                provincia=ubigeo["provincia"],
+                distrito=ubigeo["distrito"],
                 clave=bcrypt.generate_password_hash(request.form["clave"]).decode("utf-8"),
             )
             db.session.add(cliente)
@@ -3438,13 +3448,22 @@ def cliente_perfil():
 def cliente_actualizar_perfil():
     try:
         cliente = Cliente.query.get(session["cliente_id"])
+
+        # Ubigeo de residencia OBLIGATORIO (departamento -> provincia -> distrito)
+        nuevo_departamento = (request.form.get("departamento") or "").strip()
+        nueva_provincia = (request.form.get("provincia") or "").strip()
+        nuevo_distrito = (request.form.get("distrito") or "").strip()
+        if not (nuevo_departamento and nueva_provincia and nuevo_distrito):
+            flash("❌ Debes indicar tu lugar de residencia: departamento, provincia y distrito", "danger")
+            return redirect(url_for("cliente_perfil"))
+
         cliente.nombres = request.form.get("nombres")
         cliente.apellidos = request.form.get("apellidos")
         cliente.telefono = request.form.get("telefono")
         cliente.direccion = request.form.get("direccion")
-        cliente.departamento = request.form.get("departamento") or None
-        cliente.provincia = request.form.get("provincia") or None
-        cliente.distrito = request.form.get("distrito") or None
+        cliente.departamento = nuevo_departamento
+        cliente.provincia = nueva_provincia
+        cliente.distrito = nuevo_distrito
         
         nuevo_email = request.form.get("email")
         if nuevo_email != cliente.correo:
@@ -3705,6 +3724,21 @@ def crear_pedido():
         print(f"   Razón Social: '{cliente_razon_social}'")
         print(f"   Dirección Fiscal: '{cliente_direccion_fiscal}'")
         print(f"   Dirección Entrega: '{cliente_direccion}'")
+        
+        # ============================================
+        # 2.5 VALIDAR DELIVERY (dirección + distrito de residencia)
+        # ============================================
+        if data.get("tipo_entrega") == "delivery":
+            if not cliente_direccion:
+                return jsonify({"success": False, "error": "Ingresa tu dirección de entrega."})
+            cliente_residencia = Cliente.query.get(session["cliente_id"])
+            if not cliente_residencia or not all(
+                [cliente_residencia.departamento, cliente_residencia.provincia, cliente_residencia.distrito]
+            ):
+                return jsonify({
+                    "success": False,
+                    "error": "Completa tu lugar de residencia (departamento, provincia y distrito) en Mi Perfil para poder usar el delivery."
+                })
         
         # ============================================
         # 3. CREAR PEDIDO

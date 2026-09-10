@@ -47,22 +47,27 @@
 
                     <div class="row g-3 mt-1">
                         <div class="col-12 col-md-4">
-                            <label class="form-label">Departamento</label>
-                            <select name="departamento" id="departamento" class="form-control">
+                            <label class="form-label">Departamento <span class="text-danger">*</span></label>
+                            <select name="departamento" id="departamento" class="form-control" required>
                                 <option value="">Seleccione departamento</option>
                             </select>
                         </div>
                         <div class="col-12 col-md-4">
-                            <label class="form-label">Provincia</label>
-                            <select name="provincia" id="provincia" class="form-control">
+                            <label class="form-label">Provincia <span class="text-danger">*</span></label>
+                            <select name="provincia" id="provincia" class="form-control" required>
                                 <option value="">Seleccione provincia</option>
                             </select>
                         </div>
                         <div class="col-12 col-md-4">
-                            <label class="form-label">Distrito</label>
-                            <select name="distrito" id="distrito" class="form-control">
+                            <label class="form-label">Distrito <span class="text-danger">*</span></label>
+                            <select name="distrito" id="distrito" class="form-control" required>
                                 <option value="">Seleccione distrito</option>
                             </select>
+                        </div>
+                        <div class="col-12">
+                            <small class="text-muted d-block">
+                                <i class="fas fa-home me-1 text-primary"></i>Departamento, Provincia y Distrito son obligatorios: se usan para las entregas a domicilio (delivery).
+                            </small>
                         </div>
                     </div>
 
