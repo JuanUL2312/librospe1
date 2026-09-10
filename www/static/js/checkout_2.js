@@ -7,6 +7,7 @@ var tipoComprobante = 'boleta';
 var tipoEntrega = 'recojo';
 var costoEnvio = 0;
 var ubigeoCliente = null;
+var datosDni = null; // nombre real desde RENIEC (APIPERU) al ingresar DNI
 
 // ============================================
 // SELECCIONAR TIPO DE COMPROBANTE
@@ -38,16 +39,17 @@ function seleccionarComprobante(tipo) {
     confirmRazon.style.display = 'none';
     
     if (tipo === 'boleta') {
-        label.innerHTML = 'DNI <span class="text-danger">*</span>';
+        label.innerHTML = 'DNI <span class="text-muted small">(opcional)</span>';
         input.placeholder = '8 dígitos numéricos';
         input.maxLength = 8;
         input.value = '';
-        info.textContent = 'Ingresa tu número de DNI (8 dígitos)';
+        info.textContent = 'Opcional: ingresa tu DNI para que la boleta salga con tu nombre real (RENIEC)';
         info.style.display = 'block';
         info.style.color = '#6b7280';
         error.style.display = 'none';
         input.classList.remove('is-invalid');
         document.getElementById('documentoSection').style.display = 'block';
+        datosDni = null;
     } else {
         label.innerHTML = 'RUC <span class="text-danger">*</span>';
         input.placeholder = '11 dígitos numéricos';
@@ -59,6 +61,7 @@ function seleccionarComprobante(tipo) {
         error.style.display = 'none';
         input.classList.remove('is-invalid');
         document.getElementById('documentoSection').style.display = 'block';
+        datosDni = null;
     }
 }
 
@@ -88,8 +91,9 @@ function validarDocumento(input) {
         input.classList.remove('is-invalid');
         error.classList.remove('show');
         info.style.display = 'block';
+        datosDni = null;
         if (tipoComprobante === 'boleta') {
-            info.textContent = 'Ingresa tu número de DNI (8 dígitos)';
+            info.textContent = 'Opcional: ingresa tu DNI para que la boleta salga con tu nombre real (RENIEC)';
         } else {
             info.textContent = 'Ingresa tu número de RUC (11 dígitos)';
         }
@@ -146,6 +150,7 @@ function mostrarConfirmacion(documento) {
                 if (data.success && data.nombres) {
                     var nombreCompleto = (data.nombres || '') + ' ' + (data.apellidos || '');
                     confirmNombreCompleto.textContent = nombreCompleto.trim() || 'No encontrado';
+                    datosDni = { nombres: data.nombres, apellidos: data.apellidos };
                     badge.textContent = '✅ DNI Verificado';
                     badge.className = 'badge-verified';
                 } else {
@@ -340,7 +345,7 @@ function procesarPago() {
     var documento = document.getElementById('documentoInput').value.trim();
     var direccion = document.getElementById('direccionEntrega').value.trim();
     
-    if (!email || !telefono || !documento) {
+    if (!email || !telefono) {
         Swal.fire({
             icon: 'warning',
             title: 'Campos incompletos',
@@ -378,8 +383,8 @@ function procesarPago() {
         return;
     }
     
-    // Validar documento según tipo
-    if (tipoComprobante === 'boleta' && documento.length !== 8) {
+    // Documento: obligatorio SOLO en factura (RUC). En boleta es opcional
+    if (tipoComprobante === 'boleta' && documento && documento.length !== 8) {
         Swal.fire({
             icon: 'warning',
             title: 'DNI inválido',
@@ -403,9 +408,10 @@ function procesarPago() {
         return;
     }
     
-    // Verificar que el documento esté verificado (confirmación mostrada)
+    // La verificación del documento solo aplica si se ingresó (boleta) o siempre en factura
+    var requiereVerificacion = (tipoComprobante === 'factura') || (documento.length === 8);
     var confirmBlock = document.getElementById('confirmacionBlock');
-    if (!confirmBlock.classList.contains('show')) {
+    if (requiereVerificacion && !confirmBlock.classList.contains('show')) {
         Swal.fire({
             icon: 'warning',
             title: 'Documento no verificado',
@@ -418,9 +424,18 @@ function procesarPago() {
     }
     
     // Guardar datos del checkout en localStorage para la página de pago
+    // Si se verificó el DNI con RENIEC, la boleta lleva el nombre real de esa persona
+    var compNombres = (datosDni && datosDni.nombres)
+        ? datosDni.nombres
+        : (document.getElementById('nombresDisplay').textContent || '');
+
+    var compApellidos = (datosDni && datosDni.apellidos)
+        ? datosDni.apellidos
+        : (document.getElementById('apellidosDisplay').textContent || '');
+
     var checkoutData = {
-        nombres: document.getElementById('nombresDisplay').textContent || '',
-        apellidos: document.getElementById('apellidosDisplay').textContent || '',
+        nombres: compNombres,
+        apellidos: compApellidos,
         email: email,
         telefono: telefono,
         documento: documento,

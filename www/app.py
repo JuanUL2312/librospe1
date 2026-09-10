@@ -970,7 +970,7 @@ def generar_comprobante_html(venta, producto, precio, cantidad, total, vendedor_
 <p>Válido como comprobante de pago</p>
 </div></div></body></html>"""
 
-def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta):
+def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta, documento="", tipo_documento=""):
     """Envía el comprobante por correo electrónico usando SMTP de AlwaysData"""
     try:
         import smtplib
@@ -990,6 +990,10 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
         msg['From'] = smtp_user
         msg['To'] = destinatario
         msg['Subject'] = f"{tipo_comprobante.upper()} ELECTRÓNICA N° {numero_comprobante}"
+
+        doc_html = ""
+        if documento:
+            doc_html = f"<p><strong>🪪 {tipo_documento or 'Documento'}:</strong> {documento}</p>"
         
         html = f"""
         <!DOCTYPE html>
@@ -1017,6 +1021,7 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
             <div class="content">
                 <p><strong>📅 Fecha:</strong> {fecha.strftime('%d/%m/%Y %H:%M:%S')}</p>
                 <p><strong>👤 Cliente:</strong> {cliente_nombre or 'Consumidor Final'}</p>
+                {doc_html}
                 
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
@@ -1686,6 +1691,77 @@ def cambiar_clave_usuario(usuario_id):
     except Exception as e:
         db.session.rollback()
         flash(f"❌ Error al cambiar la contraseña: {e}", "danger")
+
+    return redirect(url_for("usuarios_sistema"))
+
+@app.route("/usuario/editar/<int:usuario_id>", methods=["POST"])
+@login_required
+@admin_required
+def editar_usuario_sistema(usuario_id):
+    """El administrador edita un usuario del sistema (datos y/o contraseña)."""
+    usuario = db.session.get(UsuarioSistema, usuario_id)
+    if not usuario:
+        flash("❌ Usuario no encontrado", "danger")
+        return redirect(url_for("usuarios_sistema"))
+
+    nombres = (request.form.get("nombres") or "").strip()
+    apellidos = (request.form.get("apellidos") or "").strip()
+    correo = (request.form.get("correo") or "").strip()
+    rol = (request.form.get("rol") or "").strip()
+    documento = (request.form.get("documento") or "").strip() or None
+    nueva = request.form.get("nueva") or ""
+    confirmar = request.form.get("confirmar") or ""
+
+    if not nombres or not apellidos or not correo or not rol:
+        flash("❌ Nombres, apellidos, correo y rol son obligatorios", "danger")
+        return redirect(url_for("usuarios_sistema"))
+
+    # Si se quiere cambiar la contraseña
+    if nueva or confirmar:
+        if len(nueva) < 8:
+            flash("❌ La contraseña debe tener al menos 8 caracteres", "danger")
+            return redirect(url_for("usuarios_sistema"))
+        if nueva != confirmar:
+            flash("❌ Las contraseñas no coinciden", "danger")
+            return redirect(url_for("usuarios_sistema"))
+
+    # Correo único (excluyendo al propio usuario)
+    existe_correo = db.session.execute(text("""
+        SELECT id FROM usuarios_sistema WHERE LOWER(correo) = LOWER(:c) AND id != :uid LIMIT 1
+    """), {"c": correo, "uid": usuario_id}).fetchone()
+    if existe_correo:
+        flash("❌ El correo ya está en uso por otro usuario", "danger")
+        return redirect(url_for("usuarios_sistema"))
+
+    # Resolver rol_id
+    rol_nombre = {"administrador": "admin", "vendedor": "vendedor"}.get(rol, rol.lower())
+    rol_registro = db.session.execute(
+        text("SELECT id FROM roles WHERE nombre = :n LIMIT 1"), {"n": rol_nombre}
+    ).fetchone()
+    if not rol_registro:
+        flash("❌ Rol no válido", "danger")
+        return redirect(url_for("usuarios_sistema"))
+
+    try:
+        usuario.nombres = nombres
+        usuario.apellidos = apellidos
+        usuario.correo = correo
+        usuario.rol = rol
+        usuario.rol_id = rol_registro[0]
+        usuario.documento = documento
+        if nueva:
+            usuario.clave = bcrypt.generate_password_hash(nueva).decode("utf-8")
+            usuario.debe_cambiar_clave = 1
+        db.session.commit()
+        registrar_auditoria(
+            "EDITAR", "usuarios_sistema",
+            f"El administrador editó al usuario {usuario.nombres} {usuario.apellidos}"
+            + (" y cambió su contraseña" if nueva else ""),
+        )
+        flash(f"✅ Usuario actualizado: {usuario.nombres} {usuario.apellidos}", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"❌ Error al actualizar: {e}", "danger")
 
     return redirect(url_for("usuarios_sistema"))
 
@@ -3888,7 +3964,9 @@ def crear_pedido():
                 numero_comprobante=numero_comprobante,
                 fecha=datetime.now(),
                 productos=productos_para_correo,
-                total_venta=float(data["total"])
+                total_venta=float(data["total"]),
+                documento=cliente_documento,
+                tipo_documento="RUC" if tipo_comp == "factura" else ("DNI" if cliente_documento else ""),
             )
             print(f"📧 Correo enviado a {cliente_email}")
         except Exception as e:
@@ -4135,6 +4213,7 @@ def usuarios_sistema():
                 u.apellidos,
                 u.rol,
                 u.estado,
+                u.documento,
                 b.id AS bloqueo_id,
                 b.motivo AS bloqueo_motivo,
                 b.fecha_bloqueo AS bloqueo_fecha,

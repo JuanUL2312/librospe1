@@ -108,6 +108,77 @@
                                 {% endif %}
 
                                 {% if session.get('rol') == 'administrador' %}
+                                <button type="button" class="btn btn-info btn-sm"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#modalEditar{{ usuario.id }}">
+                                    <i class="fas fa-edit"></i> Editar
+                                </button>
+
+                                <!-- Modal para editar usuario -->
+                                <div class="modal fade" id="modalEditar{{ usuario.id }}" tabindex="-1">
+                                    <div class="modal-dialog modal-lg">
+                                        <div class="modal-content">
+                                            <form action="{{ url_for('editar_usuario_sistema', usuario_id=usuario.id) }}" method="POST">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title">Editar usuario</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                </div>
+                                                <div class="modal-body">
+                                                    <div class="row g-3">
+                                                        <div class="col-12 col-md-6">
+                                                            <label class="form-label">Nombres *</label>
+                                                            <input type="text" name="nombres" class="form-control"
+                                                                   value="{{ usuario.nombres }}" required>
+                                                        </div>
+                                                        <div class="col-12 col-md-6">
+                                                            <label class="form-label">Apellidos *</label>
+                                                            <input type="text" name="apellidos" class="form-control"
+                                                                   value="{{ usuario.apellidos }}" required>
+                                                        </div>
+                                                        <div class="col-12 col-md-6">
+                                                            <label class="form-label">Correo *</label>
+                                                            <input type="email" name="correo" class="form-control"
+                                                                   value="{{ usuario.correo }}" required>
+                                                        </div>
+                                                        <div class="col-12 col-md-6">
+                                                            <label class="form-label">Rol *</label>
+                                                            <select name="rol" class="form-select" required>
+                                                                <option value="administrador" {% if usuario.rol == 'administrador' %}selected{% endif %}>Administrador</option>
+                                                                <option value="vendedor" {% if usuario.rol == 'vendedor' %}selected{% endif %}>Vendedor</option>
+                                                            </select>
+                                                        </div>
+                                                        <div class="col-12">
+                                                            <label class="form-label">DNI / Carnet de Extranjería</label>
+                                                            <input type="text" name="documento" class="form-control"
+                                                                   value="{{ usuario.documento or '' }}" maxlength="20">
+                                                        </div>
+                                                        <div class="col-12">
+                                                            <hr class="my-2">
+                                                            <label class="form-label">
+                                                                <i class="fas fa-key text-warning me-1"></i>Nueva contraseña <small class="text-muted">(solo si quieres cambiarla)</small>
+                                                            </label>
+                                                            <div class="row g-2">
+                                                                <div class="col-12 col-md-6">
+                                                                    <input type="password" name="nueva" class="form-control"
+                                                                           placeholder="Mínimo 8 caracteres" minlength="8" autocomplete="new-password">
+                                                                </div>
+                                                                <div class="col-12 col-md-6">
+                                                                    <input type="password" name="confirmar" class="form-control"
+                                                                           placeholder="Confirmar contraseña" minlength="8" autocomplete="new-password">
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                    <button type="submit" class="btn btn-info">Guardar cambios</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <button type="button" class="btn btn-warning btn-sm"
                                         data-bs-toggle="modal"
                                         data-bs-target="#modalCambiarClave{{ usuario.id }}">
