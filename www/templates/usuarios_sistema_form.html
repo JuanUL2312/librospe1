@@ -66,15 +66,28 @@
                     <!-- DOCUMENTO (DNI / CARNET DE EXTRANJERÍA) -->
                     <div class="mb-4">
                         <label class="form-label fw-bold text-dark mb-3 fs-5">
-                            <i class="fas fa-id-card me-2 text-secondary"></i>DNI / Carnet de Extranjería
+                            <i class="fas fa-id-card me-2 text-secondary"></i>Tipo de Documento
                         </label>
-                        <div class="input-group input-group-lg">
+                        <div class="input-group input-group-lg mb-2">
                             <span class="input-group-text bg-transparent border-0 text-muted">
                                 <i class="fas fa-fingerprint"></i>
                             </span>
-                            <input type="text" name="documento"
+                            <select id="tipoDocumentoUsuario" class="form-select form-control-lg border-0 shadow-sm bg-white">
+                                <option value="DNI">DNI (8 dígitos)</option>
+                                <option value="CE">Carnet de Extranjería (9 caracteres)</option>
+                            </select>
+                        </div>
+                        <div class="input-group input-group-lg">
+                            <span class="input-group-text bg-transparent border-0 text-muted">
+                                <i class="fas fa-id-card"></i>
+                            </span>
+                            <input type="text" name="documento" id="documentoUsuario"
                                 class="form-control form-control-lg border-0 shadow-sm ps-5"
-                                placeholder="Ej. 12345678 o 001234567" maxlength="20">
+                                placeholder="Ej. 12345678" maxlength="8">
+                        </div>
+                        <div class="form-text mt-2" id="docUsuarioHint">
+                            <i class="fas fa-info-circle me-1 text-info"></i>
+                            DNI: exactamente 8 dígitos numéricos.
                         </div>
                     </div>
 
