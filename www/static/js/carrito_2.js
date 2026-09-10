@@ -303,6 +303,56 @@
     }
 
     // ===============================
+    // CAMBIAR CANTIDAD DESDE TECLADO (INPUT)
+    // ===============================
+    async function cambiarCantidadInput(idx, input) {
+        let valor = parseInt(input.value, 10);
+        if (isNaN(valor) || valor < 1) {
+            valor = 1;
+            input.value = 1;
+        }
+
+        let producto = carrito[idx];
+        if (!producto) return;
+
+        // Limitar al stock conocido
+        if (producto.stock && valor > producto.stock) {
+            valor = producto.stock;
+        }
+
+        if (valor === producto.cantidad) return;
+
+        // Validar contra el stock real del servidor
+        const stockInfo = await validarStockProducto(producto.id, valor);
+        if (!stockInfo.valido) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Stock insuficiente',
+                text: `Solo hay ${stockInfo.stockDisponible} unidades disponibles de "${producto.nombre}"`,
+                confirmButtonColor: '#3085d6'
+            });
+            input.value = producto.cantidad;
+            return;
+        }
+
+        carrito[idx].stock = stockInfo.stockDisponible;
+        carrito[idx].cantidad = valor;
+        localStorage.setItem('carritoCliente', JSON.stringify(carrito));
+
+        // Si hay cupón aplicado, eliminarlo al cambiar cantidades
+        if (cuponAplicado) {
+            cuponAplicado = null;
+            descuento = 0;
+            localStorage.removeItem('cuponAplicado');
+            localStorage.removeItem('descuento');
+            document.getElementById('descuentoRow').style.display = 'none';
+            document.getElementById('mensajeCupon').innerHTML = '';
+        }
+
+        renderizarCarrito();
+    }
+
+    // ===============================
     // ELIMINAR PRODUCTO
     // ===============================
     function eliminarProducto(idx) {
@@ -375,7 +425,12 @@
                             <button class="btn btn-sm btn-outline-secondary quantity-btn" onclick="cambiarCantidad(${i}, -1)">
                                 <i class="fas fa-minus"></i>
                             </button>
-                            <span class="fw-bold" style="min-width: 30px; text-align: center;">${cant}</span>
+                            <input type="number" class="form-control form-control-sm quantity-input" 
+                                   value="${cant}" min="1" step="1" style="width:70px; text-align:center;"
+                                   ${item.stock ? `max="${item.stock}"` : ''}
+                                   inputmode="numeric"
+                                   onchange="cambiarCantidadInput(${i}, this)"
+                                   onkeypress="if(event.key==='Enter') this.blur()">
                             <button class="btn btn-sm btn-outline-secondary quantity-btn" onclick="cambiarCantidad(${i}, 1)">
                                 <i class="fas fa-plus"></i>
                             </button>

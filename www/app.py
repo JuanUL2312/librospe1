@@ -1526,12 +1526,24 @@ def logout():
 def nuevo_usuario():
     if request.method == "POST":
         try:
+            # Resolver rol_id a partir del nombre del rol (tabla roles)
+            rol_nombre = {"administrador": "admin", "vendedor": "vendedor"}.get(
+                request.form["rol"], request.form["rol"].lower()
+            )
+            rol_registro = db.session.execute(
+                text("SELECT id FROM roles WHERE nombre = :n LIMIT 1"), {"n": rol_nombre}
+            ).fetchone()
+            if not rol_registro:
+                flash("❌ Rol no válido", "danger")
+                return redirect(url_for("nuevo_usuario"))
+
             clave_hash = bcrypt.generate_password_hash("123456").decode("utf-8")
             nuevo = UsuarioSistema(
                 correo=request.form["correo"],
                 nombres=request.form["nombres"],
                 apellidos=request.form["apellidos"],
                 rol=request.form["rol"],
+                rol_id=rol_registro[0],
                 documento=(request.form.get("documento") or "").strip() or None,
                 debe_cambiar_clave=1,
                 clave=clave_hash,
@@ -1639,6 +1651,42 @@ def desbloquear_usuario_sistema(usuario_id):
         db.session.rollback()
         flash(f"❌ Error al desbloquear: {e}", "danger")
     
+    return redirect(url_for("usuarios_sistema"))
+
+@app.route("/usuario/cambiar-clave/<int:usuario_id>", methods=["POST"])
+@login_required
+@admin_required
+def cambiar_clave_usuario(usuario_id):
+    """El administrador reestablece la contraseña de otro usuario del sistema."""
+    usuario = db.session.get(UsuarioSistema, usuario_id)
+    if not usuario:
+        flash("❌ Usuario no encontrado", "danger")
+        return redirect(url_for("usuarios_sistema"))
+
+    nueva = request.form.get("nueva")
+    confirmar = request.form.get("confirmar")
+
+    if not nueva or len(nueva) < 8:
+        flash("❌ La contraseña debe tener al menos 8 caracteres", "danger")
+        return redirect(url_for("usuarios_sistema"))
+
+    if nueva != confirmar:
+        flash("❌ Las contraseñas no coinciden", "danger")
+        return redirect(url_for("usuarios_sistema"))
+
+    try:
+        usuario.clave = bcrypt.generate_password_hash(nueva).decode("utf-8")
+        usuario.debe_cambiar_clave = 1
+        db.session.commit()
+        registrar_auditoria(
+            "CAMBIAR_CLAVE", "usuarios_sistema",
+            f"El administrador cambió la contraseña del usuario {usuario.nombres} {usuario.apellidos}",
+        )
+        flash(f"✅ Contraseña actualizada para {usuario.nombres} {usuario.apellidos}. Deberá cambiarla en su próximo ingreso", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"❌ Error al cambiar la contraseña: {e}", "danger")
+
     return redirect(url_for("usuarios_sistema"))
 
 @app.route("/cambiar_clave", methods=["GET", "POST"])
