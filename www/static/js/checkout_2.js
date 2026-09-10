@@ -154,14 +154,14 @@ function mostrarConfirmacion(documento) {
                     badge.textContent = '✅ DNI Verificado';
                     badge.className = 'badge-verified';
                 } else {
-                    confirmNombreCompleto.textContent = '⚠️ DNI no encontrado en el sistema';
-                    badge.textContent = '⚠️ No verificado';
+                    confirmNombreCompleto.textContent = '⚠️ DNI no encontrado en RENIEC. La boleta usará tu nombre registrado.';
+                    badge.textContent = '⚠️ No encontrado en RENIEC';
                     badge.className = 'badge-error';
                 }
             })
             .catch(() => {
-                confirmNombreCompleto.textContent = '⚠️ Error al consultar DNI';
-                badge.textContent = '⚠️ Error';
+                confirmNombreCompleto.textContent = '⚠️ Error al consultar RENIEC';
+                badge.textContent = '⚠️ Error de consulta';
                 badge.className = 'badge-error';
             });
     } else {
