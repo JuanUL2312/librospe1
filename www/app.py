@@ -3298,6 +3298,56 @@ def api_bloqueos():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def _consultar_ventas_filtradas(periodo="todo", fecha_desde="", fecha_hasta="", vendedor_filtro=None):
+    """Devuelve la lista de ventas (dicts) aplicando período, rango de fechas y vendedor."""
+    query = """
+        SELECT 
+            v.id, 
+            v.cantidad, 
+            v.fecha_venta, 
+            v.tipo_comprobante, 
+            v.numero_comprobante,
+            p.nombre as producto, 
+            p.precio,
+            u.id as vendedor_id, 
+            u.nombres as vendedor_nombres, 
+            u.apellidos as vendedor_apellidos,
+            v.cliente_nombres,
+            v.cliente_apellidos,
+            v.cliente_documento
+        FROM ventas v
+        JOIN productos p ON v.producto_id = p.id
+        LEFT JOIN usuarios_sistema u ON v.vendedor_id = u.id
+        WHERE v.estado = 1
+    """
+    params = {}
+    if vendedor_filtro:
+        query += " AND v.vendedor_id = :vendedor_id"
+        params['vendedor_id'] = vendedor_filtro
+    inicio, fin = rango_periodo(periodo)
+    if inicio and fin:
+        query += " AND DATE(v.fecha_venta) >= :fini AND DATE(v.fecha_venta) <= :ffin"
+        params['fini'] = inicio
+        params['ffin'] = fin
+    elif fecha_desde:
+        query += " AND DATE(v.fecha_venta) >= :fdesde"
+        params['fdesde'] = fecha_desde
+    if fecha_hasta:
+        query += " AND DATE(v.fecha_venta) <= :fhasta"
+        params['fhasta'] = fecha_hasta
+    query += " ORDER BY v.id DESC"
+
+    resultados = db.session.execute(db.text(query), params).mappings().all()
+
+    ventas_lista = []
+    for row in resultados:
+        venta_dict = dict(row)
+        venta_dict['precio_unitario'] = float(venta_dict.get('precio') or 0)
+        venta_dict['total_venta'] = venta_dict['precio_unitario'] * venta_dict.get('cantidad', 1)
+        ventas_lista.append(venta_dict)
+    return ventas_lista
+
+
 @app.route("/ventas")
 @login_required
 def ventas():
@@ -3315,58 +3365,8 @@ def ventas():
         periodo = request.args.get('periodo', 'todo')
         fecha_desde = request.args.get('fecha_desde', '')
         fecha_hasta = request.args.get('fecha_hasta', '')
-        inicio, fin = rango_periodo(periodo)
-
-        # ============================================
-        # CONSULTA SIN COLUMNAS QUE NO EXISTEN
-        # ============================================
-        query = """
-            SELECT 
-                v.id, 
-                v.cantidad, 
-                v.fecha_venta, 
-                v.tipo_comprobante, 
-                v.numero_comprobante,
-                p.nombre as producto, 
-                p.precio,
-                u.id as vendedor_id, 
-                u.nombres as vendedor_nombres, 
-                u.apellidos as vendedor_apellidos,
-                v.cliente_nombres,
-                v.cliente_apellidos,
-                v.cliente_documento
-            FROM ventas v
-            JOIN productos p ON v.producto_id = p.id
-            LEFT JOIN usuarios_sistema u ON v.vendedor_id = u.id
-            WHERE v.estado = 1
-        """
         
-        params = {}
-        if vendedor_filtro:
-            query += " AND v.vendedor_id = :vendedor_id"
-            params['vendedor_id'] = vendedor_filtro
-        if inicio and fin:
-            query += " AND DATE(v.fecha_venta) >= :fini AND DATE(v.fecha_venta) <= :ffin"
-            params['fini'] = inicio
-            params['ffin'] = fin
-        elif fecha_desde:
-            query += " AND DATE(v.fecha_venta) >= :fdesde"
-            params['fdesde'] = fecha_desde
-        if fecha_hasta:
-            query += " AND DATE(v.fecha_venta) <= :fhasta"
-            params['fhasta'] = fecha_hasta
-        
-        query += " ORDER BY v.id DESC"
-        
-        resultados = db.session.execute(db.text(query), params).mappings().all()
-        
-        # Convertir a lista de diccionarios
-        ventas_lista = []
-        for row in resultados:
-            venta_dict = dict(row)
-            venta_dict['precio_unitario'] = float(venta_dict.get('precio') or 0)
-            venta_dict['total_venta'] = venta_dict['precio_unitario'] * venta_dict.get('cantidad', 1)
-            ventas_lista.append(venta_dict)
+        ventas_lista = _consultar_ventas_filtradas(periodo, fecha_desde, fecha_hasta, vendedor_filtro)
         
         # Obtener lista de vendedores para el filtro (solo para administradores)
         vendedores = []
@@ -3393,6 +3393,25 @@ def ventas():
         print(f"Error en ventas: {e}")
         flash(f"Error al cargar ventas: {str(e)}", "danger")
         return render_template("ventas.html", ventas=[], vendedores=[])
+
+@app.route("/ventas/fragmento", methods=["POST"])
+@login_required
+def ventas_fragmento():
+    """Devuelve la tabla de ventas filtrada como JSON (AJAX, sin recargar la página)."""
+    try:
+        periodo = request.form.get("periodo") or "todo"
+        fecha_desde = request.form.get("fecha_desde", "")
+        fecha_hasta = request.form.get("fecha_hasta", "")
+        if session.get("rol") == "vendedor":
+            vendedor_filtro = session.get("usuario_id")
+        else:
+            vendedor_filtro = request.form.get("vendedor_id", type=int)
+        ventas_lista = _consultar_ventas_filtradas(periodo, fecha_desde, fecha_hasta, vendedor_filtro)
+        html = render_template("partials/_ventas_tabla.html", ventas=ventas_lista, rol_usuario=session.get("rol"))
+        return jsonify({"html": html, "conteo": len(ventas_lista)})
+    except Exception as e:
+        print(f"Error en ventas_fragmento: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/comprobante/<int:venta_id>")
 @login_required
