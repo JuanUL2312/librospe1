@@ -977,13 +977,54 @@ def generar_comprobante_html(venta, producto, precio, cantidad, total, vendedor_
 <p>Válido como comprobante de pago</p>
 </div></div></body></html>"""
 
-def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta, documento="", tipo_documento=""):
-    """Envía el comprobante por correo electrónico usando SMTP de AlwaysData"""
+def numero_a_letras(numero):
+    """Convierte un número (hasta millones) a letras en español."""
+    unidades = ("cero","uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve","diez",
+                "once","doce","trece","catorce","quince","dieciséis","diecisiete","dieciocho","diecinueve","veinte",
+                "veintiuno","veintidós","veintitrés","veinticuatro","veinticinco","veintiséis","veintisiete","veintiocho","veintinueve")
+    decenas = ("", "", "veinte", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta", "ochenta", "noventa")
+    centenas = ("", "ciento", "doscientos", "trescientos", "cuatrocientos", "quinientos", "seiscientos", "setecientos", "ochocientos", "novecientos")
+
+    def tres(n):
+        if n == 0:
+            return ""
+        if n == 100:
+            return "cien"
+        partes = []
+        if n >= 100:
+            partes.append(centenas[n // 100])
+            n %= 100
+        if n >= 30:
+            partes.append(decenas[n // 10])
+            n %= 10
+            if n:
+                partes.append("y")
+        if n:
+            partes.append(unidades[n])
+        return " ".join(partes).strip()
+
+    if numero == 0:
+        return "cero"
+
+    partes = []
+    if numero >= 1000000:
+        millones, numero = divmod(numero, 1000000)
+        partes.append("un millón" if millones == 1 else numero_a_letras(millones) + " millones")
+    if numero >= 1000:
+        miles, numero = divmod(numero, 1000)
+        partes.append("mil" if miles == 1 else numero_a_letras(miles) + " mil")
+    if numero:
+        partes.append(tres(numero))
+    return " ".join(partes)
+
+def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta, documento="", tipo_documento="", razon_social="", direccion_fiscal=""):
+    """Envía el comprobante (factura/boleta) por correo con estructura profesional de documento SUNAT."""
     try:
         import smtplib
+        import html
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
-        
+
         smtp_server = EMAIL_HOST
         smtp_port = EMAIL_PORT
         smtp_user = EMAIL_USER
@@ -992,99 +1033,184 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
         if not destinatario or '@' not in destinatario:
             print(f"❌ Email inválido: {destinatario}")
             return False
-        
+
+        es_factura = tipo_comprobante == "factura"
+        if es_factura:
+            titulo = "FACTURA DE VENTA ELECTRÓNICA"
+            asunto = f"🧾 FACTURA ELECTRÓNICA N° {numero_comprobante}"
+        else:
+            titulo = "BOLETA DE VENTA ELECTRÓNICA"
+            asunto = f"📄 BOLETA DE VENTA ELECTRÓNICA N° {numero_comprobante}"
+
+        e = html.escape
+        cliente_mostrar = (cliente_nombre or "").strip() or "Consumidor Final"
+        tipo_doc = tipo_documento or ("RUC" if es_factura else ("DNI" if documento else ""))
+        doc_val = documento if documento else "—"
+
+        # --- Panel de información (izq: fechas/tipo, der: cliente/documento) ---
+        info_izq = f"""
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;">
+                <div style="font-size:10px;letter-spacing:1px;color:#64748b;text-transform:uppercase;margin-bottom:2px;">Fecha de emisión</div>
+                <div style="font-size:14px;font-weight:700;color:#0f172a;">{e(fecha.strftime('%d/%m/%Y %H:%M:%S'))}</div>
+                <div style="font-size:10px;letter-spacing:1px;color:#64748b;text-transform:uppercase;margin:10px 0 2px;">Tipo de documento</div>
+                <div style="font-size:13px;font-weight:600;color:#0f172a;">{titulo}</div>
+                <div style="font-size:12px;color:#64748b;">N° {e(numero_comprobante)}</div>
+            </div>"""
+
+        info_der = f"""
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;">
+                <div style="font-size:10px;letter-spacing:1px;color:#64748b;text-transform:uppercase;margin-bottom:2px;">Cliente</div>
+                <div style="font-size:14px;font-weight:700;color:#0f172a;">{e(cliente_mostrar)}</div>
+                <div style="font-size:10px;letter-spacing:1px;color:#64748b;text-transform:uppercase;margin:10px 0 2px;">Documento ({e(tipo_doc) if tipo_doc else 'No informado'})</div>
+                <div style="font-size:14px;font-weight:700;color:#0f172a;">{e(doc_val)}</div>"""
+        if es_factura and razon_social:
+            info_der += f"""
+                <div style="font-size:10px;letter-spacing:1px;color:#64748b;text-transform:uppercase;margin:10px 0 2px;">Razón social</div>
+                <div style="font-size:13px;font-weight:600;color:#0f172a;">{e(razon_social)}</div>"""
+        if es_factura and direccion_fiscal:
+            info_der += f"""
+                <div style="font-size:10px;letter-spacing:1px;color:#64748b;text-transform:uppercase;margin:10px 0 2px;">Dirección fiscal</div>
+                <div style="font-size:13px;color:#0f172a;">{e(direccion_fiscal)}</div>"""
+        info_der += "</div>"
+
+        # --- Tabla de productos ---
+        filas = ""
+        for i, p in enumerate(productos):
+            nombre = e(str(p['nombre']))
+            cantidad = p.get('cantidad', 1)
+            precio = float(p.get('precio_unitario', p.get('precio', 0)))
+            total_linea = float(p.get('total', precio * cantidad))
+            fondo = "background:#ffffff;" if i % 2 == 0 else "background:#f8fafc;"
+            filas += f"""
+                        <tr style="{fondo}">
+                            <td style="padding:10px 12px;border-bottom:1px solid #eef2f7;color:#334155;font-size:13px;">{nombre}</td>
+                            <td style="padding:10px 12px;border-bottom:1px solid #eef2f7;text-align:center;color:#475569;font-size:13px;">{cantidad}</td>
+                            <td style="padding:10px 12px;border-bottom:1px solid #eef2f7;text-align:right;color:#475569;font-size:13px;">S/. {precio:,.2f}</td>
+                            <td style="padding:10px 12px;border-bottom:1px solid #eef2f7;text-align:right;color:#0f172a;font-size:13px;font-weight:600;">S/. {total_linea:,.2f}</td>
+                        </tr>"""
+
+        total_int = int(total_venta)
+        centimos = int(round((total_venta - total_int) * 100))
+        son = f"{numero_a_letras(total_int)} soles con {centimos:02d}/100"
+
+        if es_factura:
+            nota_validez = "Este documento es válido para efectos de crédito fiscal ante SUNAT."
+        else:
+            nota_validez = "Válido como boleta de venta electrónica. No es documento para crédito fiscal."
+
         msg = MIMEMultipart()
         msg['From'] = smtp_user
         msg['To'] = destinatario
-        msg['Subject'] = f"{tipo_comprobante.upper()} ELECTRÓNICA N° {numero_comprobante}"
+        msg['Subject'] = asunto
 
-        doc_html = ""
-        if documento:
-            doc_html = f"<p><strong>🪪 {tipo_documento or 'Documento'}:</strong> {documento}</p>"
-        
         html = f"""
         <!DOCTYPE html>
         <html>
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                body {{ font-family: 'Segoe UI', Arial, sans-serif; }}
-                .header {{ background: linear-gradient(135deg, #1e3a8a, #3b82f6); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-                .content {{ padding: 30px; background: #f8f9fa; }}
-                .producto {{ border-bottom: 1px solid #dee2e6; padding: 12px 0; }}
-                .total {{ font-size: 20px; font-weight: bold; color: #28a745; text-align: right; padding-top: 15px; margin-top: 15px; border-top: 2px solid #28a745; }}
-                .footer {{ background: #e9ecef; padding: 15px; text-align: center; font-size: 12px; color: #6c757d; border-radius: 0 0 10px 10px; }}
-                table {{ width: 100%; border-collapse: collapse; }}
-                th {{ background: #1e3a8a; color: white; padding: 10px; }}
-                td {{ padding: 8px; }}
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h2>📚 LIBRERÍA SALESIANA DON BOSCO</h2>
-                <h3>{tipo_comprobante.upper()} DE VENTA ELECTRÓNICA</h3>
-                <p><strong>N° {numero_comprobante}</strong></p>
-            </div>
-            <div class="content">
-                <p><strong>📅 Fecha:</strong> {fecha.strftime('%d/%m/%Y %H:%M:%S')}</p>
-                <p><strong>👤 Cliente:</strong> {cliente_nombre or 'Consumidor Final'}</p>
-                {doc_html}
-                
-                <table style="width: 100%; border-collapse: collapse;">
-                    <thead>
+        <head><meta charset="UTF-8"><title>{asunto}</title></head>
+        <body style="margin:0;padding:0;background:#eef2f7;font-family:'Segoe UI',Arial,sans-serif;">
+            <div style="max-width:660px;margin:24px auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+
+                <!-- CABECERA -->
+                <div style="background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:26px 30px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
                         <tr>
-                            <th style="background: #1e3a8a; color: white; padding: 10px;">Producto</th>
-                            <th style="background: #1e3a8a; color: white; padding: 10px;">Cantidad</th>
-                            <th style="background: #1e3a8a; color: white; padding: 10px;">Precio Unit.</th>
-                            <th style="background: #1e3a8a; color: white; padding: 10px;">Total</th>
+                            <td style="vertical-align:middle;">
+                                <table cellpadding="0" cellspacing="0">
+                                    <tr>
+                                        <td style="font-size:34px;padding-right:12px;">📚</td>
+                                        <td>
+                                            <div style="font-size:19px;font-weight:800;letter-spacing:.5px;color:#fff;">LIBRERÍA SALESIANA</div>
+                                            <div style="font-size:19px;font-weight:800;letter-spacing:.5px;color:#fff;">DON BOSCO</div>
+                                            <div style="font-size:11px;opacity:.8;color:#e0e7ff;margin-top:2px;">Comprobante de venta electrónico</div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                            <td style="text-align:right;vertical-align:middle;">
+                                <div style="display:inline-block;border:2px solid rgba(255,255,255,.75);border-radius:10px;padding:8px 18px;text-align:center;">
+                                    <div style="font-size:11px;font-weight:700;letter-spacing:2px;color:#e0e7ff;">{titulo}</div>
+                                    <div style="font-size:20px;font-weight:900;color:#fff;letter-spacing:1px;">N° {e(numero_comprobante)}</div>
+                                </div>
+                            </td>
                         </tr>
-                    </thead>
-                    <tbody>
-        """
-        
-        for p in productos:
-            html += f"""
-                        <tr class="producto">
-                            <td style="padding: 8px;">{p['nombre']}</td>
-                            <td style="padding: 8px; text-align: center;">{p['cantidad']}</td>
-                            <td style="padding: 8px; text-align: right;">S/. {p['precio_unitario']:.2f}</td>
-                            <td style="padding: 8px; text-align: right;">S/. {p['total']:.2f}</td>
-                        </tr>
-            """
-        
-        html += f"""
-                    </tbody>
-                </table>
-                
-                <div class="total">
-                    <p><strong>TOTAL: S/. {total_venta:.2f}</strong></p>
+                    </table>
                 </div>
-                
-                <p style="text-align: center; margin-top: 25px;">
-                    <strong>✨ ¡Gracias por su compra! ✨</strong><br>
-                    <small>Este es un comprobante de venta electrónico válido</small>
-                </p>
-            </div>
-            <div class="footer">
-                <p>Librería Salesiana Don Bosco | Todos los derechos reservados</p>
-                <p>📧 ventas@librospe.alwaysdata.net | 📞 (01) 123-4567</p>
+
+                <!-- INFORMACIÓN -->
+                <table width="100%" cellpadding="0" cellspacing="0" style="padding:20px 26px 6px;">
+                    <tr>
+                        <td style="padding:8px;vertical-align:top;width:50%;">{info_izq}</td>
+                        <td style="padding:8px;vertical-align:top;width:50%;">{info_der}</td>
+                    </tr>
+                </table>
+
+                <!-- PRODUCTOS -->
+                <table width="100%" cellpadding="0" cellspacing="0" style="padding:10px 26px 0;">
+                    <tr>
+                        <td>
+                            <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                                <tr style="background:#1e3a8a;">
+                                    <th style="padding:10px 12px;color:#fff;font-size:11px;letter-spacing:1px;text-transform:uppercase;text-align:left;">Producto</th>
+                                    <th style="padding:10px 12px;color:#fff;font-size:11px;letter-spacing:1px;text-transform:uppercase;text-align:center;">Cant.</th>
+                                    <th style="padding:10px 12px;color:#fff;font-size:11px;letter-spacing:1px;text-transform:uppercase;text-align:right;">P. Unitario</th>
+                                    <th style="padding:10px 12px;color:#fff;font-size:11px;letter-spacing:1px;text-transform:uppercase;text-align:right;">Total</th>
+                                </tr>
+                                {filas}
+                                <tr style="background:#f0fdf4;">
+                                    <td colspan="3" style="padding:14px 12px;text-align:right;color:#0f172a;font-size:14px;font-weight:700;text-transform:uppercase;">Total</td>
+                                    <td style="padding:14px 12px;text-align:right;color:#16a34a;font-size:19px;font-weight:900;">S/. {total_venta:,.2f}</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- SON: -->
+                <table width="100%" cellpadding="0" cellspacing="0" style="padding:4px 38px 0;">
+                    <tr>
+                        <td style="text-align:right;color:#64748b;font-size:12px;font-style:italic;">SON: {e(son.upper())}</td>
+                    </tr>
+                </table>
+
+                <!-- NOTA DE VALIDEZ -->
+                <table width="100%" cellpadding="0" cellspacing="0" style="padding:14px 26px;">
+                    <tr>
+                        <td style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;color:#1e3a8a;font-size:12px;text-align:center;">{nota_validez}</td>
+                    </tr>
+                </table>
+
+                <!-- CIERRE -->
+                <table width="100%" cellpadding="0" cellspacing="0" style="padding:0 26px 18px;">
+                    <tr>
+                        <td style="text-align:center;padding:10px 14px;color:#334155;">
+                            <div style="font-size:15px;font-weight:800;color:#1d4ed8;">✨ ¡Gracias por su compra! ✨</div>
+                            <div style="font-size:12px;color:#64748b;margin-top:4px;">Comprobante de venta electrónico válido</div>
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- PIE -->
+                <div style="background:#f1f5f9;padding:16px 26px;text-align:center;font-size:11px;color:#64748b;">
+                    <div style="font-weight:700;color:#334155;">Librería Salesiana Don Bosco | Todos los derechos reservados</div>
+                    <div style="margin-top:3px;">📧 ventas@librospe.alwaysdata.net &nbsp;|&nbsp; 📞 (01) 123-4567</div>
+                </div>
             </div>
         </body>
         </html>
         """
-        
+
         msg.attach(MIMEText(html, 'html'))
-        
+
         print(f"📧 Enviando a {destinatario}...")
         server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
         server.login(smtp_user, smtp_password)
         server.send_message(msg)
         server.quit()
-        
+
         print(f"✅ Correo enviado a {destinatario}")
         return True
-        
+
     except Exception as e:
         print(f"❌ Error al enviar correo: {e}")
         return False
@@ -4087,6 +4213,8 @@ def crear_pedido():
                 total_venta=float(data["total"]),
                 documento=cliente_documento,
                 tipo_documento="RUC" if tipo_comp == "factura" else ("DNI" if cliente_documento else ""),
+                razon_social=cliente_razon_social,
+                direccion_fiscal=cliente_direccion_fiscal,
             )
             print(f"📧 Correo enviado a {cliente_email}")
         except Exception as e:
