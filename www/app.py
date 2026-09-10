@@ -2581,6 +2581,20 @@ def reporte_ventas_pdf():
     if vendedor_filtro:
         query += " AND v.vendedor_id = :vid"
         params['vid'] = vendedor_filtro
+    periodo = request.args.get("periodo", "todo")
+    fecha_desde = request.args.get("fecha_desde", "")
+    fecha_hasta = request.args.get("fecha_hasta", "")
+    inicio, fin = rango_periodo(periodo)
+    if inicio and fin:
+        query += " AND DATE(v.fecha_venta) >= :fini AND DATE(v.fecha_venta) <= :ffin"
+        params['fini'] = inicio
+        params['ffin'] = fin
+    elif fecha_desde:
+        query += " AND DATE(v.fecha_venta) >= :fdesde"
+        params['fdesde'] = fecha_desde
+    if fecha_hasta:
+        query += " AND DATE(v.fecha_venta) <= :fhasta"
+        params['fhasta'] = fecha_hasta
     query += " ORDER BY v.fecha_venta DESC"
 
     rows = db.session.execute(db.text(query), params).mappings().all()
@@ -2603,8 +2617,13 @@ def reporte_ventas_pdf():
         ])
     filas.append(["", "", "", "", "TOTAL", f"S/ {total_gral:.2f}", "", ""])
 
-    buffer = _generar_pdf("Reporte de Ventas - Librería Salesiana", encabezados, filas,
-                          f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    subtitulo = f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    if inicio and fin:
+        etiquetas = {"hoy": "Hoy", "semana": "Esta semana", "mes": "Este mes", "anio": "Este año"}
+        subtitulo += f" | Período: {etiquetas.get(periodo, periodo)} ({inicio.strftime('%d/%m/%Y')} - {fin.strftime('%d/%m/%Y')})"
+    elif fecha_desde or fecha_hasta:
+        subtitulo += f" | Desde: {fecha_desde or '-'} Hasta: {fecha_hasta or '-'}"
+    buffer = _generar_pdf("Reporte de Ventas - Librería Salesiana", encabezados, filas, subtitulo)
     return send_file(buffer, as_attachment=True, download_name="reporte_ventas.pdf", mimetype="application/pdf")
 
 @app.route("/reportes/ventas/excel")
@@ -2635,11 +2654,19 @@ def reporte_ventas_excel():
         query += " AND v.vendedor_id = :vid"
         params['vid'] = vendedor_filtro
     periodo = request.args.get('periodo', 'todo')
+    fecha_desde = request.args.get('fecha_desde', '')
+    fecha_hasta = request.args.get('fecha_hasta', '')
     inicio, fin = rango_periodo(periodo)
     if inicio and fin:
         query += " AND DATE(v.fecha_venta) >= :fini AND DATE(v.fecha_venta) <= :ffin"
         params['fini'] = inicio
         params['ffin'] = fin
+    elif fecha_desde:
+        query += " AND DATE(v.fecha_venta) >= :fdesde"
+        params['fdesde'] = fecha_desde
+    if fecha_hasta:
+        query += " AND DATE(v.fecha_venta) <= :fhasta"
+        params['fhasta'] = fecha_hasta
     query += " ORDER BY v.fecha_venta DESC"
     rows = db.session.execute(db.text(query), params).mappings().all()
 
@@ -2670,6 +2697,11 @@ def reporte_ventas_excel():
     ws.append(["", "", "", "", "TOTAL", total_gral, "", ""])
     ws.append([])
     ws.append(["Generado: " + datetime.now().strftime('%d/%m/%Y %H:%M')])
+    if inicio and fin:
+        etiquetas = {"hoy": "Hoy", "semana": "Esta semana", "mes": "Este mes", "anio": "Este año"}
+        ws.append([f"Período: {etiquetas.get(periodo, periodo)} ({inicio.strftime('%d/%m/%Y')} - {fin.strftime('%d/%m/%Y')})"])
+    elif fecha_desde or fecha_hasta:
+        ws.append([f"Desde: {fecha_desde or '-'} Hasta: {fecha_hasta or '-'}"])
 
     for col in ws.columns:
         max_len = max((len(str(c.value)) for c in col if c.value is not None), default=10)
