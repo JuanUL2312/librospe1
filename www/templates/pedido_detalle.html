@@ -102,6 +102,12 @@
                                 <p><strong>📍 Dirección:</strong><br>
                                     {{ pedido.direccion_entrega or 'Recojo en tienda' }}
                                 </p>
+                                {% if pedido.tipo_entrega == 'delivery' and cliente %}
+                                <p>
+                                    <strong>🗺️ Departamento / Provincia / Distrito:</strong><br>
+                                    {{ cliente.departamento or '—' }} - {{ cliente.provincia or '—' }} - {{ cliente.distrito or '—' }}
+                                </p>
+                                {% endif %}
                                 <p><strong>⏱️ Estado:</strong><br>
                                     {% if pedido.estado == 'pendiente' %}
                                         <span class="badge bg-warning">⏳ PENDIENTE</span>

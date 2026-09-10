@@ -82,6 +82,12 @@
                                     <strong><i class="fas fa-map-marker-alt me-1"></i> Dirección de Entrega:</strong><br>
                                     <small>{% if pedido.direccion_entrega %}{{ pedido.direccion_entrega }}{% else %}<span class="text-muted">Recojo en tienda</span>{% endif %}</small>
                                 </p>
+                                {% if pedido.tipo_entrega == 'delivery' and cliente %}
+                                <p class="mb-2">
+                                    <strong><i class="fas fa-map-pin me-1"></i> Departamento / Provincia / Distrito:</strong><br>
+                                    <small>{{ cliente.departamento or '—' }} - {{ cliente.provincia or '—' }} - {{ cliente.distrito or '—' }}</small>
+                                </p>
+                                {% endif %}
                                 <p class="mb-2">
                                     <strong><i class="fas fa-chart-line me-1"></i> Estado:</strong><br>
                                     <span class="badge bg-{% if pedido.estado == 'pendiente' %}warning{% elif pedido.estado == 'confirmado' %}info{% elif pedido.estado == 'preparando' %}primary{% elif pedido.estado == 'enviado' %}info{% elif pedido.estado == 'entregado' %}success{% elif pedido.estado == 'cancelado' %}danger{% else %}secondary{% endif %} fs-6 px-3 py-2 mt-1">
