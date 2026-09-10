@@ -2316,6 +2316,189 @@ def reporte_ventas_excel():
     buffer.seek(0)
     return send_file(buffer, as_attachment=True, download_name="reporte_ventas.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+# ===============================
+# REPORTE VENTAS POR CLIENTE Y UBICACIÓN
+# ===============================
+def _listar_departamentos_clientes():
+    """Lista los departamentos registrados en clientes (para el filtro)."""
+    return db.session.execute(db.text(
+        "SELECT DISTINCT departamento FROM clientes "
+        "WHERE departamento IS NOT NULL AND TRIM(departamento) <> '' "
+        "ORDER BY departamento"
+    )).scalars().all()
+
+
+def _consultar_ventas_por_ubicacion(periodo="todo", departamento=None):
+    """Agrupa las ventas en la jerarquía departamento -> provincia -> distrito -> cliente.
+
+    Devuelve una tupla (filas, totales):
+      filas   : lista plana con {nivel, tipo, nombre, num_ventas, unidades, total}
+      totales : {num_ventas, unidades, total} del filtro aplicado.
+    Los vendedores solo ven sus propias ventas.
+    """
+    query = """
+        SELECT COALESCE(c.departamento, 'SIN ESPECIFICAR') AS departamento,
+               COALESCE(c.provincia, 'Sin especificar')    AS provincia,
+               COALESCE(c.distrito, 'Sin especificar')     AS distrito,
+               COALESCE(CONCAT(c.nombres, ' ', c.apellidos), 'VENTA SIN CLIENTE (mostrador)') AS cliente,
+               COUNT(*)                    AS num_ventas,
+               COALESCE(SUM(v.cantidad), 0) AS unidades,
+               COALESCE(SUM(v.cantidad * p.precio), 0) AS total
+        FROM ventas v
+        JOIN productos p ON v.producto_id = p.id
+        LEFT JOIN clientes c ON v.cliente_id = c.id
+        WHERE v.estado = 1
+    """
+    params = {}
+    if session.get("rol") == "vendedor":
+        query += " AND v.vendedor_id = :vid"
+        params["vid"] = session.get("usuario_id")
+    inicio, fin = rango_periodo(periodo)
+    if inicio and fin:
+        query += " AND DATE(v.fecha_venta) >= :fini AND DATE(v.fecha_venta) <= :ffin"
+        params["fini"] = inicio
+        params["ffin"] = fin
+    if departamento:
+        query += " AND c.departamento = :dep"
+        params["dep"] = departamento
+    query += """
+        GROUP BY c.id, c.departamento, c.provincia, c.distrito, c.nombres, c.apellidos
+        ORDER BY c.departamento IS NULL, c.departamento,
+                 c.provincia IS NULL, c.provincia,
+                 c.distrito IS NULL, c.distrito,
+                 c.nombres, c.apellidos
+    """
+    rows = db.session.execute(db.text(query), params).mappings().all()
+
+    datos = []
+    for r in rows:
+        datos.append({
+            "d": r["departamento"],
+            "p": r["provincia"],
+            "dt": r["distrito"],
+            "cliente": r["cliente"],
+            "num_ventas": int(r["num_ventas"] or 0),
+            "unidades": int(r["unidades"] or 0),
+            "total": float(r["total"] or 0),
+        })
+
+    arbol = {}
+    for item in datos:
+        arbol.setdefault(item["d"], {}).setdefault(item["p"], {}).setdefault(item["dt"], []).append(item)
+
+    def _subtotal(lista):
+        return (
+            sum(x["num_ventas"] for x in lista),
+            sum(x["unidades"] for x in lista),
+            round(sum(x["total"] for x in lista), 2),
+        )
+
+    filas = []
+    tot_ventas = tot_unidades = 0
+    tot_total = 0.0
+    for dep, provs in arbol.items():
+        clientes_dep = [c for p in provs.values() for ds in p.values() for c in ds]
+        n, u, t = _subtotal(clientes_dep)
+        filas.append({"nivel": 0, "tipo": "departamento", "nombre": dep, "num_ventas": n, "unidades": u, "total": t})
+        for prov, dists in provs.items():
+            clientes_prov = [c for ds in dists.values() for c in ds]
+            n, u, t = _subtotal(clientes_prov)
+            filas.append({"nivel": 1, "tipo": "provincia", "nombre": prov, "num_ventas": n, "unidades": u, "total": t})
+            for dist, clientes in dists.items():
+                n, u, t = _subtotal(clientes)
+                filas.append({"nivel": 2, "tipo": "distrito", "nombre": dist, "num_ventas": n, "unidades": u, "total": t})
+                for c in clientes:
+                    filas.append({"nivel": 3, "tipo": "cliente", "nombre": c["cliente"], "num_ventas": c["num_ventas"], "unidades": c["unidades"], "total": c["total"]})
+                    tot_ventas += c["num_ventas"]
+                    tot_unidades += c["unidades"]
+                    tot_total += c["total"]
+
+    totales = {"num_ventas": tot_ventas, "unidades": tot_unidades, "total": round(tot_total, 2)}
+    return filas, totales
+
+
+@app.route("/reportes/ventas_por_ubicacion", methods=["GET", "POST"])
+@login_required
+@permiso_requerido("ver_reportes")
+def reporte_ventas_por_ubicacion():
+    """Página del reporte de ventas por cliente agrupado por ubicación."""
+    periodo = request.args.get("periodo") or request.form.get("periodo") or "todo"
+    departamento = (request.args.get("departamento") or request.form.get("departamento") or "").strip() or None
+    filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento)
+    deptos = _listar_departamentos_clientes()
+    return render_template(
+        "reporte_ventas_ubicacion.html",
+        filas=filas,
+        totales=totales,
+        periodo=periodo,
+        departamento=departamento,
+        deptos=deptos,
+    )
+
+
+@app.route("/reportes/ventas_por_ubicacion/pdf")
+@login_required
+@permiso_requerido("ver_reportes")
+def reporte_ventas_por_ubicacion_pdf():
+    """Exporta el reporte de ventas por ubicación a PDF."""
+    periodo = request.args.get("periodo") or "todo"
+    departamento = (request.args.get("departamento") or "").strip() or None
+    filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento)
+
+    encabezados = ["Ubicación / Cliente", "N° Compras", "Unidades", "Total (S/)"]
+    filas_pdf = [[("    " * f["nivel"]) + f["tipo"].capitalize() + ": " + f["nombre"],
+                  f["num_ventas"], f["unidades"], f"S/ {f['total']:.2f}"] for f in filas]
+    filas_pdf.append(["", "", "", ""])
+    filas_pdf.append(["TOTAL GENERAL", totales["num_ventas"], totales["unidades"], f"S/ {totales['total']:.2f}"])
+
+    subtitulo = f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    if periodo != "todo":
+        inicio, fin = rango_periodo(periodo)
+        subtitulo += f" | Período: {inicio.strftime('%d/%m/%Y')} - {fin.strftime('%d/%m/%Y')}"
+    if departamento:
+        subtitulo += f" | Departamento: {departamento}"
+
+    buffer = _generar_pdf("Ventas por Cliente y Ubicación", encabezados, filas_pdf, subtitulo)
+    return send_file(buffer, as_attachment=True, download_name="reporte_ventas_por_ubicacion.pdf", mimetype="application/pdf")
+
+
+@app.route("/reportes/ventas_por_ubicacion/excel")
+@login_required
+@permiso_requerido("ver_reportes")
+def reporte_ventas_por_ubicacion_excel():
+    """Exporta el reporte de ventas por ubicación a Excel."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    periodo = request.args.get("periodo") or "todo"
+    departamento = (request.args.get("departamento") or "").strip() or None
+    filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Ventas por Ubicación"
+    ws.append(["UBICACIÓN / CLIENTE", "N° COMPRAS", "UNIDADES", "TOTAL (S/)"])
+    for celda in ws[1]:
+        celda.font = Font(bold=True, color="FFFFFF")
+        celda.fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+        celda.alignment = Alignment(horizontal="center")
+
+    for f in filas:
+        ws.append([("    " * f["nivel"]) + f["tipo"].capitalize() + ": " + f["nombre"],
+                   f["num_ventas"], f["unidades"], round(f["total"], 2)])
+    ws.append([])
+    ws.append(["TOTAL GENERAL", totales["num_ventas"], totales["unidades"], round(totales["total"], 2)])
+
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) for c in col if c.value is not None), default=10)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 50)
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name="reporte_ventas_por_ubicacion.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 @app.route("/caja/cierre/pdf")
 @login_required
 @permiso_requerido("ver_caja")

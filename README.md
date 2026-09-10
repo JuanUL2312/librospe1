@@ -119,6 +119,9 @@ Las alertas se muestran en el **listado de productos** (badges) y en el **dashbo
   Botón **"Exportar PDF"** en la página de ventas.
 - **Cierre de caja** (`/caja/cierre/pdf`): exporta el cierre de caja a PDF con el resumen por método de pago,
   montos esperado/real y diferencia. Botón de PDF en el historial de caja.
+- **Reporte de ventas por ubicación** (`/reportes/ventas_por_ubicacion`): reporte de ventas por cliente agrupado
+  en la jerarquía **departamento → provincia → distrito → cliente**, con filtros por período y departamento,
+  exportable a PDF y Excel (botones en la página).
 
 Requiere las librerías `reportlab` y `openpyxl` (incluidas en `requirements.txt`).
 

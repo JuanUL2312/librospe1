@@ -26,10 +26,22 @@ if (-not (Test-Path -LiteralPath $venvPy)) {
     & $py -m venv .venv-live
     if ($LASTEXITCODE -ne 0) { throw "Fallo al crear .venv-live" }
 }
-$paramikoOK = & $venvPy -c "import paramiko" 2>$null; if ($LASTEXITCODE -ne 0) {
+# Con $ErrorActionPreference="Stop", PS 5.1 trata el stderr de un comando nativo
+# (p.ej. el traceback de "import paramiko") como error terminante y aborta el script
+# antes de llegar a la auto-instalacion. Por eso se ejecuta con EAP en "Continue"
+# y se decide por el codigo de salida ($LASTEXITCODE).
+$savedEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& $venvPy -c "import paramiko" 2>$null | Out-Null
+$paramikoFaltante = $LASTEXITCODE -ne 0
+$ErrorActionPreference = $savedEAP
+if ($paramikoFaltante) {
     Write-Host "Instalando paramiko en el venv ..."
+    $ErrorActionPreference = "Continue"
     & $venvPy -m pip install paramiko --quiet
-    if ($LASTEXITCODE -ne 0) { throw "Fallo al instalar paramiko" }
+    $rcPip = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP
+    if ($rcPip -ne 0) { throw "Fallo al instalar paramiko" }
 }
 
 # ---------------- [0/5] Clave SSH: generar si falta ----------------
@@ -41,7 +53,10 @@ if (-not (Test-Path -LiteralPath $SSH_KEY)) {
 }
 
 # ---------------- [0/5] Autorizar clave en el servidor (una sola vez) ----------------
-& $venvPy -c @"
+# Los bloques Python se escriben a un archivo temporal y se ejecutan con
+# "python archivo.py" en lugar de "python -c". Al pasar codigo como argumento,
+# PS 5.1 elimina las comillas dobles embebidas y rompe el codigo.
+$pyCheckClave = @"
 import os
 os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
 import paramiko, sys
@@ -56,13 +71,17 @@ try:
 except Exception as e:
     sys.exit(2)
 "@
+$tmpPy = Join-Path $env:TEMP "librospe_check_clave.py"
+Set-Content -LiteralPath $tmpPy -Value $pyCheckClave -Encoding UTF8
+& $venvPy $tmpPy
+Remove-Item -LiteralPath $tmpPy -Force -ErrorAction SilentlyContinue
 if ($LASTEXITCODE -eq 2) {
     Write-Host "La clave aun no esta autorizada. Ingresa la contrasena SSH una sola vez:"
     $sec = Read-Host -AsSecureString "Contrasena SSH de alwaysdata"
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
     $plain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
     $env:LIBROSPE_SSH_PASS = $plain
-    & $venvPy -c @"
+    $pyAutorizar = @"
 import os
 os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
 import paramiko, sys
@@ -85,6 +104,10 @@ if rc == 0:
 client.close()
 sys.exit(0 if rc == 0 else "KEYFAIL")
 "@
+    $tmpPy = Join-Path $env:TEMP "librospe_autorizar_clave.py"
+    Set-Content -LiteralPath $tmpPy -Value $pyAutorizar -Encoding UTF8
+    & $venvPy $tmpPy
+    Remove-Item -LiteralPath $tmpPy -Force -ErrorAction SilentlyContinue
     Remove-Item Env:LIBROSPE_SSH_PASS -ErrorAction SilentlyContinue
     if ($LASTEXITCODE -ne 0) { throw "No se pudo autorizar la clave SSH. Revisa la contrasena." }
     Write-Host "Clave SSH autorizada en el servidor."
@@ -97,7 +120,7 @@ if ($LASTEXITCODE -ne 0) { throw "Error al crear el tarball" }
 
 # ---------------- [2/5] Subir y desplegar ----------------
 Write-Host "[2/5] Subiendo por SFTP a $SSH_HOST ..."
-& $venvPy -c @"
+$pySubir = @"
 import os
 os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
 import paramiko, sys
@@ -126,6 +149,10 @@ for cmd in cmds:
 client.close()
 print('Codigo subido y WSGI reiniciado (tmp/restart.txt).')
 "@
+$tmpPy = Join-Path $env:TEMP "librospe_subir.py"
+Set-Content -LiteralPath $tmpPy -Value $pySubir -Encoding UTF8
+& $venvPy $tmpPy
+Remove-Item -LiteralPath $tmpPy -Force -ErrorAction SilentlyContinue
 if ($LASTEXITCODE -ne 0) { throw "Fallo el deploy por SFTP/SSH" }
 
 # ---------------- [3/5] Verificar ----------------
@@ -136,7 +163,7 @@ Write-Host ("HTTP {0}: {1}" -f $resp.StatusCode, $resp.Content)
 
 # ---------------- [4/5] Limpiar ----------------
 Write-Host "[4/5] Limpiando temporal ..."
-Remove-Item -LiteralPath $tarFile -Force
+Remove-Item -LiteralPath $tarFile -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "============================================================"
