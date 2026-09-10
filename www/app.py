@@ -2392,8 +2392,7 @@ def venta_nueva():
                 cliente_documento=cliente_documento or None,
                 cliente_tipo_documento=(tipo_documento_cliente or ("RUC" if tipo_comprobante == "factura" else None)),
                 cliente_email=cliente_email or None,
-                # cliente_id se deja NULL (no tenemos el ID del cliente)
-                # estado = 1 (por defecto)
+                cliente_id=cliente_existente.id if cliente_existente else None,
             )
             db.session.add(nueva_venta)
             producto.cantidad -= cantidad
@@ -2711,7 +2710,10 @@ def _consultar_ventas_por_ubicacion(periodo="todo", departamento=None, provincia
                COALESCE(SUM(v.cantidad * p.precio), 0) AS total
         FROM ventas v
         JOIN productos p ON v.producto_id = p.id
-        LEFT JOIN clientes c ON v.cliente_id = c.id
+        LEFT JOIN clientes c ON (v.cliente_id IS NOT NULL AND v.cliente_id = c.id)
+             OR (v.cliente_id IS NULL AND v.cliente_documento IS NOT NULL
+                 AND v.cliente_documento <> ''
+                 AND (c.dni = v.cliente_documento OR c.ruc = v.cliente_documento OR c.ce = v.cliente_documento))
         WHERE v.estado = 1
     """
     params = {}
@@ -3622,6 +3624,15 @@ def venta_rapida():
                 return jsonify({"success": False, "error": f'Stock insuficiente: {item["nombre"]}'})
         venta_ids = []
         total_general = 0
+        cliente_rapido = None
+        try:
+            doc = data.get("cliente_dni", "")
+            if doc:
+                cliente_rapido = Cliente.query.filter(
+                    or_(Cliente.dni == doc, Cliente.ruc == doc, Cliente.ce == doc)
+                ).first()
+        except Exception:
+            cliente_rapido = None
         for item in items:
             producto = Producto.query.get(item["id"])
             total = producto.precio * item["cantidad"]
@@ -3636,6 +3647,7 @@ def venta_rapida():
                 cliente_apellidos=data.get("cliente_apellido", ""),
                 cliente_documento=data.get("cliente_dni", ""),
                 cliente_tipo_documento=data.get("cliente_tipo_documento", ""),
+                cliente_id=cliente_rapido.id if cliente_rapido else None,
             )
             db.session.add(nueva_venta)
             producto.cantidad -= item["cantidad"]
@@ -4195,6 +4207,8 @@ def crear_pedido():
         
         productos_para_correo = []
         
+        cliente_obj = Cliente.query.get(session["cliente_id"])
+        
         for item in data["items"]:
             producto = Producto.query.get(item["id"])
             subtotal = float(item["precio"]) * int(item["cantidad"])
@@ -4229,6 +4243,7 @@ def crear_pedido():
                 cliente_direccion=cliente_direccion,
                 cliente_direccion_fiscal=cliente_direccion_fiscal,  # ← NUEVO: dirección fiscal
                 cliente_razon_social=cliente_razon_social,          # ← NUEVO: razón social
+                cliente_id=cliente_obj.id if cliente_obj else None,
             )
             db.session.add(venta)
             
@@ -4243,7 +4258,6 @@ def crear_pedido():
         # 4.5 ACTUALIZAR PERFIL DEL CLIENTE (recomendación)
         # Guarda el DNI/RUC y completa nombres si están vacíos
         # ============================================
-        cliente_obj = Cliente.query.get(session["cliente_id"])
         if cliente_obj:
             if not cliente_obj.dni and cliente_documento and len(cliente_documento) == 8 and cliente_documento.isdigit():
                 cliente_obj.dni = cliente_documento
