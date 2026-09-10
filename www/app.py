@@ -2328,7 +2328,7 @@ def _listar_departamentos_clientes():
     )).scalars().all()
 
 
-def _consultar_ventas_por_ubicacion(periodo="todo", departamento=None):
+def _consultar_ventas_por_ubicacion(periodo="todo", departamento=None, provincia=None, distrito=None):
     """Agrupa las ventas en la jerarquía departamento -> provincia -> distrito -> cliente.
 
     Devuelve una tupla (filas, totales):
@@ -2359,8 +2359,14 @@ def _consultar_ventas_por_ubicacion(periodo="todo", departamento=None):
         params["fini"] = inicio
         params["ffin"] = fin
     if departamento:
-        query += " AND c.departamento = :dep"
+        query += " AND UPPER(c.departamento) = UPPER(:dep)"
         params["dep"] = departamento
+    if provincia:
+        query += " AND UPPER(c.provincia) = UPPER(:prov)"
+        params["prov"] = provincia
+    if distrito:
+        query += " AND UPPER(c.distrito) = UPPER(:dist)"
+        params["dist"] = distrito
     query += """
         GROUP BY c.id, c.departamento, c.provincia, c.distrito, c.nombres, c.apellidos
         ORDER BY c.departamento IS NULL, c.departamento,
@@ -2424,7 +2430,9 @@ def reporte_ventas_por_ubicacion():
     """Página del reporte de ventas por cliente agrupado por ubicación."""
     periodo = request.args.get("periodo") or request.form.get("periodo") or "todo"
     departamento = (request.args.get("departamento") or request.form.get("departamento") or "").strip() or None
-    filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento)
+    provincia = (request.args.get("provincia") or request.form.get("provincia") or "").strip() or None
+    distrito = (request.args.get("distrito") or request.form.get("distrito") or "").strip() or None
+    filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento, provincia, distrito)
     deptos = _listar_departamentos_clientes()
     return render_template(
         "reporte_ventas_ubicacion.html",
@@ -2432,8 +2440,23 @@ def reporte_ventas_por_ubicacion():
         totales=totales,
         periodo=periodo,
         departamento=departamento,
+        provincia=provincia,
+        distrito=distrito,
         deptos=deptos,
     )
+
+
+@app.route("/reportes/ventas_por_ubicacion/fragmento", methods=["POST"])
+@login_required
+@permiso_requerido("ver_reportes")
+def reporte_ventas_por_ubicacion_fragmento():
+    """Devuelve solo la tabla del reporte (AJAX, sin recargar la página)."""
+    periodo = request.form.get("periodo") or "todo"
+    departamento = (request.form.get("departamento") or "").strip() or None
+    provincia = (request.form.get("provincia") or "").strip() or None
+    distrito = (request.form.get("distrito") or "").strip() or None
+    filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento, provincia, distrito)
+    return render_template("partials/_ubicacion_tabla.html", filas=filas, totales=totales)
 
 
 @app.route("/reportes/ventas_por_ubicacion/pdf")
@@ -2443,7 +2466,9 @@ def reporte_ventas_por_ubicacion_pdf():
     """Exporta el reporte de ventas por ubicación a PDF."""
     periodo = request.args.get("periodo") or "todo"
     departamento = (request.args.get("departamento") or "").strip() or None
-    filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento)
+    provincia = (request.args.get("provincia") or "").strip() or None
+    distrito = (request.args.get("distrito") or "").strip() or None
+    filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento, provincia, distrito)
 
     encabezados = ["Ubicación / Cliente", "N° Compras", "Unidades", "Total (S/)"]
     filas_pdf = [[("    " * f["nivel"]) + f["tipo"].capitalize() + ": " + f["nombre"],
@@ -2457,6 +2482,10 @@ def reporte_ventas_por_ubicacion_pdf():
         subtitulo += f" | Período: {inicio.strftime('%d/%m/%Y')} - {fin.strftime('%d/%m/%Y')}"
     if departamento:
         subtitulo += f" | Departamento: {departamento}"
+    if provincia:
+        subtitulo += f" | Provincia: {provincia}"
+    if distrito:
+        subtitulo += f" | Distrito: {distrito}"
 
     buffer = _generar_pdf("Ventas por Cliente y Ubicación", encabezados, filas_pdf, subtitulo)
     return send_file(buffer, as_attachment=True, download_name="reporte_ventas_por_ubicacion.pdf", mimetype="application/pdf")
@@ -2473,7 +2502,9 @@ def reporte_ventas_por_ubicacion_excel():
 
     periodo = request.args.get("periodo") or "todo"
     departamento = (request.args.get("departamento") or "").strip() or None
-    filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento)
+    provincia = (request.args.get("provincia") or "").strip() or None
+    distrito = (request.args.get("distrito") or "").strip() or None
+    filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento, provincia, distrito)
 
     wb = Workbook()
     ws = wb.active

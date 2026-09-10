@@ -18,10 +18,10 @@
               </p>
             </div>
             <div class="d-flex gap-2 flex-wrap">
-              <a href="/reportes/ventas_por_ubicacion/pdf?periodo={{ periodo }}{% if departamento %}&departamento={{ departamento }}{% endif %}" class="btn btn-danger btn-lg shadow-lg hover-lift">
+              <a href="/reportes/ventas_por_ubicacion/pdf" id="btnExportPdf" class="btn btn-danger btn-lg shadow-lg hover-lift">
                 <i class="fas fa-file-pdf me-2"></i>PDF
               </a>
-              <a href="/reportes/ventas_por_ubicacion/excel?periodo={{ periodo }}{% if departamento %}&departamento={{ departamento }}{% endif %}" class="btn btn-success btn-lg shadow-lg hover-lift">
+              <a href="/reportes/ventas_por_ubicacion/excel" id="btnExportExcel" class="btn btn-success btn-lg shadow-lg hover-lift">
                 <i class="fas fa-file-excel me-2"></i>Excel
               </a>
               <a href="/dashboard" class="btn btn-warning btn-lg shadow-lg hover-lift">
@@ -32,114 +32,65 @@
         </div>
       </div>
 
+      <div
+        id="ubigeoEstado"
+        class="d-none"
+        data-periodo="{{ periodo }}"
+        data-dep="{{ departamento or '' }}"
+        data-prov="{{ provincia or '' }}"
+        data-dist="{{ distrito or '' }}">
+      </div>
+
       <div class="card shadow-3xl p-4 mb-4 border-0">
-        <form method="POST" class="row align-items-end g-3">
-          <div class="col-md-4">
+        <form id="filtroForm" class="row align-items-end g-3">
+          <div class="col-md-3" style="min-width: 180px;">
             <label class="form-label fw-bold text-dark">
               <i class="fas fa-calendar-alt me-1 text-warning"></i>Período
             </label>
-            <select name="periodo" class="form-select">
+            <select id="filtroPeriodo" class="form-select">
               {% for opcion, etiqueta in [("todo","Todo"), ("hoy","Hoy"), ("semana","Esta semana"), ("mes","Este mes"), ("anio","Este año")] %}
               <option value="{{ opcion }}" {% if periodo == opcion %}selected{% endif %}>{{ etiqueta }}</option>
               {% endfor %}
             </select>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3" style="min-width: 180px;">
             <label class="form-label fw-bold text-dark">
               <i class="fas fa-map-marker-alt me-1 text-warning"></i>Departamento
             </label>
-            <select name="departamento" class="form-select">
-              <option value="">Todos</option>
-              {% for d in deptos %}
-              <option value="{{ d }}" {% if departamento == d %}selected{% endif %}>{{ d }}</option>
-              {% endfor %}
+            <select id="filtroDepartamento" class="form-select">
+              <option value="">Todos los departamentos</option>
             </select>
           </div>
-          <div class="col-md-4">
-            <button type="submit" class="btn btn-primary btn-lg w-100 shadow-lg hover-lift">
+          <div class="col-md-3" style="min-width: 180px;">
+            <label class="form-label fw-bold text-dark">
+              <i class="fas fa-city me-1 text-warning"></i>Provincia
+            </label>
+            <select id="filtroProvincia" class="form-select" disabled>
+              <option value="">Todas las provincias</option>
+            </select>
+          </div>
+          <div class="col-md-3" style="min-width: 180px;">
+            <label class="form-label fw-bold text-dark">
+              <i class="fas fa-map-pin me-1 text-warning"></i>Distrito
+            </label>
+            <select id="filtroDistrito" class="form-select" disabled>
+              <option value="">Todos los distritos</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <button type="button" id="btnFiltrar" class="btn btn-primary btn-lg shadow-lg hover-lift">
               <i class="fas fa-filter me-2"></i>Filtrar
             </button>
           </div>
         </form>
       </div>
 
-      {% if filas %}
-      <div class="card shadow-3xl border-0">
-        <div class="table-responsive">
-          <table class="table table-hover mb-0 align-middle">
-            <thead class="table-dark">
-              <tr>
-                <th>Ubicación / Cliente</th>
-                <th class="text-center">N° Compras</th>
-                <th class="text-center">Unidades</th>
-                <th class="text-end">Total (S/)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for f in filas %}
-              {% if f.tipo == 'departamento' %}
-              <tr class="table-primary fw-bold align-middle">
-                <td style="padding-left: 0.75rem;">
-                  <i class="fas fa-map-marker-alt me-2 text-primary"></i>{{ f.nombre }}
-                </td>
-                <td class="text-center">{{ f.num_ventas }}</td>
-                <td class="text-center">{{ f.unidades }}</td>
-                <td class="text-end">S/. {{ "%.2f"|format(f.total) }}</td>
-              </tr>
-              {% elif f.tipo == 'provincia' %}
-              <tr class="table-info fw-semibold align-middle">
-                <td style="padding-left: 2.25rem;">
-                  <i class="fas fa-city me-2 text-info"></i>{{ f.nombre }}
-                </td>
-                <td class="text-center">{{ f.num_ventas }}</td>
-                <td class="text-center">{{ f.unidades }}</td>
-                <td class="text-end">S/. {{ "%.2f"|format(f.total) }}</td>
-              </tr>
-              {% elif f.tipo == 'distrito' %}
-              <tr class="align-middle">
-                <td style="padding-left: 4.25rem;">
-                  <i class="fas fa-map-pin me-2 text-muted"></i>{{ f.nombre }}
-                </td>
-                <td class="text-center">{{ f.num_ventas }}</td>
-                <td class="text-center">{{ f.unidades }}</td>
-                <td class="text-end">S/. {{ "%.2f"|format(f.total) }}</td>
-              </tr>
-              {% else %}
-              <tr class="hover-row align-middle">
-                <td style="padding-left: 6.25rem;">
-                  <i class="fas fa-user me-2 text-primary"></i>{{ f.nombre }}
-                </td>
-                <td class="text-center">
-                  <span class="badge bg-secondary px-3 py-2">{{ f.num_ventas }}</span>
-                </td>
-                <td class="text-center fw-semibold">{{ f.unidades }}</td>
-                <td class="text-end fw-bold text-success">S/. {{ "%.2f"|format(f.total) }}</td>
-              </tr>
-              {% endif %}
-              {% endfor %}
-            </tbody>
-            <tfoot class="table-dark">
-              <tr class="fw-bold fs-5">
-                <td><i class="fas fa-chart-bar me-2"></i>TOTAL GENERAL</td>
-                <td class="text-center">{{ totales.num_ventas }}</td>
-                <td class="text-center">{{ totales.unidades }}</td>
-                <td class="text-end">S/. {{ "%.2f"|format(totales.total) }}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+      <div id="ubicacionResultados">
+        {% include "partials/_ubicacion_tabla.html" %}
       </div>
-      {% else %}
-      <div class="text-center py-8">
-        <div class="bg-secondary rounded-circle mx-auto mb-5 p-5 d-inline-block shadow-lg"
-          style="width: 150px; height: 150px; display: flex; align-items: center; justify-content: center;">
-          <i class="fas fa-map-marked-alt fa-4x text-white"></i>
-        </div>
-        <h3 class="display-6 fw-extrabold text-muted mb-4">No hay ventas para el filtro seleccionado</h3>
-        <p class="lead text-muted mb-5">Cambia el período o el departamento para ver el reporte.</p>
-      </div>
-      {% endif %}
     </div>
   </div>
 </div>
+
+<script src="{{ url_for('static', filename='js/reporte_ubicacion.js') }}"></script>
 {% endblock %}
