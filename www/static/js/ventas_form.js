@@ -183,7 +183,11 @@ function actualizarCamposOcultos() {
     var documentoOculto = document.getElementById('cliente_documento_hidden');
     var tipoDocOculto = document.getElementById('cliente_tipo_documento_hidden');
     
-    if (tipo === 'factura') {
+    if (tipo === 'ninguno') {
+        emailOculto.value = '';
+        documentoOculto.value = '';
+        if (tipoDocOculto) tipoDocOculto.value = '';
+    } else if (tipo === 'factura') {
         var emailFactura = document.getElementById('factura_email');
         var rucFactura = document.getElementById('factura_ruc');
         emailOculto.value = emailFactura ? emailFactura.value : '';
@@ -296,22 +300,44 @@ async function consultarRUC() {
 document.addEventListener('DOMContentLoaded', function() {
     const boletaRadio = document.getElementById('boleta');
     const facturaRadio = document.getElementById('factura');
+    const ningunoRadio = document.getElementById('ninguno');
     const datosBoleta = document.getElementById('datos_boleta');
     const datosFactura = document.getElementById('datos_factura');
+    const datosNinguno = document.getElementById('datos_ninguno');
+    const envioCorreoBlock = document.getElementById('envio_correo_block');
+    const checkboxEmail = document.getElementById('checkbox_email');
     
     function toggleComprobanteSections() {
         if (facturaRadio.checked) {
             datosBoleta.style.display = 'none';
             datosFactura.style.display = 'block';
+            if (datosNinguno) datosNinguno.style.display = 'none';
+            if (envioCorreoBlock) envioCorreoBlock.style.display = '';
+        } else if (ningunoRadio && ningunoRadio.checked) {
+            datosBoleta.style.display = 'none';
+            datosFactura.style.display = 'none';
+            if (datosNinguno) datosNinguno.style.display = 'block';
+            if (envioCorreoBlock) envioCorreoBlock.style.display = 'none';
+            if (checkboxEmail) checkboxEmail.checked = false;
+            const hiddenEmail = document.getElementById('enviar_email');
+            if (hiddenEmail) hiddenEmail.value = '0';
         } else {
             datosBoleta.style.display = 'block';
             datosFactura.style.display = 'none';
+            if (datosNinguno) datosNinguno.style.display = 'none';
+            if (envioCorreoBlock) envioCorreoBlock.style.display = '';
+            if (checkboxEmail && !checkboxEmail.checked) {
+                checkboxEmail.checked = true;
+                const hiddenEmail = document.getElementById('enviar_email');
+                if (hiddenEmail) hiddenEmail.value = '1';
+            }
         }
         actualizarCamposOcultos();
     }
     
     boletaRadio.addEventListener('change', toggleComprobanteSections);
     facturaRadio.addEventListener('change', toggleComprobanteSections);
+    if (ningunoRadio) ningunoRadio.addEventListener('change', toggleComprobanteSections);
     toggleComprobanteSections();
     
     // Escuchar cambios en emails y documentos
@@ -434,6 +460,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         var tipo = document.querySelector('input[name="tipo_comprobante"]:checked').value;
+        if (tipo === 'ninguno') {
+            return true;
+        }
         if (tipo === 'factura') {
             var razonSocial = document.getElementById('factura_razon_social').value;
             if (!razonSocial) {

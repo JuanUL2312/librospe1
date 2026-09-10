@@ -54,9 +54,9 @@
           <td>
             <div class="d-flex flex-column">
               {% if v.tipo_comprobante %}
-              <span class="badge {% if v.tipo_comprobante|lower == 'factura' %}bg-danger-subtle text-danger border border-danger-subtle{% else %}bg-light text-dark border{% endif %} mb-1 align-self-start text-uppercase fs-7 px-2">
-                <i class="fas fa-file-invoice me-1"></i>{{ v.tipo_comprobante }}
-              </span>
+<span class="badge {% if v.tipo_comprobante|lower == 'ninguno' %}bg-secondary-subtle text-secondary border border-secondary-subtle{% elif v.tipo_comprobante|lower == 'factura' %}bg-danger-subtle text-danger border border-danger-subtle{% else %}bg-light text-dark border{% endif %} mb-1 align-self-start text-uppercase fs-7 px-2">
+                      <i class="fas fa-file-invoice me-1"></i>{% if v.tipo_comprobante|lower == 'ninguno' %}Sin comprobante{% else %}{{ v.tipo_comprobante }}{% endif %}
+                    </span>
               {% endif %}
               {% if v.numero_comprobante %}
               <small class="text-muted mono-font fs-7">

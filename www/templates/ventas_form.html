@@ -83,6 +83,12 @@
                                                     <i class="fas fa-file-invoice text-success me-1"></i> Factura (Con RUC)
                                                 </label>
                                             </div>
+                                            <div class="form-check form-check-inline me-0">
+                                                <input class="form-check-input" type="radio" name="tipo_comprobante" id="ninguno" value="ninguno">
+                                                <label class="form-check-label fw-semibold" for="ninguno">
+                                                    <i class="fas fa-window-close text-danger me-1"></i> Sin comprobante
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -173,7 +179,17 @@
                                     </div>
                                 </div>
 
-                                <div class="mb-4 p-3 border rounded bg-white">
+                                <div id="datos_ninguno" class="mb-4 mb-md-5" style="display: none;">
+                                    <label class="form-label fw-bolder fs-6 fs-md-5 mb-2 mb-md-3">
+                                        <i class="fas fa-window-close me-2 me-md-3 text-danger"></i>Sin Comprobante
+                                    </label>
+                                    <div class="alert alert-info border-0">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        Venta sin boleta ni factura. Solo se registra el ingreso en el sistema; el cliente no recibe ningún comprobante.
+                                    </div>
+                                </div>
+
+                                <div class="mb-4 p-3 border rounded bg-white" id="envio_correo_block">
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="checkbox_email" checked>
                                         <label class="form-check-label fw-semibold text-wrap" for="checkbox_email">
