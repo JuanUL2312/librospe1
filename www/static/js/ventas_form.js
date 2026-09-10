@@ -34,6 +34,31 @@ function actualizarFechaHora() {
 // ============================================
 let stockDisponible = 0;
 let productoNombre = '';
+let tipoDocumentoCliente = 'DNI'; // DNI | CE (Carnet de Extranjería)
+
+// ============================================
+// CAMBIAR TIPO DE DOCUMENTO (DNI / Carnet de Extranjería)
+// ============================================
+function cambiarTipoDocumentoCliente() {
+    const sel = document.getElementById('tipo_documento');
+    tipoDocumentoCliente = sel && sel.value === 'CE' ? 'CE' : 'DNI';
+
+    const input = document.getElementById('numero_documento');
+    const resultado = document.getElementById('resultadoCliente');
+    const docBoleta = document.getElementById('cliente_documento_boleta');
+
+    if (tipoDocumentoCliente === 'CE') {
+        input.placeholder = 'Ingrese CE (9 caracteres)';
+        input.maxLength = 9;
+    } else {
+        input.placeholder = 'Ingrese DNI (8 dígitos)';
+        input.maxLength = 8;
+    }
+    input.value = '';
+    if (resultado) resultado.innerHTML = '';
+    if (docBoleta) docBoleta.value = '';
+    actualizarCamposOcultos();
+}
 
 function validarStockEnTiempoReal() {
     const cantidadInput = document.getElementById('cantidad_input');
@@ -156,17 +181,22 @@ function actualizarCamposOcultos() {
     var tipo = document.querySelector('input[name="tipo_comprobante"]:checked').value;
     var emailOculto = document.getElementById('cliente_email_hidden');
     var documentoOculto = document.getElementById('cliente_documento_hidden');
+    var tipoDocOculto = document.getElementById('cliente_tipo_documento_hidden');
     
     if (tipo === 'factura') {
         var emailFactura = document.getElementById('factura_email');
         var rucFactura = document.getElementById('factura_ruc');
         emailOculto.value = emailFactura ? emailFactura.value : '';
         documentoOculto.value = rucFactura ? rucFactura.value : '';
+        if (tipoDocOculto) tipoDocOculto.value = 'RUC';
     } else {
         var emailBoleta = document.getElementById('cliente_email_boleta');
         var documentoBoleta = document.getElementById('cliente_documento_boleta');
         emailOculto.value = emailBoleta ? emailBoleta.value : '';
         documentoOculto.value = documentoBoleta ? documentoBoleta.value : '';
+        if (tipoDocOculto) tipoDocOculto.value = tipoDocumentoCliente === 'CE'
+            ? (documentoBoleta && documentoBoleta.value ? 'Carnet de Extranjería' : '')
+            : (documentoBoleta && documentoBoleta.value ? 'DNI' : '');
     }
 }
 
@@ -182,6 +212,18 @@ function actualizarEnvioEmail() {
 async function consultarDNI() {
     const dni = document.getElementById('numero_documento').value.trim();
     const resultadoDiv = document.getElementById('resultadoCliente');
+    
+    if (tipoDocumentoCliente === 'CE') {
+        // El Carnet de Extranjería no se consulta en RENIEC: solo se registra
+        if (!/^[A-Za-z0-9]{9}$/.test(dni)) {
+            resultadoDiv.innerHTML = '<div class="alert alert-warning">⚠️ Ingrese un Carnet de Extranjería válido (9 caracteres, letras y números)</div>';
+            return;
+        }
+        document.getElementById('cliente_documento_boleta').value = dni;
+        resultadoDiv.innerHTML = '<div class="alert alert-success">✅ Carnet de Extranjería registrado correctamente</div>';
+        actualizarCamposOcultos();
+        return;
+    }
     
     if (!dni || dni.length !== 8) {
         resultadoDiv.innerHTML = '<div class="alert alert-warning">⚠️ Ingrese un DNI válido de 8 dígitos</div>';

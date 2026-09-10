@@ -38,6 +38,7 @@
                             <form method="POST" id="ventaForm" class="needs-validation" novalidate>
                                 <input type="hidden" name="cliente_email" id="cliente_email_hidden" value="">
                                 <input type="hidden" name="cliente_documento" id="cliente_documento_hidden" value="">
+                                <input type="hidden" name="tipo_documento_cliente" id="cliente_tipo_documento_hidden" value="">
 
                                 <div class="mb-4 mb-md-5">
                                     <label class="form-label fw-bolder fs-6 fs-md-5 mb-2 mb-md-3">
@@ -93,8 +94,9 @@
                                     <div class="row g-3">
                                         <div class="col-12 col-md-4">
                                             <label class="form-label fw-semibold">Tipo de Documento</label>
-                                            <select id="tipo_documento" class="form-select shadow-sm">
+                                            <select id="tipo_documento" class="form-select shadow-sm" onchange="cambiarTipoDocumentoCliente()">
                                                 <option value="DNI">DNI</option>
+                                                <option value="CE">Carnet de Extranjería</option>
                                             </select>
                                         </div>
                                         <div class="col-12 col-md-5">

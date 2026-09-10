@@ -2307,6 +2307,7 @@ def venta_nueva():
             cliente_nombres = request.form.get("cliente_nombres", "")
             cliente_apellidos = request.form.get("cliente_apellidos", "")
             cliente_documento = request.form.get("cliente_documento", "")
+            tipo_documento_cliente = request.form.get("tipo_documento_cliente", "")
             enviar_email = request.form.get("enviar_email", "0")
             
             # Si el documento está registrado, completar el correo/nombre faltante automáticamente;
@@ -2413,7 +2414,7 @@ def venta_nueva():
                         productos=[{'nombre': producto.nombre, 'cantidad': cantidad, 'precio_unitario': precio_unitario, 'total': total_venta}],
                         total_venta=total_venta,
                         documento=cliente_documento,
-                        tipo_documento="RUC" if tipo_comprobante == "factura" else ("DNI" if cliente_documento else ""),
+                        tipo_documento="RUC" if tipo_comprobante == "factura" else (tipo_documento_cliente or ("DNI" if cliente_documento else "")),
                         razon_social=request.form.get("cliente_razon_social", ""),
                         direccion_fiscal=request.form.get("factura_direccion", ""),
                     )
