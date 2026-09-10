@@ -15,6 +15,9 @@ function inicializarBoleta() {
         if (tipoDocumento.value === 'DNI') {
             numeroDocumento.placeholder = 'Ingrese DNI (8 dígitos)';
             numeroDocumento.maxLength = 8;
+        } else if (tipoDocumento.value === 'CE') {
+            numeroDocumento.placeholder = 'Ingrese CE (9 caracteres)';
+            numeroDocumento.maxLength = 9;
         } else {
             numeroDocumento.placeholder = 'Ingrese RUC (11 dígitos)';
             numeroDocumento.maxLength = 11;
@@ -30,8 +33,12 @@ function inicializarBoleta() {
 
     if (numeroDocumento) {
         numeroDocumento.addEventListener('input', function(e) {
-            this.value = this.value.replace(/[^0-9]/g, '');
             const tipo = tipoDocumento.value;
+            if (tipo === 'CE') {
+                this.value = this.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 9);
+                return;
+            }
+            this.value = this.value.replace(/[^0-9]/g, '');
             if (tipo === 'DNI' && this.value.length > 8) {
                 this.value = this.value.slice(0, 8);
             } else if (tipo === 'RUC' && this.value.length > 11) {
@@ -46,6 +53,15 @@ function inicializarBoleta() {
 
         if (!numero) {
             resultadoCliente.innerHTML = '<div class="alert alert-warning">⚠️ Ingrese un número de documento</div>';
+            return;
+        }
+        if (tipo === "CE") {
+            if (!/^[A-Za-z0-9]{9}$/.test(numero)) {
+                resultadoCliente.innerHTML = '<div class="alert alert-warning">⚠️ El Carnet de Extranjería debe tener 9 caracteres (letras y números)</div>';
+                return;
+            }
+            if (clienteDocumento) clienteDocumento.value = numero;
+            resultadoCliente.innerHTML = '<div class="alert alert-success">✅ Carnet de Extranjería registrado (sin consulta RENIEC)</div>';
             return;
         }
         if (tipo === "DNI" && numero.length !== 8) {

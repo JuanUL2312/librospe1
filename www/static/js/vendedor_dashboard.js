@@ -75,6 +75,7 @@ document.getElementById('btnFinalizarVenta').onclick = function() {
         body: JSON.stringify({
             items: carrito,
             cliente_dni: clienteDNI || null,
+            cliente_tipo_documento: document.getElementById('tipoDocumentoCliente').value,
             tipo_comprobante: 'boleta'
         })
     })

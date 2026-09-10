@@ -35,7 +35,7 @@
                                     {% if venta and venta.cliente_telefono %}{{ venta.cliente_telefono }}{% else %}{{ cliente.telefono if cliente else 'No registrado' }}{% endif %}
                                 </p>
                                 <p class="mb-2">
-                                    <strong><i class="fas fa-id-card me-1"></i> DNI / RUC:</strong><br>
+                                    <strong><i class="fas fa-id-card me-1"></i> Documento (DNI/RUC/CE):</strong><br>
                                     {% if venta and venta.cliente_documento %}
                                         <span class="fw-bold text-primary fs-6 fs-md-5">{{ venta.cliente_documento }}</span>
                                     {% elif cliente and cliente.dni %}

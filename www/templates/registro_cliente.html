@@ -42,9 +42,19 @@
                                 </div>
                             </div>
                             
-                            <div class="mt-2 mt-md-3">
-                                <label class="form-label fw-bold small">DNI (opcional)</label>
-                                <input type="text" name="dni" class="form-control" maxlength="8" placeholder="12345678">
+                            <div class="row g-2 g-md-3 mt-2 mt-md-3">
+                                <div class="col-12 col-md-5">
+                                    <label class="form-label fw-bold small">Tipo de Documento</label>
+                                    <select name="tipo_documento" id="tipo_documento" class="form-control" onchange="cambiarTipoDocumentoRegistro()">
+                                        <option value="DNI">DNI</option>
+                                        <option value="CE">Carnet de Extranjería</option>
+                                    </select>
+                                </div>
+                                <div class="col-12 col-md-7">
+                                    <label class="form-label fw-bold small" id="numeroDocLabel">DNI (opcional)</label>
+                                    <input type="text" name="numero_documento" id="numero_documento" class="form-control"
+                                           maxlength="8" placeholder="12345678">
+                                </div>
                             </div>
                             
                             <div class="mt-2 mt-md-3">

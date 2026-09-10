@@ -186,6 +186,7 @@ class Venta(db.Model):
     cliente_nombres = db.Column(db.String(100), nullable=True)
     cliente_apellidos = db.Column(db.String(100), nullable=True)
     cliente_documento = db.Column(db.String(20), nullable=True)
+    cliente_tipo_documento = db.Column(db.String(30), nullable=True)  # RUC | DNI | Carnet de Extranjería
     cliente_email = db.Column(db.String(150), nullable=True)
     cliente_direccion = db.Column(db.Text, nullable=True)
     cliente_direccion_fiscal = db.Column(db.Text, nullable=True)
@@ -246,6 +247,7 @@ class Cliente(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     dni = db.Column(db.String(8))
     ruc = db.Column(db.String(11), nullable=True)
+    ce = db.Column(db.String(9), nullable=True)  # ← Carnet de Extranjería (persona natural)
     nombres = db.Column(db.String(100), nullable=False)
     apellidos = db.Column(db.String(100), nullable=False)
     correo = db.Column(db.String(150), unique=True, nullable=False)  # ← CAMBIADO de email a correo
@@ -2316,7 +2318,7 @@ def venta_nueva():
             try:
                 if cliente_documento:
                     cliente_existente = Cliente.query.filter(
-                        or_(Cliente.dni == cliente_documento, Cliente.ruc == cliente_documento)
+                        or_(Cliente.dni == cliente_documento, Cliente.ruc == cliente_documento, Cliente.ce == cliente_documento)
                     ).first()
                 elif (cliente_nombres or "").strip():
                     busqueda = Cliente.query.filter(
@@ -2388,6 +2390,7 @@ def venta_nueva():
                 cliente_nombres=cliente_nombres or None,
                 cliente_apellidos=cliente_apellidos or None,
                 cliente_documento=cliente_documento or None,
+                cliente_tipo_documento=(tipo_documento_cliente or ("RUC" if tipo_comprobante == "factura" else None)),
                 cliente_email=cliente_email or None,
                 # cliente_id se deja NULL (no tenemos el ID del cliente)
                 # estado = 1 (por defecto)
@@ -3371,7 +3374,8 @@ def ver_comprobante(venta_id):
                              ).join(Producto, Venta.producto_id == Producto.id)\
                               .outerjoin(UsuarioSistema, Venta.vendedor_id == UsuarioSistema.id)\
                               .outerjoin(Cliente, or_(Venta.cliente_documento == Cliente.dni,
-                                                      Venta.cliente_documento == Cliente.ruc))\
+                                                      Venta.cliente_documento == Cliente.ruc,
+                                                      Venta.cliente_documento == Cliente.ce))\
                               .filter(Venta.id == venta_id).first()
     
     if not venta:
@@ -3631,6 +3635,7 @@ def venta_rapida():
                 cliente_nombres=data.get("cliente_nombre", ""),
                 cliente_apellidos=data.get("cliente_apellido", ""),
                 cliente_documento=data.get("cliente_dni", ""),
+                cliente_tipo_documento=data.get("cliente_tipo_documento", ""),
             )
             db.session.add(nueva_venta)
             producto.cantidad -= item["cantidad"]
@@ -3762,8 +3767,14 @@ def registro_cliente():
                 flash("❌ Debes indicar tu lugar de residencia: departamento, provincia y distrito", "danger")
                 return redirect(url_for("registro_cliente"))
 
+            tipo_documento = request.form.get("tipo_documento", "DNI")
+            numero_documento = _nulo(request.form.get("numero_documento"))
+            dni_registro = numero_documento if tipo_documento == "DNI" else None
+            ce_registro = numero_documento if tipo_documento == "CE" else None
+
             cliente = Cliente(
-                dni=_nulo(request.form.get("dni")),
+                dni=dni_registro,
+                ce=ce_registro,
                 nombres=request.form["nombres"].strip(),
                 apellidos=request.form["apellidos"].strip(),
                 correo=request.form["email"].strip(),
@@ -3841,10 +3852,18 @@ def cliente_actualizar_perfil():
             cliente.correo = nuevo_email
             session["cliente_correo"] = nuevo_email
         
-        nuevo_dni = request.form.get("dni")
-        if nuevo_dni and nuevo_dni != cliente.dni:
-            cliente.dni = nuevo_dni
-            session["cliente_dni"] = nuevo_dni
+        tipo_documento = request.form.get("tipo_documento", "DNI")
+        numero_documento = (request.form.get("numero_documento") or "").strip() or None
+        if tipo_documento == "CE":
+            cliente.dni = None
+            cliente.ce = numero_documento
+        else:
+            cliente.dni = numero_documento
+            cliente.ce = None
+        if numero_documento:
+            session["cliente_dni"] = numero_documento
+        else:
+            session.pop("cliente_dni", None)
         
         db.session.commit()
         
@@ -4205,6 +4224,7 @@ def crear_pedido():
                 cliente_nombres=cliente_nombres,
                 cliente_apellidos=cliente_apellidos,
                 cliente_documento=cliente_documento,
+                cliente_tipo_documento=cliente_tipo_documento or None,
                 cliente_email=cliente_email,
                 cliente_direccion=cliente_direccion,
                 cliente_direccion_fiscal=cliente_direccion_fiscal,  # ← NUEVO: dirección fiscal
@@ -4227,6 +4247,8 @@ def crear_pedido():
         if cliente_obj:
             if not cliente_obj.dni and cliente_documento and len(cliente_documento) == 8 and cliente_documento.isdigit():
                 cliente_obj.dni = cliente_documento
+            elif not cliente_obj.ce and cliente_documento and len(cliente_documento) == 9 and not cliente_documento.isdigit():
+                cliente_obj.ce = cliente_documento
             if not cliente_obj.nombres and cliente_nombres:
                 cliente_obj.nombres = cliente_nombres
             if not cliente_obj.apellidos and cliente_apellidos:
@@ -4789,6 +4811,23 @@ if os.environ.get("AUTO_CREATE_SCHEMA", "false").lower() == "true":
             db.session.commit()
         except Exception as e:
             print(f"Migración pedidos omitida: {e}")
+            db.session.rollback()
+        try:
+            migraciones_docs = {
+                "clientes": [("ce", "VARCHAR(9) NULL")],
+                "ventas": [("cliente_tipo_documento", "VARCHAR(30) NULL")],
+            }
+            for tabla, columnas in migraciones_docs.items():
+                for col, tipo in columnas:
+                    resultado = db.session.execute(
+                        text(f"SHOW COLUMNS FROM {tabla} LIKE '{col}'")
+                    )
+                    if not resultado.fetchone():
+                        db.session.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {col} {tipo}"))
+                        print(f"Columna {col} agregada a {tabla}")
+            db.session.commit()
+        except Exception as e:
+            print(f"Migración documentos omitida: {e}")
             db.session.rollback()
         try:
             seed_permisos()

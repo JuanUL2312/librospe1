@@ -58,7 +58,11 @@
             </div>
             <div class="card-body">
                 <div class="input-group mb-3">
-                    <input type="text" id="dniCliente" class="form-control" placeholder="DNI del cliente">
+                    <select id="tipoDocumentoCliente" class="form-select" style="max-width: 110px;">
+                        <option value="DNI">DNI</option>
+                        <option value="CE">CE</option>
+                    </select>
+                    <input type="text" id="dniCliente" class="form-control" placeholder="DNI/CE del cliente">
                     <button class="btn btn-primary" id="buscarCliente"><i class="fas fa-user"></i></button>
                 </div>
                 <div id="infoCliente" style="display:none;">

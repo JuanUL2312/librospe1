@@ -30,9 +30,24 @@
 
                     <div class="row g-3 mt-1">
                         <div class="col-12 col-md-6">
-                            <label class="form-label">DNI</label>
-                            <input type="text" name="dni" class="form-control" value="{{ cliente.dni or '' }}" maxlength="8">
-                            <small class="text-muted d-block">Opcional, máximo 8 dígitos</small>
+                            <label class="form-label">Tipo de Documento</label>
+                            <select name="tipo_documento" id="tipo_documento" class="form-control" onchange="cambiarTipoDocumentoPerfil()">
+                                {% if cliente.ce %}
+                                <option value="DNI">DNI</option>
+                                <option value="CE" selected>Carnet de Extranjería</option>
+                                {% else %}
+                                <option value="DNI" selected>DNI</option>
+                                <option value="CE">Carnet de Extranjería</option>
+                                {% endif %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" id="numeroDocLabel">{% if cliente.ce %}Carnet de Extranjería{% else %}DNI{% endif %}</label>
+                            <input type="text" name="numero_documento" id="numero_documento" class="form-control"
+                                   value="{{ (cliente.ce or '') if cliente.ce else (cliente.dni or '') }}"
+                                   maxlength="{% if cliente.ce %}9{% else %}8{% endif %}"
+                                   placeholder="{% if cliente.ce %}9 caracteres (letras y números){% else %}Máximo 8 dígitos{% endif %}">
+                            <small class="text-muted d-block" id="numeroDocHint">{% if cliente.ce %}Opcional{% else %}Opcional, máximo 8 dígitos{% endif %}</small>
                         </div>
                         <div class="col-12 col-md-6">
                             <label class="form-label">Teléfono</label>
@@ -103,6 +118,31 @@
 
 <script>
 (function() {
+    function cambiarTipoDocumentoPerfil() {
+        const sel = document.getElementById('tipo_documento');
+        const input = document.getElementById('numero_documento');
+        const label = document.getElementById('numeroDocLabel');
+        const hint = document.getElementById('numeroDocHint');
+        if (!sel || !input) return;
+        const esCE = sel.value === 'CE';
+        label.textContent = esCE ? 'Carnet de Extranjería' : 'DNI';
+        input.maxLength = esCE ? 9 : 8;
+        input.placeholder = esCE ? '9 caracteres (letras y números)' : 'Máximo 8 dígitos';
+        hint.textContent = esCE ? 'Opcional, 9 caracteres (letras y números)' : 'Opcional, máximo 8 dígitos';
+        input.value = '';
+    }
+    window.cambiarTipoDocumentoPerfil = cambiarTipoDocumentoPerfil;
+
+    const docInput = document.getElementById('numero_documento');
+    if (docInput) {
+        docInput.addEventListener('input', function () {
+            const esCE = document.getElementById('tipo_documento').value === 'CE';
+            this.value = esCE
+                ? this.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 9)
+                : this.value.replace(/\D/g, '').slice(0, 8);
+        });
+    }
+
     const depSel = document.getElementById('departamento');
     const provSel = document.getElementById('provincia');
     const distSel = document.getElementById('distrito');
