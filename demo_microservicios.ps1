@@ -171,8 +171,8 @@ function Show-Inventario($s) {
 
 function Show-AdminEscritura($s) {
     Paso "9) OPERACIONES DE ESCRITURA (solo administrador)"
-    $pedidos = @(Invoke-RestMethod "$BaseUrl/api/comercial/pedidos" -WebSession $s)
-    $productos = @(Invoke-RestMethod "$BaseUrl/api/inventario/productos" -WebSession $s)
+    $pedidos = Invoke-RestMethod "$BaseUrl/api/comercial/pedidos" -WebSession $s
+    $productos = Invoke-RestMethod "$BaseUrl/api/inventario/productos" -WebSession $s
     if ($pedidos.Count -gt 0) {
         $id = $pedidos[0].id
         $estadoNuevo = if ($pedidos[0].estado -eq "confirmado") { "pendiente" } else { "confirmado" }
