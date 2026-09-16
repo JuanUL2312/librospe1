@@ -38,7 +38,7 @@
                         <td class="text-nowrap">{{ c.usos_actuales }}/{{ c.usos_maximos }}</td>
                         <td class="text-nowrap">{{ c.fecha_expiracion.strftime('%d/%m/%Y') if c.fecha_expiracion else 'Sin fecha' }}</td>
                         <td>
-                            {% if c.activo and c.fecha_expiracion and c.fecha_expiracion > now %}
+                            {% if c.activo and c.fecha_expiracion and c.fecha_expiracion > hora_peru() %}
                             <span class="badge bg-success">Activo</span>
                             {% elif not c.activo %}
                             <span class="badge bg-secondary">Inactivo</span>

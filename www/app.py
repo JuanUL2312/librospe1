@@ -12,7 +12,7 @@ from werkzeug.utils import secure_filename
 from flask_bcrypt import Bcrypt
 from flask_sqlalchemy import SQLAlchemy
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, text, or_
 
 # Paquete de microservicios (blueprints independientes: comercial, inventario, monitor)
@@ -28,6 +28,17 @@ try:
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
+
+# Zona horaria de Peru (UTC-5, sin horario de verano).
+try:
+    from zoneinfo import ZoneInfo
+    _ZONA_PERU = ZoneInfo("America/Lima")
+except Exception:
+    _ZONA_PERU = timezone(timedelta(hours=-5))
+
+def hora_actual_peru():
+    """Fecha y hora actual en la zona horaria de Peru (naive para MySQL)."""
+    return datetime.now(_ZONA_PERU).replace(tzinfo=None)
 
 def cargar_entorno():
     """Carga variables desde ../.env sin sobrescribir las del servidor."""
@@ -882,6 +893,12 @@ def login_required_cliente(f):
             return redirect(url_for("login_cliente"))
         return f(*args, **kwargs)
     return decorated_function
+
+@app.context_processor
+def inject_fecha_actual():
+    """Inyecta hora_actual_peru() y ahora_peru en todas las plantillas."""
+    ahora = hora_actual_peru()
+    return {"hora_peru": hora_actual_peru, "ahora_peru": ahora}
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -4918,7 +4935,7 @@ def dashboard():
     hace_30_dias = datetime.now() - timedelta(days=30)
     
     # ========== HORA PERÚ ==========
-    ahora_peru = datetime.now() - timedelta(hours=5)
+    ahora_peru = hora_actual_peru()
     
     # ========== 1. ESTADÍSTICAS ==========
     ventas_hoy = Venta.query.filter(func.date(Venta.fecha_venta) == hoy).all()
@@ -5298,8 +5315,7 @@ def microservicios_dashboard():
                           pedidos_confirmados=pedidos_confirmados,
                           total_productos=total_productos,
                           productos_bajo_stock=productos_bajo_stock,
-                          productos_agotados=productos_agotados,
-                          now=datetime.now)
+                          productos_agotados=productos_agotados)
 
 
 # =============================================
