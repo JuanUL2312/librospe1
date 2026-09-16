@@ -131,10 +131,10 @@ function Login-Log($correo, $clave) {
 
 function Show-Comercial($s) {
     Paso "4) MICROSERVICIO COMERCIAL - /api/comercial (pedidos y ventas)"
-    $ventas = @(Invoke-RestMethod "$BaseUrl/api/comercial/ventas" -WebSession $s)
-    $pedidos = @(Invoke-RestMethod "$BaseUrl/api/comercial/pedidos" -WebSession $s)
-    Write-Host ("    total ventas         : {0}" -f $ventas.Count)
-    Write-Host ("    total pedidos        : {0}" -f $pedidos.Count)
+    $ventas = Invoke-RestMethod "$BaseUrl/api/comercial/ventas" -WebSession $s
+    $pedidos = Invoke-RestMethod "$BaseUrl/api/comercial/pedidos" -WebSession $s
+    Write-Host ("    total ventas         : {0}" -f @($ventas).Count)
+    Write-Host ("    total pedidos        : {0}" -f @($pedidos).Count)
     if ($pedidos.Count -gt 0) {
         Write-Host ""
         Write-Host "    Muestra de pedido (1):"
@@ -150,19 +150,17 @@ function Show-Comercial($s) {
 
 function Show-Inventario($s) {
     Paso "5) MICROSERVICIO INVENTARIO - /api/inventario (productos y stock)"
-    $productos = @(Invoke-RestMethod "$BaseUrl/api/inventario/productos" -WebSession $s)
-    Write-Host ("    total productos : {0}" -f $productos.Count)
+    $productos = Invoke-RestMethod "$BaseUrl/api/inventario/productos" -WebSession $s
+    Write-Host ("    total productos : {0}" -f @($productos).Count)
     if ($productos.Count -gt 0) {
         Write-Host ""
         Write-Host "    Muestra de producto (1):"
         Write-Host ($productos[0] | ConvertTo-Json -Depth 3 | ForEach-Object { "      $_" })
     }
-    $bajos = @(Invoke-RestMethod "$BaseUrl/api/inventario/stock/bajo/10" -WebSession $s)
-    Write-Host ("    con stock < 10 : {0}" -f $bajos.Count)
-    if ($bajos.Count -gt 0) {
-        foreach ($b in $bajos) {
-            Write-Host ("      - {0} (cantidad: {1})" -f $b.nombre, $b.cantidad)
-        }
+    $bajos = Invoke-RestMethod "$BaseUrl/api/inventario/stock/bajo/10" -WebSession $s
+    Write-Host ("    con stock < 10 : {0}" -f @($bajos).Count)
+    foreach ($b in $bajos) {
+        Write-Host ("      - {0} (cantidad: {1})" -f $b.nombre, $b.cantidad)
     }
     $verif = Invoke-RestMethod "$BaseUrl/api/inventario/verificar-stock/$($productos[0].id)/5" -WebSession $s
     Write-Host ""
@@ -197,39 +195,39 @@ function Show-AdminEscritura($s) {
 
 function Show-Usuarios($s) {
     Paso "6) MICROSERVICIO USUARIOS - /api/usuarios (usuarios y roles)"
-    $usuarios = @(Invoke-RestMethod "$BaseUrl/api/usuarios" -WebSession $s)
-    Write-Host ("    total usuarios : {0}" -f $usuarios.Count)
+    $usuarios = Invoke-RestMethod "$BaseUrl/api/usuarios" -WebSession $s
+    Write-Host ("    total usuarios : {0}" -f @($usuarios).Count)
     if ($usuarios.Count -gt 0) {
         Write-Host ""
         Write-Host "    Muestra de usuario (1):"
         Write-Host ($usuarios[0] | ConvertTo-Json -Depth 3 | ForEach-Object { "      $_" })
     }
-    $roles = @(Invoke-RestMethod "$BaseUrl/api/usuarios/roles" -WebSession $s)
+    $roles = Invoke-RestMethod "$BaseUrl/api/usuarios/roles" -WebSession $s
     Write-Host ""
-    Write-Host ("    total roles    : {0}" -f $roles.Count)
+    Write-Host ("    total roles    : {0}" -f @($roles).Count)
     foreach ($r in $roles) { Write-Host ("      - {0}" -f $r.nombre) }
     Ok "Usuarios responde desde su propia BD (tabla usuarios_sistema)"
 }
 
 function Show-Clientes($s) {
     Paso "7) MICROSERVICIO CLIENTES - /api/clientes (clientes registrados)"
-    $clientes = @(Invoke-RestMethod "$BaseUrl/api/clientes" -WebSession $s)
-    Write-Host ("    total clientes : {0}" -f $clientes.Count)
+    $clientes = Invoke-RestMethod "$BaseUrl/api/clientes" -WebSession $s
+    Write-Host ("    total clientes : {0}" -f @($clientes).Count)
     if ($clientes.Count -gt 0) {
         Write-Host ""
         Write-Host "    Muestra de cliente (1):"
         Write-Host ($clientes[0] | ConvertTo-Json -Depth 3 | ForEach-Object { "      $_" })
     }
-    $ubicacion = @(Invoke-RestMethod "$BaseUrl/api/clientes/ubicacion" -WebSession $s)
+    $ubicacion = Invoke-RestMethod "$BaseUrl/api/clientes/ubicacion" -WebSession $s
     Write-Host ""
-    Write-Host ("    ubicaciones (departamento/provincia/distrito): {0} grupos" -f $ubicacion.Count)
+    Write-Host ("    ubicaciones (departamento/provincia/distrito): {0} grupos" -f @($ubicacion).Count)
     Ok "Clientes responde desde su propia BD (tabla clientes)"
 }
 
 function Show-Integracion($s) {
     Paso "8) INTEGRACION ENTRE SERVICIOS - ventas consulta a inventario (HTTP)"
     Info "GET /api/comercial/validar-stock/... => ventas llama por HTTP a inventario con token"
-    $productos = @(Invoke-RestMethod "$BaseUrl/api/inventario/productos" -WebSession $s)
+    $productos = Invoke-RestMethod "$BaseUrl/api/inventario/productos" -WebSession $s
     if ($productos.Count -gt 0) {
         $id = $productos[0].id
         Write-Host ""
