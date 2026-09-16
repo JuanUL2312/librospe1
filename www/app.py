@@ -5298,7 +5298,8 @@ def microservicios_dashboard():
                           pedidos_confirmados=pedidos_confirmados,
                           total_productos=total_productos,
                           productos_bajo_stock=productos_bajo_stock,
-                          productos_agotados=productos_agotados)
+                          productos_agotados=productos_agotados,
+                          now=datetime.now)
 
 
 # =============================================
