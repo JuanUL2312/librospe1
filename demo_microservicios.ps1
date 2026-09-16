@@ -76,6 +76,10 @@ function Show-Health {
     Write-Host ("    status      : {0}" -f $h.status)
     Write-Host ("    service     : {0}" -f $h.service)
     Write-Host ("    version     : {0}" -f $h.version)
+    Write-Host "    BD por servicio   :"
+    foreach ($k in $h.bd_por_servicio.PSObject.Properties) {
+        Write-Host ("      {0,-12}: {1}" -f $k.Name, $k.Value)
+    }
     Write-Host "    services    :"
     foreach ($k in $h.services.PSObject.Properties) {
         $color = if ($k.Value -eq "active") { "Green" } else { "Red" }
@@ -83,8 +87,8 @@ function Show-Health {
     }
     Write-Host ("    timestamp   : {0}" -f $h.timestamp)
     Write-Host ""
-    if ($h.status -eq "OK") { Ok "El monitor confirma que los servicios comercial e inventario estan activos" }
-    else { Errorx "Algun servicio no esta configurado (tablas espejo ausentes)" }
+    if ($h.status -eq "OK") { Ok "El monitor confirma que los 5 servicios (4 BDs) responden" }
+    else { Errorx "Algun servicio no esta configurado (ejecuta microservicios_bds.sql)" }
 }
 
 function Show-SinAutenticacion {
@@ -168,7 +172,7 @@ function Show-Inventario($s) {
 }
 
 function Show-AdminEscritura($s) {
-    Paso "6) OPERACIONES DE ESCRITURA (solo administrador)"
+    Paso "9) OPERACIONES DE ESCRITURA (solo administrador)"
     $pedidos = @(Invoke-RestMethod "$BaseUrl/api/comercial/pedidos" -WebSession $s)
     $productos = @(Invoke-RestMethod "$BaseUrl/api/inventario/productos" -WebSession $s)
     if ($pedidos.Count -gt 0) {
@@ -191,12 +195,62 @@ function Show-AdminEscritura($s) {
     }
 }
 
+function Show-Usuarios($s) {
+    Paso "6) MICROSERVICIO USUARIOS - /api/usuarios (usuarios y roles)"
+    $usuarios = @(Invoke-RestMethod "$BaseUrl/api/usuarios" -WebSession $s)
+    Write-Host ("    total usuarios : {0}" -f $usuarios.Count)
+    if ($usuarios.Count -gt 0) {
+        Write-Host ""
+        Write-Host "    Muestra de usuario (1):"
+        Write-Host ($usuarios[0] | ConvertTo-Json -Depth 3 | ForEach-Object { "      $_" })
+    }
+    $roles = @(Invoke-RestMethod "$BaseUrl/api/usuarios/roles" -WebSession $s)
+    Write-Host ""
+    Write-Host ("    total roles    : {0}" -f $roles.Count)
+    foreach ($r in $roles) { Write-Host ("      - {0}" -f $r.nombre) }
+    Ok "Usuarios responde desde su propia BD (tabla usuarios_sistema)"
+}
+
+function Show-Clientes($s) {
+    Paso "7) MICROSERVICIO CLIENTES - /api/clientes (clientes registrados)"
+    $clientes = @(Invoke-RestMethod "$BaseUrl/api/clientes" -WebSession $s)
+    Write-Host ("    total clientes : {0}" -f $clientes.Count)
+    if ($clientes.Count -gt 0) {
+        Write-Host ""
+        Write-Host "    Muestra de cliente (1):"
+        Write-Host ($clientes[0] | ConvertTo-Json -Depth 3 | ForEach-Object { "      $_" })
+    }
+    $ubicacion = @(Invoke-RestMethod "$BaseUrl/api/clientes/ubicacion" -WebSession $s)
+    Write-Host ""
+    Write-Host ("    ubicaciones (departamento/provincia/distrito): {0} grupos" -f $ubicacion.Count)
+    Ok "Clientes responde desde su propia BD (tabla clientes)"
+}
+
+function Show-Integracion($s) {
+    Paso "8) INTEGRACION ENTRE SERVICIOS - ventas consulta a inventario (HTTP)"
+    Info "GET /api/comercial/validar-stock/... => ventas llama por HTTP a inventario con token"
+    $productos = @(Invoke-RestMethod "$BaseUrl/api/inventario/productos" -WebSession $s)
+    if ($productos.Count -gt 0) {
+        $id = $productos[0].id
+        Write-Host ""
+        $r = Invoke-RestMethod "$BaseUrl/api/comercial/validar-stock/$id/1" -WebSession $s
+        Write-Host ("    origen      : {0}" -f ($r.origen -replace "  ", ""))
+        Write-Host ("    consulto a  : {0}" -f $r.consulto_a)
+        Write-Host ("    respuesta   :")
+        Write-Host ($r.respuesta | ConvertTo-Json -Depth 3 | ForEach-Object { "        $_" })
+        Write-Host ""
+        Ok "Ventas NO lee la BD de inventario: usa HTTP (X-Service-Token)"
+    } else {
+        Info "No hay productos para probar la integracion."
+    }
+}
+
 # ============================================
 #  EJECUCION
 # ============================================
 Write-Host $Repos -ForegroundColor Cyan
-Write-Host "  LibrosPE - DEMO DE MICROSERVICIOS" -ForegroundColor Cyan
-Write-Host "  comercial | inventario | monitor" -ForegroundColor Cyan
+Write-Host "  LibrosPE - DEMO DE MICROSERVICIOS (una BD por servicio)" -ForegroundColor Cyan
+Write-Host "  ventas | inventario | usuarios | clientes | monitor" -ForegroundColor Cyan
 Write-Host $Repos -ForegroundColor Cyan
 
 if (-not (Get-ServerActivo)) {
@@ -223,6 +277,9 @@ if ($Correo) {
     if ($session) {
         Show-Comercial $session
         Show-Inventario $session
+        Show-Usuarios $session
+        Show-Clientes $session
+        Show-Integracion $session
         if ($EjecutarEscritura) { Show-AdminEscritura $session }
         else {
             Write-Host ""
@@ -237,12 +294,15 @@ Write-Host ""
 Write-Host $Repos -ForegroundColor Cyan
 Write-Host "  RESUMEN DE LA DEMO" -ForegroundColor Cyan
 Write-Host $Repos -ForegroundColor Cyan
-Write-Host "  /api/health                        -> MONITOR (estado de los servicios)"
-Write-Host "  /api/comercial/pedidos             -> COMERCIAL (pedidos y ventas)"
-Write-Host "  /api/comercial/pedidos/<id>/estado -> COMERCIAL (PUT, solo admin)"
-Write-Host "  /api/inventario/productos          -> INVENTARIO (productos)"
-Write-Host "  /api/inventario/stock/bajo/<min>   -> INVENTARIO (alertas de stock)"
-Write-Host "  /api/inventario/verificar-stock    -> INVENTARIO (validacion de stock)"
+Write-Host "  /api/health                            -> MONITOR (estado de las 4 BDs)"
+Write-Host "  /api/comercial/pedidos                -> VENTAS (pedidos y ventas)"
+Write-Host "  /api/comercial/pedidos/<id>/estado    -> VENTAS (PUT, solo admin)"
+Write-Host "  /api/inventario/productos             -> INVENTARIO (productos)"
+Write-Host "  /api/inventario/stock/bajo/<min>      -> INVENTARIO (alertas de stock)"
+Write-Host "  /api/inventario/verificar-stock       -> INVENTARIO (validacion de stock)"
+Write-Host "  /api/usuarios                         -> USUARIOS (tabla usuarios_sistema)"
+Write-Host "  /api/clientes                         -> CLIENTES (tabla clientes)"
+Write-Host "  /api/comercial/validar-stock/<id>/<c> -> INTEGRACION ventas->inventario (HTTP)"
 Write-Host ""
 Info "Dashboard visual (admin): abre $BaseUrl/microservicios/dashboard"
 Write-Host ""

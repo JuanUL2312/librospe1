@@ -1,0 +1,8 @@
+{
+    "ventas": "librospe_ms_ventas",
+    "inventario": "librospe_ms_inventario",
+    "usuarios": "librospe_ms_usuarios",
+    "clientes": "librospe_ms_clientes",
+    "service_token": "librospe-interno-dev",
+    "inventario_url": "https://librospe.alwaysdata.net"
+}

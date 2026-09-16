@@ -81,6 +81,39 @@ if not all((DB_USER, DB_PASSWORD, DB_HOST, DB_NAME)):
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"
 )
+
+# =============================================
+# MICROSERVICIOS: UNA BASE DE DATOS POR SERVICIO
+# Cada microservicio usa SU propio schema (bind).
+# La configuracion sale de ms_config.json (repositorio), con prioridad
+# a las variables de entorno y fallback final a la BD principal (DB_NAME)
+# para no romper el sistema existente.
+# =============================================
+_ms_config = {}
+_ruta_ms_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ms_config.json")
+if os.path.exists(_ruta_ms_config):
+    try:
+        with open(_ruta_ms_config, "r", encoding="utf-8") as _f:
+            _ms_config = json.load(_f)
+    except Exception:
+        _ms_config = {}
+
+MS_CONFIG = {
+    "ventas":     os.environ.get("MS_VENTAS_DB", _ms_config.get("ventas", DB_NAME)),
+    "inventario": os.environ.get("MS_INVENTARIO_DB", _ms_config.get("inventario", DB_NAME)),
+    "usuarios":   os.environ.get("MS_USUARIOS_DB", _ms_config.get("usuarios", DB_NAME)),
+    "clientes":   os.environ.get("MS_CLIENTES_DB", _ms_config.get("clientes", DB_NAME)),
+}
+app.config["SQLALCHEMY_BINDS"] = {
+    servicio: f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{quote_plus(db_nombre)}"
+    for servicio, db_nombre in MS_CONFIG.items()
+}
+
+# Comunicacion servicio a servicio (HTTP + token interno)
+SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", _ms_config.get("service_token", "librospe-interno-dev"))
+app.config["SERVICE_TOKEN"] = SERVICE_TOKEN
+app.config["MS_INVENTARIO_URL"] = os.environ.get(
+    "MS_INVENTARIO_URL", _ms_config.get("inventario_url", "http://127.0.0.1:8000"))
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "connect_args": {"ssl": {"ssl_mode": "REQUIRED"}},
