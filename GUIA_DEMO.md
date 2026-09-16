@@ -35,10 +35,20 @@ Presentación ante docente. Objetivo: mostrar que la aplicación se divide en **
 # 1. Correr la app local (debe quedar el servidor abierto)
 run_local.bat
 
-# 2. Probar la demo automatizada
+# 2. Probar la demo automatizada (local o producción)
+# Local:
 .\demo_microservicios.ps1 -Correo "admin@correo.com" -Clave "123456"
+# Producción (alwaysdata):
+.\demo_microservicios.ps1 -Produccion -Correo "admin@correo.com" -Clave "123456"
 ```
 > Si no sabes el correo/admin, entra a `/login` en el navegador o consulta la tabla `usuarios_sistema` en la BD.
+
+**Modo producción:** usa `-Produccion` para apuntar a `https://librospe.alwaysdata.net`.
+También puedes usar `-BaseUrl "https://mi.dominio"` para cualquier otra URL.
+El health check `/api/health` es público y se puede abrir directo en el navegador sin login:
+```
+https://librospe.alwaysdata.net/api/health
+```
 
 ### Paso 1 — Arrancar la demo con el docente
 ```powershell
@@ -80,6 +90,7 @@ Prueba los `PUT` de cambio de estado (`comercial`) y de stock (`inventario`). Co
 
 ### Paso 7 — Cierre visual (admin)
 Abrir en el navegador: `http://localhost:8000/microservicios/dashboard`
+(o `https://librospe.alwaysdata.net/microservicios/dashboard` en producción).
 Muestra KPIs: pedidos totales/pendientes/confirmados y productos totales/bajo stock/agotados, contados desde las tablas espejo.
 
 ---
