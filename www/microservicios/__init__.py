@@ -18,7 +18,6 @@ from functools import wraps
 
 from flask import Blueprint, current_app, jsonify, request
 
-_app = None
 _db = None
 _login_required = None
 
@@ -36,12 +35,15 @@ def register_microservicios(app, database, login_required):
     :param database: instancia de SQLAlchemy compartida.
     :param login_required: decorador de autenticacion del monolito.
     """
-    global _app, _db, _login_required
-    _app = app
+    global _db, _login_required
     _db = database
     _login_required = login_required
 
-    from . import routes_monitor, routes_comercial, routes_inventario, routes_usuarios, routes_clientes
+    # Los blueprints resuelven su motor (get_engine) en el import y ese
+    # metodo exige contexto de app. Por eso los imports van dentro de
+    # app_context: los binds quedan construidos y cacheados al arrancar.
+    with app.app_context():
+        from . import routes_monitor, routes_comercial, routes_inventario, routes_usuarios, routes_clientes
 
     app.register_blueprint(comercial_bp)
     app.register_blueprint(inventario_bp)
