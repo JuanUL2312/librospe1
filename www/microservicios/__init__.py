@@ -65,7 +65,7 @@ def get_service_engine(bind_key):
 
     Cada microservicio usa SIEMPRE su propio bind; jamas lee de la BD de otro.
     """
-    return _db.get_engine(_app, bind_key)
+    return _db.get_engine(bind_key)
 
 
 def servicio_requerido(f):
