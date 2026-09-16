@@ -5,14 +5,23 @@
 #   .\demo_microservicios.ps1                     (te pedirá correo/clave)
 #   .\demo_microservicios.ps1 -SoloHealth         (solo monitor, sin login)
 #   .\demo_microservicios.ps1 -EjecutarEscritura  (incluye PUT que modifica datos)
+#   .\demo_microservicios.ps1 -Produccion         (apunta a librospe.alwaysdata.net)
+#   .\demo_microservicios.ps1 -BaseUrl "https://mi.dominio"  (URL personalizada)
 # ============================================
 param(
     [string]$Correo = $env:DEMO_CORREO,
     [string]$Clave  = $env:DEMO_CLAVE,
-    [string]$BaseUrl = "http://localhost:8000",
+    [string]$BaseUrl = "",
+    [switch]$Produccion,
     [switch]$SoloHealth,
     [switch]$EjecutarEscritura
 )
+
+if ($Produccion) {
+    $BaseUrl = "https://librospe.alwaysdata.net"
+} elseif (-not $BaseUrl) {
+    $BaseUrl = "http://localhost:8000"
+}
 
 $ErrorActionPreference = "Stop"
 $Raiz = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -235,5 +244,7 @@ Write-Host "  /api/inventario/productos          -> INVENTARIO (productos)"
 Write-Host "  /api/inventario/stock/bajo/<min>   -> INVENTARIO (alertas de stock)"
 Write-Host "  /api/inventario/verificar-stock    -> INVENTARIO (validacion de stock)"
 Write-Host ""
-Info "Dashboard visual (admin): abre http://localhost:8000/microservicios/dashboard"
+Info "Dashboard visual (admin): abre $BaseUrl/microservicios/dashboard"
+Write-Host ""
+Info "Health check: $BaseUrl/api/health (también en el navegador sin login)"
 Write-Host ""
