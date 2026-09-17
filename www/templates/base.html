@@ -4,6 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <meta name="theme-color" content="#1e3a8a">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="{{ url_for('static', filename='img/icon.svg') }}" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/icon-192.png') }}">
     <title>{% block titulito %}Inventario Librería Salesiana{% endblock %}</title>
     <!-- BOOTSTRAP 5 CSS + ICONOS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -120,6 +124,10 @@
                                 <i class="fas fa-cash-register"></i>
                                 <span>Nueva Venta</span>
                             </a>
+                            <a href="/pos" class="btn-card btn-card-teal" title="POS Rápido Táctil">
+                                <i class="fas fa-tablet-alt"></i>
+                                <span>POS Rápido</span>
+                            </a>
 
                             <!-- ===== ADMIN: CAJA ===== -->
                             {% if session.rol == 'administrador' %}
@@ -149,6 +157,14 @@
     <!-- SCRIPTS LOCALES -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     {% block extra_js %}{% endblock %}
+    <!-- REGISTRO PWA -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/sw.js').catch(function () {});
+            });
+        }
+    </script>
 </body>
 
 </html>

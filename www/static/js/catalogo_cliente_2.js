@@ -199,6 +199,67 @@ function actualizarContadorCarrito() {
 }
 
 // ===============================
+// RECOMENDADOS - LOS MÁS VENDIDOS
+// ===============================
+function cargarRecomendados() {
+    fetch('/api/productos/recomendados')
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            if (!Array.isArray(data) || data.length === 0) return;
+            var section = document.getElementById('recomendadosSection');
+            if (!section) return;
+
+            var html = '';
+            for (var i = 0; i < data.length; i++) {
+                var p = data[i];
+                var precioOferta = p.precio_oferta ? parseFloat(p.precio_oferta) : null;
+                var tieneOferta = precioOferta && precioOferta < p.precio;
+                var precioMostrar = tieneOferta ? precioOferta : p.precio;
+                var precioHtml = tieneOferta
+                    ? '<span class="text-decoration-line-through text-muted small me-1">S/. ' + p.precio.toFixed(2) + '</span><span class="text-danger fw-bold">S/. ' + precioOferta.toFixed(2) + '</span>'
+                    : '<span class="text-primary fw-bold">S/. ' + p.precio.toFixed(2) + '</span>';
+
+                var stockBadge = '';
+                if (p.cantidad === 0) {
+                    stockBadge = '<span class="badge bg-danger rounded-pill">Agotado</span>';
+                } else if (p.cantidad <= 5) {
+                    stockBadge = '<span class="badge bg-warning text-dark rounded-pill">Solo ' + p.cantidad + ' uds</span>';
+                } else {
+                    stockBadge = '<span class="badge bg-success rounded-pill">' + p.cantidad + ' uds</span>';
+                }
+
+                var boton = p.cantidad > 0
+                    ? '<button class="btn btn-success w-100 rounded-pill py-1" style="font-size:0.7rem;" onclick="agregarAlCarrito(' + p.id + ', \'' + escapeHtml(p.nombre) + '\', ' + precioMostrar + ', ' + p.cantidad + ')"><i class="fas fa-cart-plus me-1"></i>Agregar</button>'
+                    : '<button class="btn btn-secondary w-100 rounded-pill py-1" style="font-size:0.7rem;" disabled><i class="fas fa-times-circle me-1"></i>Agotado</button>';
+
+                html += `
+                    <div class="recomendado-card">
+                        <div class="bg-light rounded-3 overflow-hidden" style="height:100px;">
+                            <img src="${p.imagen_url || '/static/img/default-product.png'}" class="img-fluid w-100 h-100" style="object-fit:cover;" onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'d-flex align-items-center justify-content-center h-100 text-muted\\' style=\\'font-size:2rem;\\'>📚</div>'">
+                        </div>
+                        <div class="p-2">
+                            <div class="small fw-bold text-truncate" style="max-width:130px;" title="${escapeHtml(p.nombre)}">${escapeHtml(p.nombre)}</div>
+                            <div class="mb-1 d-flex align-items-center flex-wrap gap-1">${precioHtml}</div>
+                            <div class="mb-2">${stockBadge}</div>
+                            ${boton}
+                        </div>
+                    </div>
+                `;
+            }
+
+            section.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <h6 class="fw-bold mb-0"><i class="fas fa-fire me-2 text-danger"></i>Los más vendidos</h6>
+                    <span class="badge bg-light text-secondary px-3 py-1">🔥 Top ventas</span>
+                </div>
+                <div class="d-flex overflow-auto pb-2 recomendados-scroll">${html}</div>
+            `;
+            section.classList.remove('d-none');
+        })
+        .catch(function () {});
+}
+
+// ===============================
 // FILTRAR POR CATEGORÍA DESDE EL MENÚ
 // ===============================
 function filtrarPorCategoria(categoriaId) {
@@ -312,6 +373,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btnLimpiarFiltros').addEventListener('click', limpiarFiltros);
     
     cargarProductos();
+    cargarRecomendados();
     actualizarContadorCarrito();
 });
 
@@ -328,6 +390,10 @@ style.textContent = `
     .producto-card { transition: all 0.3s ease; }
     .producto-card:hover { transform: translateY(-5px); box-shadow: 0 20px 30px -12px rgba(0,0,0,0.2) !important; }
     .rounded-4 { border-radius: 1rem !important; }
+    .recomendados-scroll { gap: 0.75rem; scrollbar-width: thin; }
+    .recomendados-scroll::-webkit-scrollbar { height: 6px; }
+    .recomendados-scroll::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 6px; }
+    .recomendado-card { min-width: 140px; max-width: 140px; border: 1px solid #eef2f7; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
     
     @media (max-width: 576px) {
         .producto-card .card-body { padding: 0.75rem !important; }

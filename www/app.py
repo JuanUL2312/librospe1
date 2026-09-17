@@ -1343,6 +1343,28 @@ def enviar_entrega_email(cliente_obj, pedido):
 def inicio():
     return render_template("index.html")
 
+
+# ===============================
+# PWA - MANIFIESTO Y SERVICE WORKER
+# ===============================
+
+@app.route("/manifest.webmanifest")
+def pwa_manifest():
+    resp = app.send_static_file("manifest.webmanifest")
+    resp.headers["Content-Type"] = "application/manifest+json"
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
+@app.route("/sw.js")
+def pwa_service_worker():
+    resp = app.send_static_file("sw.js")
+    resp.headers["Content-Type"] = "application/javascript"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 # ===============================
 # CONTEXT PROCESSOR - CATEGORÍAS
 # ===============================
@@ -3734,6 +3756,15 @@ def venta_rapida():
                 ).first()
         except Exception:
             cliente_rapido = None
+        metodo_pago = data.get("metodo_pago", "efectivo")
+        monto_recibido = None
+        vuelto = None
+        try:
+            if metodo_pago == "efectivo":
+                monto_recibido = float(data.get("monto_recibido") or 0)
+        except (TypeError, ValueError):
+            monto_recibido = None
+        numero_pos = f"POS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         for item in items:
             producto = Producto.query.get(item["id"])
             total = producto.precio * item["cantidad"]
@@ -3743,7 +3774,10 @@ def venta_rapida():
                 vendedor_id=session["usuario_id"],
                 fecha_venta=datetime.now(),
                 tipo_comprobante="boleta",
-                numero_comprobante=f"POS-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                numero_comprobante=numero_pos,
+                metodo_pago=metodo_pago,
+                monto_recibido=monto_recibido,
+                vuelto=round(monto_recibido - total, 2) if monto_recibido is not None else None,
                 cliente_nombres=data.get("cliente_nombre", ""),
                 cliente_apellidos=data.get("cliente_apellido", ""),
                 cliente_documento=data.get("cliente_dni", ""),
@@ -3755,10 +3789,90 @@ def venta_rapida():
             total_general += total
             venta_ids.append(nueva_venta.id)
         db.session.commit()
-        return jsonify({"success": True, "venta_id": venta_ids[0], "total": total_general})
+        registrar_auditoria("VENTA", "ventas", f"Venta rápida POS #{venta_ids[0]} - {len(venta_ids)} item(s) - Total: S/ {total_general:.2f} ({metodo_pago})")
+        try:
+            verificar_stock_bajo_y_notificar()
+        except Exception:
+            pass
+        return jsonify({
+            "success": True,
+            "venta_id": venta_ids[0],
+            "total": total_general,
+            "vuelto": round(monto_recibido - total_general, 2) if monto_recibido is not None else None,
+            "metodo_pago": metodo_pago,
+            "numero_comprobante": numero_pos,
+        })
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "error": str(e)})
+
+
+# ===============================================
+# POS TÁCTIL - VENTA RÁPIDA (tablet / mostrador)
+# ===============================================
+
+@app.route("/pos", methods=["GET"])
+@login_required
+def pos_tactil():
+    lista_productos = Producto.query.filter(Producto.cantidad > 0).order_by(Producto.nombre).all()
+    producto_datos = []
+    for p in lista_productos:
+        precio_mostrar = float(p.precio_oferta or p.precio or 0)
+        producto_datos.append({
+            "id": p.id,
+            "nombre": p.nombre,
+            "precio": float(p.precio or 0),
+            "precio_oferta": float(p.precio_oferta) if p.precio_oferta else None,
+            "precio_mostrar": precio_mostrar,
+            "cantidad": p.cantidad,
+            "codigo_barras": p.codigo_barras,
+            "imagen_url": url_for("static", filename=f"img/productos/{p.imagen}") if p.imagen else None,
+        })
+    return render_template("pos_rapido.html", productos=producto_datos, now=datetime.now())
+
+
+# ===============================================
+# RECOMENDADOS - LOS MÁS VENDIDOS
+# ===============================================
+
+@app.route("/api/productos/recomendados")
+def api_productos_recomendados():
+    try:
+        filas = (
+            db.session.query(
+                Producto.id,
+                Producto.nombre,
+                Producto.descripcion,
+                Producto.precio,
+                Producto.precio_oferta,
+                Producto.cantidad,
+                Producto.destacado,
+                Producto.imagen,
+                func.coalesce(func.sum(Venta.cantidad), 0).label("vendidos"),
+            )
+            .outerjoin(Venta, Venta.producto_id == Producto.id)
+            .group_by(Producto.id)
+            .order_by(func.sum(Venta.cantidad).desc(), Producto.destacado.desc())
+            .limit(10)
+            .all()
+        )
+        resultado = []
+        for p in filas:
+            resultado.append({
+                "id": p.id,
+                "nombre": p.nombre,
+                "descripcion": p.descripcion,
+                "precio": float(p.precio or 0),
+                "precio_oferta": float(p.precio_oferta) if p.precio_oferta else None,
+                "cantidad": p.cantidad,
+                "destacado": p.destacado,
+                "vendidos": int(p.vendidos or 0),
+                "imagen_url": url_for("static", filename=f"img/productos/{p.imagen}") if p.imagen else None,
+            })
+        return jsonify(resultado)
+    except Exception as e:
+        print(f"❌ Error en /api/productos/recomendados: {e}")
+        return jsonify([])
 
 # ===============================
 # CLIENTES (TIENDA ONLINE)
