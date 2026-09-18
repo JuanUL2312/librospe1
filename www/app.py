@@ -5099,7 +5099,90 @@ def dashboard():
     total_clientes = Cliente.query.count()
     hace_7_dias = datetime.now() - timedelta(days=7)
     clientes_nuevos = Cliente.query.filter(Cliente.fecha_registro >= hace_7_dias).count()
-    
+
+    # ========== KPI ADICIONALES ==========
+    # Ticket promedio (venta total / nº transacciones)
+    ticket_promedio_hoy = (total_ventas_hoy / cantidad_ventas_hoy) if cantidad_ventas_hoy else 0
+    ticket_promedio_mes = (total_ventas_mes / cantidad_ventas_mes) if cantidad_ventas_mes else 0
+
+    # Margen bruto (últimos 30 días) usando productos.costo
+    margen_res = db.session.execute(
+        text("""
+            SELECT COALESCE(SUM(v.cantidad * p.precio), 0) AS ingresos,
+                   COALESCE(SUM(v.cantidad * COALESCE(p.costo, 0)), 0) AS costo,
+                   COUNT(DISTINCT CASE WHEN p.costo IS NOT NULL THEN p.id END) AS con_costo
+            FROM ventas v
+            JOIN productos p ON v.producto_id = p.id
+            WHERE v.fecha_venta >= :fecha AND v.estado = 1
+        """),
+        {"fecha": hace_30_dias.date()}
+    ).fetchone()
+    ingresos_30d = float(margen_res[0] or 0)
+    costo_30d = float(margen_res[1] or 0)
+    margen_bruto = ingresos_30d - costo_30d
+    margen_pct = (margen_bruto / ingresos_30d * 100) if ingresos_30d else 0
+    productos_con_costo = int(margen_res[2] or 0)
+
+    # Rotación de inventario (últimos 30 días): unidades vendidas / stock actual
+    unidades_vendidas_30d = int(db.session.execute(
+        text("""
+            SELECT COALESCE(SUM(v.cantidad), 0)
+            FROM ventas v
+            JOIN productos p ON v.producto_id = p.id
+            WHERE v.fecha_venta >= :fecha AND v.estado = 1
+        """),
+        {"fecha": hace_30_dias.date()}
+    ).scalar() or 0)
+    stock_total = int(db.session.execute(
+        text("SELECT COALESCE(SUM(cantidad), 0) FROM productos WHERE estado = 1")
+    ).scalar() or 0)
+    rotacion_inventario = (unidades_vendidas_30d / stock_total) if stock_total else 0
+    ventas_diarias = unidades_vendidas_30d / 30
+    dias_stock = (stock_total / ventas_diarias) if ventas_diarias else 0
+
+    # Conversión pedido → venta
+    total_pedidos = Pedido.query.count()
+    pedidos_convertidos = int(db.session.execute(
+        text("""
+            SELECT COUNT(DISTINCT pedido_id) FROM ventas
+            WHERE pedido_id IS NOT NULL AND estado = 1
+        """)
+    ).scalar() or 0)
+    conversion_pedidos = (pedidos_convertidos / total_pedidos * 100) if total_pedidos else 0
+
+    # Ventas por vendedor (últimos 30 días)
+    ventas_vendedor = db.session.execute(
+        text("""
+            SELECT u.id AS vendedor_id,
+                   CONCAT(u.nombres, ' ', u.apellidos) AS vendedor,
+                   COUNT(*) AS num_ventas,
+                   COALESCE(SUM(v.cantidad), 0) AS unidades,
+                   COALESCE(SUM(v.cantidad * p.precio), 0) AS total
+            FROM ventas v
+            JOIN usuarios_sistema u ON u.id = v.vendedor_id
+            JOIN productos p ON v.producto_id = p.id
+            WHERE v.fecha_venta >= :fecha AND v.estado = 1
+            GROUP BY u.id, u.nombres, u.apellidos
+            ORDER BY total DESC
+        """),
+        {"fecha": hace_30_dias.date()}
+    ).mappings().all()
+
+    # Desviación de caja (cierres registrados)
+    desviacion = db.session.execute(
+        text("""
+            SELECT COUNT(*) AS total_cierres,
+                   COALESCE(SUM(CASE WHEN COALESCE(diferencia, 0) != 0 THEN 1 ELSE 0 END), 0) AS con_diferencia,
+                   COALESCE(AVG(ABS(COALESCE(diferencia, 0))), 0) AS promedio_diferencia
+            FROM cajas
+            WHERE estado = 'cerrada'
+        """)
+    ).fetchone()
+    total_cierres = int(desviacion[0] or 0)
+    cierres_con_diferencia = int(desviacion[1] or 0)
+    promedio_diferencia = float(desviacion[2] or 0)
+    pct_cierres_con_diferencia = (cierres_con_diferencia / total_cierres * 100) if total_cierres else 0
+
     # Ventas por día
     ventas_por_dia = []
     for i in range(6, -1, -1):
@@ -5277,6 +5360,22 @@ def dashboard():
                           graph_top=graph_top,
                           graph_cat=graph_cat,
                           graph_estados=graph_estados,
+                          ticket_promedio_hoy=ticket_promedio_hoy,
+                          ticket_promedio_mes=ticket_promedio_mes,
+                          margen_bruto=margen_bruto,
+                          margen_pct=margen_pct,
+                          productos_con_costo=productos_con_costo,
+                          unidades_vendidas_30d=unidades_vendidas_30d,
+                          rotacion_inventario=rotacion_inventario,
+                          dias_stock=dias_stock,
+                          conversion_pedidos=conversion_pedidos,
+                          pedidos_convertidos=pedidos_convertidos,
+                          total_pedidos=total_pedidos,
+                          ventas_vendedor=ventas_vendedor,
+                          total_cierres=total_cierres,
+                          cierres_con_diferencia=cierres_con_diferencia,
+                          pct_cierres_con_diferencia=pct_cierres_con_diferencia,
+                          promedio_diferencia=promedio_diferencia,
                           datetime=datetime,
                           timedelta=timedelta,
                           ahora_peru=ahora_peru) 
