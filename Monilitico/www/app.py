@@ -5533,12 +5533,13 @@ def rewrite_absolute_urls(response):
     # Este middleware SOLO reescribe cuando APP_SUBPATH está definido
     # (despliegue por ruta, ej. librospe.alwaysdata.net/monolito).
     # Sin APP_SUBPATH pasa directo y los enlaces quedan /catalogo, /login, etc.
-    if not APP_SUBPATH or 'text/html' not in response.content_type:
+    if not APP_SUBPATH:
         return response
-    try:
-        body = response.get_data(as_text=True)
-    except:
-        body = response.text
+    if 'text/html' in response.content_type:
+        try:
+            body = response.get_data(as_text=True)
+        except:
+            body = response.text
         
         # Mapa completo de rutas absolutas -> con prefijo /monolito
         # Cubre templates (href, action, src) y JS (fetch, location.href, etc.)
