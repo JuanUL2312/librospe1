@@ -16,8 +16,13 @@
                         <label class="form-label fw-semibold small text-uppercase text-muted">
                             <i class="fas fa-search me-1 text-primary"></i> Buscar
                         </label>
-                        <input type="text" id="filtroBuscar" class="form-control form-control-sm rounded-pill" 
-                               placeholder="🔍 Nombre del producto..." onkeyup="if(event.key==='Enter') aplicarFiltros();">
+                        <div class="autocomplete-wrap position-relative">
+                            <input type="text" id="filtroBuscar" class="form-control form-control-sm rounded-pill autocomplete-input"
+                                   placeholder="🔍 Nombre del producto..." autocomplete="off"
+                                   onkeyup="if(event.key==='Enter') aplicarFiltros();">
+                            <div id="autocompleteResultados" class="autocomplete-results d-none"></div>
+                        </div>
+                        <small class="text-muted d-block mt-1">Escribe para ver sugerencias en tiempo real</small>
                     </div>
                     
                     <!-- Filtro por categoría -->
@@ -121,6 +126,9 @@
         
         <!-- Productos - Lado Derecho -->
         <div class="col-12 col-md-9">
+            <!-- ===== LOS MÁS VENDIDOS / RECOMENDADOS ===== -->
+            <div id="recomendadosSection" class="mb-4 d-none"></div>
+
             <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
                 <h5 class="mb-0 fw-bold fs-6 fs-md-5">
                     <i class="fas fa-gem me-2 text-primary"></i>Nuestros Productos
@@ -147,6 +155,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="{{ url_for('static', filename='js/autocomplete.js') }}"></script>
 <script src="{{ url_for('static', filename='js/catalogo_cliente_2.js') }}"></script>
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/catalogo_cliente.css') }}">

@@ -169,6 +169,8 @@
     .btn-card-emerald:hover { background: #a7f3d0 !important; }
     .btn-card-indigo { background: #e0e7ff !important; border-color: #c7d2fe !important; color: #3730a3 !important; }
     .btn-card-indigo:hover { background: #c7d2fe !important; }
+    .btn-card-teal { background: #ccfbf1 !important; border-color: #99f6e4 !important; color: #0f766e !important; }
+    .btn-card-teal:hover { background: #99f6e4 !important; }
 
     .bg-gradient-header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;

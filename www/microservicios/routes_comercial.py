@@ -1,27 +1,42 @@
-"""Microservicio COMERCIAL: pedidos y ventas.
+"""Microservicio COMERCIAL / VENTAS: pedidos y ventas.
 
-Blueprint independiente registrado en la aplicacion principal con prefijo
-``/api/comercial``. Todos los endpoints consumen las tablas espejo
-``comercial_pedidos``, ``comercial_detalle_pedido`` y ``comercial_ventas``.
+Blueprint en ``/api/comercial``. Lee SOLO de su base de datos (bind
+``ventas``): tablas ``comercial_pedidos``, ``comercial_detalle_pedido``
+y ``comercial_ventas``. Para obtener stock se conecta con inventario
+via HTTP interno (servicio a servicio) usando X-Service-Token.
 """
-from flask import jsonify, request, session
+import json
+from urllib.request import Request, urlopen
+
+from flask import current_app, jsonify, request, session
 from sqlalchemy import text
 
-from . import comercial_bp, get_db, get_login_required
+from . import comercial_bp, get_db, get_login_required, get_service_engine
 
 db = get_db()
 login_required = get_login_required()
+motor_ventas = get_service_engine("ventas")
+
+
+def _consultar_inventario(producto_id, cantidad):
+    """Llama por HTTP al microservicio INVENTARIO con token interno."""
+    url = "{}/api/inventario/_verificar-stock/{}/{}".format(
+        current_app.config.get("MS_INVENTARIO_URL", "http://127.0.0.1:8000"),
+        producto_id, cantidad)
+    req = Request(url, headers={"X-Service-Token": current_app.config["SERVICE_TOKEN"]})
+    with urlopen(req, timeout=5) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 
 @comercial_bp.route("/pedidos", methods=["GET"])
 @login_required
 def api_comercial_pedidos():
-    """Obtener todos los pedidos del microservicio comercial."""
+    """Obtener todos los pedidos del microservicio ventas."""
     try:
         pedidos = db.session.execute(text("""
             SELECT * FROM comercial_pedidos
             ORDER BY fecha_pedido DESC
-        """)).mappings().all()
+        """), bind_arguments={"bind": motor_ventas}).mappings().all()
 
         return jsonify([dict(p) for p in pedidos])
     except Exception as e:
@@ -36,14 +51,14 @@ def api_comercial_pedido(id):
     try:
         pedido = db.session.execute(text("""
             SELECT * FROM comercial_pedidos WHERE id = :id
-        """), {"id": id}).mappings().first()
+        """), {"id": id}, bind_arguments={"bind": motor_ventas}).mappings().first()
 
         if not pedido:
             return jsonify({"error": "Pedido no encontrado"}), 404
 
         detalles = db.session.execute(text("""
             SELECT * FROM comercial_detalle_pedido WHERE pedido_id = :id
-        """), {"id": id}).mappings().all()
+        """), {"id": id}, bind_arguments={"bind": motor_ventas}).mappings().all()
 
         pedido_dict = dict(pedido)
         pedido_dict["detalles"] = [dict(d) for d in detalles]
@@ -72,7 +87,7 @@ def api_comercial_actualizar_estado(id):
             UPDATE comercial_pedidos
             SET estado = :estado
             WHERE id = :id
-        """), {"estado": estado, "id": id})
+        """), {"estado": estado, "id": id}, bind_arguments={"bind": motor_ventas})
 
         db.session.commit()
 
@@ -88,14 +103,37 @@ def api_comercial_actualizar_estado(id):
 @comercial_bp.route("/ventas", methods=["GET"])
 @login_required
 def api_comercial_ventas():
-    """Obtener todas las ventas del microservicio comercial."""
+    """Obtener todas las ventas del microservicio ventas."""
     try:
         ventas = db.session.execute(text("""
             SELECT * FROM comercial_ventas
             ORDER BY fecha_venta DESC
-        """)).mappings().all()
+        """), bind_arguments={"bind": motor_ventas}).mappings().all()
 
         return jsonify([dict(v) for v in ventas])
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+
+@comercial_bp.route("/validar-stock/<int:producto_id>/<int:cantidad>", methods=["GET"])
+@login_required
+def api_comercial_validar_stock(producto_id, cantidad):
+    """DEMO de integracion: VENTAS consulta a INVENTARIO por HTTP.
+
+    Pedir stock a inventario con su propria BD a traves de su API interna,
+    sin tocar su base de datos directamente.
+    """
+    try:
+        resultado = _consultar_inventario(producto_id, cantidad)
+        return jsonify({
+            "origen": "comercial (servicio ventas)",
+            "consulto_a": "inventario (HTTP + X-Service-Token)",
+            "respuesta": resultado
+        })
+    except Exception as e:
+        return jsonify({
+            "origen": "comercial (servicio ventas)",
+            "error": "inventario no disponible",
+            "detalle": str(e)
+        }), 503

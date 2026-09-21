@@ -12,7 +12,7 @@ from werkzeug.utils import secure_filename
 from flask_bcrypt import Bcrypt
 from flask_sqlalchemy import SQLAlchemy
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, text, or_
 
 # Paquete de microservicios (blueprints independientes: comercial, inventario, monitor)
@@ -28,6 +28,17 @@ try:
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
+
+# Zona horaria de Peru (UTC-5, sin horario de verano).
+try:
+    from zoneinfo import ZoneInfo
+    _ZONA_PERU = ZoneInfo("America/Lima")
+except Exception:
+    _ZONA_PERU = timezone(timedelta(hours=-5))
+
+def hora_actual_peru():
+    """Fecha y hora actual en la zona horaria de Peru (naive para MySQL)."""
+    return datetime.now(_ZONA_PERU).replace(tzinfo=None)
 
 def cargar_entorno():
     """Carga variables desde ../.env sin sobrescribir las del servidor."""
@@ -70,6 +81,39 @@ if not all((DB_USER, DB_PASSWORD, DB_HOST, DB_NAME)):
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"
 )
+
+# =============================================
+# MICROSERVICIOS: UNA BASE DE DATOS POR SERVICIO
+# Cada microservicio usa SU propio schema (bind).
+# La configuracion sale de ms_config.json (repositorio), con prioridad
+# a las variables de entorno y fallback final a la BD principal (DB_NAME)
+# para no romper el sistema existente.
+# =============================================
+_ms_config = {}
+_ruta_ms_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ms_config.json")
+if os.path.exists(_ruta_ms_config):
+    try:
+        with open(_ruta_ms_config, "r", encoding="utf-8") as _f:
+            _ms_config = json.load(_f)
+    except Exception:
+        _ms_config = {}
+
+MS_CONFIG = {
+    "ventas":     os.environ.get("MS_VENTAS_DB", _ms_config.get("ventas", DB_NAME)),
+    "inventario": os.environ.get("MS_INVENTARIO_DB", _ms_config.get("inventario", DB_NAME)),
+    "usuarios":   os.environ.get("MS_USUARIOS_DB", _ms_config.get("usuarios", DB_NAME)),
+    "clientes":   os.environ.get("MS_CLIENTES_DB", _ms_config.get("clientes", DB_NAME)),
+}
+app.config["SQLALCHEMY_BINDS"] = {
+    servicio: f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{quote_plus(db_nombre)}"
+    for servicio, db_nombre in MS_CONFIG.items()
+}
+
+# Comunicacion servicio a servicio (HTTP + token interno)
+SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", _ms_config.get("service_token", "librospe-interno-dev"))
+app.config["SERVICE_TOKEN"] = SERVICE_TOKEN
+app.config["MS_INVENTARIO_URL"] = os.environ.get(
+    "MS_INVENTARIO_URL", _ms_config.get("inventario_url", "http://127.0.0.1:8000"))
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "connect_args": {"ssl": {"ssl_mode": "REQUIRED"}},
@@ -883,6 +927,12 @@ def login_required_cliente(f):
         return f(*args, **kwargs)
     return decorated_function
 
+@app.context_processor
+def inject_fecha_actual():
+    """Inyecta hora_actual_peru() y ahora_peru en todas las plantillas."""
+    ahora = hora_actual_peru()
+    return {"hora_peru": hora_actual_peru, "ahora_peru": ahora}
+
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -1292,6 +1342,28 @@ def enviar_entrega_email(cliente_obj, pedido):
 @app.route("/")
 def inicio():
     return render_template("index.html")
+
+
+# ===============================
+# PWA - MANIFIESTO Y SERVICE WORKER
+# ===============================
+
+@app.route("/manifest.webmanifest")
+def pwa_manifest():
+    resp = app.send_static_file("manifest.webmanifest")
+    resp.headers["Content-Type"] = "application/manifest+json"
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
+@app.route("/sw.js")
+def pwa_service_worker():
+    resp = app.send_static_file("sw.js")
+    resp.headers["Content-Type"] = "application/javascript"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
 
 # ===============================
 # CONTEXT PROCESSOR - CATEGORÍAS
@@ -3684,6 +3756,15 @@ def venta_rapida():
                 ).first()
         except Exception:
             cliente_rapido = None
+        metodo_pago = data.get("metodo_pago", "efectivo")
+        monto_recibido = None
+        vuelto = None
+        try:
+            if metodo_pago == "efectivo":
+                monto_recibido = float(data.get("monto_recibido") or 0)
+        except (TypeError, ValueError):
+            monto_recibido = None
+        numero_pos = f"POS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         for item in items:
             producto = Producto.query.get(item["id"])
             total = producto.precio * item["cantidad"]
@@ -3693,7 +3774,10 @@ def venta_rapida():
                 vendedor_id=session["usuario_id"],
                 fecha_venta=datetime.now(),
                 tipo_comprobante="boleta",
-                numero_comprobante=f"POS-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                numero_comprobante=numero_pos,
+                metodo_pago=metodo_pago,
+                monto_recibido=monto_recibido,
+                vuelto=round(monto_recibido - total, 2) if monto_recibido is not None else None,
                 cliente_nombres=data.get("cliente_nombre", ""),
                 cliente_apellidos=data.get("cliente_apellido", ""),
                 cliente_documento=data.get("cliente_dni", ""),
@@ -3705,10 +3789,90 @@ def venta_rapida():
             total_general += total
             venta_ids.append(nueva_venta.id)
         db.session.commit()
-        return jsonify({"success": True, "venta_id": venta_ids[0], "total": total_general})
+        registrar_auditoria("VENTA", "ventas", f"Venta rápida POS #{venta_ids[0]} - {len(venta_ids)} item(s) - Total: S/ {total_general:.2f} ({metodo_pago})")
+        try:
+            verificar_stock_bajo_y_notificar()
+        except Exception:
+            pass
+        return jsonify({
+            "success": True,
+            "venta_id": venta_ids[0],
+            "total": total_general,
+            "vuelto": round(monto_recibido - total_general, 2) if monto_recibido is not None else None,
+            "metodo_pago": metodo_pago,
+            "numero_comprobante": numero_pos,
+        })
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "error": str(e)})
+
+
+# ===============================================
+# POS TÁCTIL - VENTA RÁPIDA (tablet / mostrador)
+# ===============================================
+
+@app.route("/pos", methods=["GET"])
+@login_required
+def pos_tactil():
+    lista_productos = Producto.query.filter(Producto.cantidad > 0).order_by(Producto.nombre).all()
+    producto_datos = []
+    for p in lista_productos:
+        precio_mostrar = float(p.precio_oferta or p.precio or 0)
+        producto_datos.append({
+            "id": p.id,
+            "nombre": p.nombre,
+            "precio": float(p.precio or 0),
+            "precio_oferta": float(p.precio_oferta) if p.precio_oferta else None,
+            "precio_mostrar": precio_mostrar,
+            "cantidad": p.cantidad,
+            "codigo_barras": p.codigo_barras,
+            "imagen_url": url_for("static", filename=f"img/productos/{p.imagen}") if p.imagen else None,
+        })
+    return render_template("pos_rapido.html", productos=producto_datos, now=datetime.now())
+
+
+# ===============================================
+# RECOMENDADOS - LOS MÁS VENDIDOS
+# ===============================================
+
+@app.route("/api/productos/recomendados")
+def api_productos_recomendados():
+    try:
+        filas = (
+            db.session.query(
+                Producto.id,
+                Producto.nombre,
+                Producto.descripcion,
+                Producto.precio,
+                Producto.precio_oferta,
+                Producto.cantidad,
+                Producto.destacado,
+                Producto.imagen,
+                func.coalesce(func.sum(Venta.cantidad), 0).label("vendidos"),
+            )
+            .outerjoin(Venta, Venta.producto_id == Producto.id)
+            .group_by(Producto.id)
+            .order_by(func.sum(Venta.cantidad).desc(), Producto.destacado.desc())
+            .limit(10)
+            .all()
+        )
+        resultado = []
+        for p in filas:
+            resultado.append({
+                "id": p.id,
+                "nombre": p.nombre,
+                "descripcion": p.descripcion,
+                "precio": float(p.precio or 0),
+                "precio_oferta": float(p.precio_oferta) if p.precio_oferta else None,
+                "cantidad": p.cantidad,
+                "destacado": p.destacado,
+                "vendidos": int(p.vendidos or 0),
+                "imagen_url": url_for("static", filename=f"img/productos/{p.imagen}") if p.imagen else None,
+            })
+        return jsonify(resultado)
+    except Exception as e:
+        print(f"❌ Error en /api/productos/recomendados: {e}")
+        return jsonify([])
 
 # ===============================
 # CLIENTES (TIENDA ONLINE)
@@ -4918,7 +5082,7 @@ def dashboard():
     hace_30_dias = datetime.now() - timedelta(days=30)
     
     # ========== HORA PERÚ ==========
-    ahora_peru = datetime.now() - timedelta(hours=5)
+    ahora_peru = hora_actual_peru()
     
     # ========== 1. ESTADÍSTICAS ==========
     ventas_hoy = Venta.query.filter(func.date(Venta.fecha_venta) == hoy).all()
@@ -4935,7 +5099,90 @@ def dashboard():
     total_clientes = Cliente.query.count()
     hace_7_dias = datetime.now() - timedelta(days=7)
     clientes_nuevos = Cliente.query.filter(Cliente.fecha_registro >= hace_7_dias).count()
-    
+
+    # ========== KPI ADICIONALES ==========
+    # Ticket promedio (venta total / nº transacciones)
+    ticket_promedio_hoy = (total_ventas_hoy / cantidad_ventas_hoy) if cantidad_ventas_hoy else 0
+    ticket_promedio_mes = (total_ventas_mes / cantidad_ventas_mes) if cantidad_ventas_mes else 0
+
+    # Margen bruto (últimos 30 días) usando productos.costo
+    margen_res = db.session.execute(
+        text("""
+            SELECT COALESCE(SUM(v.cantidad * p.precio), 0) AS ingresos,
+                   COALESCE(SUM(v.cantidad * COALESCE(p.costo, 0)), 0) AS costo,
+                   COUNT(DISTINCT CASE WHEN p.costo IS NOT NULL THEN p.id END) AS con_costo
+            FROM ventas v
+            JOIN productos p ON v.producto_id = p.id
+            WHERE v.fecha_venta >= :fecha AND v.estado = 1
+        """),
+        {"fecha": hace_30_dias.date()}
+    ).fetchone()
+    ingresos_30d = float(margen_res[0] or 0)
+    costo_30d = float(margen_res[1] or 0)
+    margen_bruto = ingresos_30d - costo_30d
+    margen_pct = (margen_bruto / ingresos_30d * 100) if ingresos_30d else 0
+    productos_con_costo = int(margen_res[2] or 0)
+
+    # Rotación de inventario (últimos 30 días): unidades vendidas / stock actual
+    unidades_vendidas_30d = int(db.session.execute(
+        text("""
+            SELECT COALESCE(SUM(v.cantidad), 0)
+            FROM ventas v
+            JOIN productos p ON v.producto_id = p.id
+            WHERE v.fecha_venta >= :fecha AND v.estado = 1
+        """),
+        {"fecha": hace_30_dias.date()}
+    ).scalar() or 0)
+    stock_total = int(db.session.execute(
+        text("SELECT COALESCE(SUM(cantidad), 0) FROM productos WHERE estado = 1")
+    ).scalar() or 0)
+    rotacion_inventario = (unidades_vendidas_30d / stock_total) if stock_total else 0
+    ventas_diarias = unidades_vendidas_30d / 30
+    dias_stock = (stock_total / ventas_diarias) if ventas_diarias else 0
+
+    # Conversión pedido → venta
+    total_pedidos = Pedido.query.count()
+    pedidos_convertidos = int(db.session.execute(
+        text("""
+            SELECT COUNT(DISTINCT pedido_id) FROM ventas
+            WHERE pedido_id IS NOT NULL AND estado = 1
+        """)
+    ).scalar() or 0)
+    conversion_pedidos = (pedidos_convertidos / total_pedidos * 100) if total_pedidos else 0
+
+    # Ventas por vendedor (últimos 30 días)
+    ventas_vendedor = db.session.execute(
+        text("""
+            SELECT u.id AS vendedor_id,
+                   CONCAT(u.nombres, ' ', u.apellidos) AS vendedor,
+                   COUNT(*) AS num_ventas,
+                   COALESCE(SUM(v.cantidad), 0) AS unidades,
+                   COALESCE(SUM(v.cantidad * p.precio), 0) AS total
+            FROM ventas v
+            JOIN usuarios_sistema u ON u.id = v.vendedor_id
+            JOIN productos p ON v.producto_id = p.id
+            WHERE v.fecha_venta >= :fecha AND v.estado = 1
+            GROUP BY u.id, u.nombres, u.apellidos
+            ORDER BY total DESC
+        """),
+        {"fecha": hace_30_dias.date()}
+    ).mappings().all()
+
+    # Desviación de caja (cierres registrados)
+    desviacion = db.session.execute(
+        text("""
+            SELECT COUNT(*) AS total_cierres,
+                   COALESCE(SUM(CASE WHEN COALESCE(diferencia, 0) != 0 THEN 1 ELSE 0 END), 0) AS con_diferencia,
+                   COALESCE(AVG(ABS(COALESCE(diferencia, 0))), 0) AS promedio_diferencia
+            FROM cajas
+            WHERE estado = 'cerrada'
+        """)
+    ).fetchone()
+    total_cierres = int(desviacion[0] or 0)
+    cierres_con_diferencia = int(desviacion[1] or 0)
+    promedio_diferencia = float(desviacion[2] or 0)
+    pct_cierres_con_diferencia = (cierres_con_diferencia / total_cierres * 100) if total_cierres else 0
+
     # Ventas por día
     ventas_por_dia = []
     for i in range(6, -1, -1):
@@ -5113,6 +5360,22 @@ def dashboard():
                           graph_top=graph_top,
                           graph_cat=graph_cat,
                           graph_estados=graph_estados,
+                          ticket_promedio_hoy=ticket_promedio_hoy,
+                          ticket_promedio_mes=ticket_promedio_mes,
+                          margen_bruto=margen_bruto,
+                          margen_pct=margen_pct,
+                          productos_con_costo=productos_con_costo,
+                          unidades_vendidas_30d=unidades_vendidas_30d,
+                          rotacion_inventario=rotacion_inventario,
+                          dias_stock=dias_stock,
+                          conversion_pedidos=conversion_pedidos,
+                          pedidos_convertidos=pedidos_convertidos,
+                          total_pedidos=total_pedidos,
+                          ventas_vendedor=ventas_vendedor,
+                          total_cierres=total_cierres,
+                          cierres_con_diferencia=cierres_con_diferencia,
+                          pct_cierres_con_diferencia=pct_cierres_con_diferencia,
+                          promedio_diferencia=promedio_diferencia,
                           datetime=datetime,
                           timedelta=timedelta,
                           ahora_peru=ahora_peru) 

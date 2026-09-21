@@ -18,7 +18,7 @@ if (-not (Test-Path -LiteralPath $venvPy)) {
     }
     if ($null -eq $py) {
         foreach ($glob in @("$env:LOCALAPPDATA\Programs\Python\Python*\python.exe", "C:\ProgramData\Anaconda3\python.exe", "$env:USERPROFILE\anaconda3\python.exe", "$env:USERPROFILE\miniconda3\python.exe")) {
-            $f = Get-Item $glob 2>$null | Select-Object -First 1
+            $f = Get-Item -Path $glob -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($f) { $py = $f.FullName; break }
         }
     }
