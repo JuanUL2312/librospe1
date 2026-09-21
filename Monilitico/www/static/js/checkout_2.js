@@ -50,6 +50,7 @@ function seleccionarComprobante(tipo) {
         input.placeholder = '8 dígitos numéricos';
         input.maxLength = 8;
         input.value = '';
+        input.disabled = false;
         info.textContent = 'Opcional: ingresa tu DNI para que la boleta salga con tu nombre real (RENIEC)';
         info.style.display = 'block';
         info.style.color = '#6b7280';
@@ -63,6 +64,7 @@ function seleccionarComprobante(tipo) {
         input.placeholder = '11 dígitos numéricos';
         input.maxLength = 11;
         input.value = '';
+        input.disabled = false;
         info.textContent = 'Ingresa tu número de RUC (11 dígitos)';
         info.style.display = 'block';
         info.style.color = '#6b7280';
@@ -79,7 +81,7 @@ function seleccionarComprobante(tipo) {
 function cambiarTipoDocumento() {
     var select = document.getElementById('tipoDocumentoSelect');
     if (!select) return;
-    tipoDocumento = select.value === 'CE' ? 'CE' : 'DNI';
+    tipoDocumento = select.value === 'NINGUNO' ? 'NINGUNO' : (select.value === 'CE' ? 'CE' : 'DNI');
 
     var input = document.getElementById('documentoInput');
     var label = document.getElementById('documentoLabel');
@@ -92,6 +94,19 @@ function cambiarTipoDocumento() {
     error.classList.remove('show');
     error.style.display = 'none';
     document.getElementById('confirmacionBlock').classList.remove('show');
+
+    if (tipoDocumento === 'NINGUNO') {
+        label.innerHTML = 'Documento <span class="text-muted small">(no se ingresará)</span>';
+        input.placeholder = 'Compra solo con tu nombre';
+        input.value = '';
+        input.disabled = true;
+        error.textContent = '';
+        info.textContent = 'La boleta saldrá solo con tu nombre registrado, sin DNI ni RUC.';
+        info.style.display = 'block';
+        info.style.color = '#6b7280';
+        return;
+    }
+    input.disabled = false;
 
     if (tipoDocumento === 'CE') {
         label.innerHTML = 'Carnet de Extranjería <span class="text-muted small">(opcional)</span>';
@@ -116,6 +131,7 @@ function cambiarTipoDocumento() {
 // VALIDAR DOCUMENTO Y MOSTRAR CONFIRMACIÓN
 // ============================================
 function validarDocumento(input) {
+    if (tipoComprobante === 'boleta' && tipoDocumento === 'NINGUNO') return;
     var esCE = tipoComprobante === 'boleta' && tipoDocumento === 'CE';
     var maxLength = tipoComprobante === 'boleta' ? (esCE ? 9 : 8) : 11;
     
@@ -448,8 +464,11 @@ function procesarPago() {
         return;
     }
     
-    // Documento: obligatorio SOLO en factura (RUC). En boleta es opcional
-    if (tipoComprobante === 'boleta' && documento) {
+    // Documento: obligatorio SOLO en factura (RUC). En boleta es opcional.
+    // Con "Sin documento" se compra solo con el nombre (documento queda vacio).
+    var sinDocumento = (tipoComprobante === 'boleta' && tipoDocumento === 'NINGUNO');
+    if (sinDocumento) documento = '';
+    if (tipoComprobante === 'boleta' && documento && !sinDocumento) {
         var docValido = (tipoDocumento === 'CE')
             ? /^[A-Za-z0-9]{9}$/.test(documento)
             : /^\d{8}$/.test(documento);
@@ -481,7 +500,7 @@ function procesarPago() {
     }
     
     // La verificación del documento aplica si se ingresó uno en la boleta, o siempre en factura
-    var requiereVerificacion = (tipoComprobante === 'factura') || (tipoComprobante === 'boleta' && documento.length > 0);
+    var requiereVerificacion = (tipoComprobante === 'factura') || (tipoComprobante === 'boleta' && !sinDocumento && documento.length > 0);
     var confirmBlock = document.getElementById('confirmacionBlock');
     if (requiereVerificacion && !confirmBlock.classList.contains('show')) {
         Swal.fire({
@@ -513,7 +532,7 @@ function procesarPago() {
         documento: documento,
         tipo_documento: tipoComprobante === 'factura'
             ? 'RUC'
-            : (documento ? (tipoDocumento === 'CE' ? 'Carnet de Extranjería' : 'DNI') : ''),
+            : (sinDocumento || !documento ? '' : (tipoDocumento === 'CE' ? 'Carnet de Extranjería' : 'DNI')),
         direccion: direccion,
         tipo_comprobante: tipoComprobante,
         razon_social: tipoComprobante === 'factura' ? (document.getElementById('confirmRazonSocial').textContent || '') : '',

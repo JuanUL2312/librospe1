@@ -60,6 +60,26 @@ def cargar_entorno():
 
 cargar_entorno()
 
+
+class PrefijoSubruta:
+    """Sirve la app bajo un subpath (ej. /monolito) en alwaysdata.
+
+    Si la URL empieza con el prefijo, lo mueve a SCRIPT_NAME para que
+    url_for() genere rutas con prefijo y Flask enrute sin el.
+    Sin APP_SUBPATH no hace nada (modo raiz).
+    """
+    def __init__(self, wsgi_app, prefijo=""):
+        self.wsgi_app = wsgi_app
+        self.prefijo = (prefijo or "").rstrip("/")
+
+    def __call__(self, environ, start_response):
+        ruta = environ.get("PATH_INFO", "") or "/"
+        if self.prefijo and (ruta == self.prefijo or ruta.startswith(self.prefijo + "/")):
+            environ["SCRIPT_NAME"] = self.prefijo
+            environ["PATH_INFO"] = ruta[len(self.prefijo):] or "/"
+        return self.wsgi_app(environ, start_response)
+
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY")
 if not app.secret_key:
@@ -71,6 +91,14 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     MAX_CONTENT_LENGTH=8 * 1024 * 1024,
 )
+
+# Subpath en alwaysdata (ej. APP_SUBPATH=/monolito con direccion
+# librospe.alwaysdata.net/monolito). Vacio = servida en la raiz.
+APP_SUBPATH = os.environ.get("APP_SUBPATH", "").rstrip("/")
+if APP_SUBPATH:
+    app.config["APPLICATION_ROOT"] = APP_SUBPATH
+    app.config["SESSION_COOKIE_NAME"] = "session_mono"
+    app.config["SESSION_COOKIE_PATH"] = APP_SUBPATH
 
 UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "static/img/productos")
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
@@ -5489,6 +5517,9 @@ def cliente_detalle_pedido(pedido_id):
                           cliente=cliente, 
                           venta=venta)
 
+
+
+app.wsgi_app = PrefijoSubruta(app.wsgi_app, APP_SUBPATH)
 
 
 if __name__ == "__main__":
