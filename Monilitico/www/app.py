@@ -5519,6 +5519,154 @@ def cliente_detalle_pedido(pedido_id):
 
 
 
+# =============================================
+# MIDDLEWARE: Reescribe URLs absolutas en HTML para que incluyan el prefijo /monolito
+# Esto evita que formularios, enlaces y fetch apunten al sitio principal (librospe.alwaysdata.net)
+# y así todos los registros van a la BD librospe_monolito.
+# =============================================
+@app.after_request
+def rewrite_absolute_urls(response):
+    if 'text/html' in response.content_type:
+        try:
+            body = response.get_data(as_text=True)
+        except:
+            body = response.text
+        
+        # Mapa completo de rutas absolutas -> con prefijo /monolito
+        # Cubre templates (href, action, src) y JS (fetch, location.href, etc.)
+        mapa ={
+            # Auth cliente
+            'href="/login-cliente"': 'href="/monolito/login-cliente"',
+            'action="/login-cliente"': 'action="/monolito/login-cliente"',
+            'href="/registro-cliente"': 'href="/monolito/registro-cliente"',
+            'action="/registro-cliente"': 'action="/monolito/registro-cliente"',
+            'href="/logout-cliente"': 'href="/monolito/logout-cliente"',
+            'href="/logout"': 'href="/monolito/logout"',
+            'action="/logout"': 'action="/monolito/logout"',
+            'href="/cambiar_clave"': 'href="/monolito/cambiar_clave"',
+            'action="/cambiar_clave"': 'action="/monolito/cambiar_clave"',
+            
+            # Cliente: perfil, pedidos, carrito, checkout, pago
+            'href="/cliente/perfil"': 'href="/monolito/cliente/perfil"',
+            'action="/cliente/actualizar-perfil"': 'action="/monolito/cliente/actualizar-perfil"',
+            'href="/cliente/cambiar-contrasena"': 'href="/monolito/cliente/cambiar-contrasena"',
+            'action="/cliente/cambiar-contrasena"': 'action="/monolito/cliente/cambiar-contrasena"',
+            'href="/carrito"': 'href="/monolito/carrito"',
+            'href="/checkout"': 'href="/monolito/checkout"',
+            'href="/pago"': 'href="/monolito/pago"',
+            'action="/pago"': 'action="/monolito/pago"',
+            'href="/mis-pedidos"': 'href="/monolito/mis-pedidos"',
+            'href="/pedidos"': 'href="/monolito/pedidos"',
+            'href="/pedidos/detalle/': 'href="/monolito/pedidos/detalle/',
+            
+            # API cliente
+            'fetch("/api/cliente/': 'fetch("/monolito/api/cliente/',
+            'fetch("/api/departamentos"': 'fetch("/monolito/api/departamentos"',
+            'fetch("/api/provincias/': 'fetch("/monolito/api/provincias/',
+            'fetch("/api/distritos/': 'fetch("/monolito/api/distritos/',
+            'fetch("/api/consultar-dni/': 'fetch("/monolito/api/consultar-dni/',
+            'fetch("/api/consultar-ruc/': 'fetch("/monolito/api/consultar-ruc/',
+            'fetch("/api/mis-pedidos"': 'fetch("/monolito/api/mis-pedidos"',
+            'fetch("/api/pedidos/crear"': 'fetch("/monolito/api/pedidos/crear"',
+            'fetch("/api/buscar_producto"': 'fetch("/monolito/api/buscar_producto"',
+            'fetch("/api/productos/catalogo"': 'fetch("/monolito/api/productos/catalogo"',
+            'fetch("/api/productos/recomendados"': 'fetch("/monolito/api/productos/recomendados"',
+            'fetch("/api/productos/top"': 'fetch("/monolito/api/productos/top"',
+            'fetch("/api/productos/': 'fetch("/monolito/api/productos/',
+            'fetch("/api/bloqueos"': 'fetch("/monolito/api/bloqueos"',
+            
+            # Admin / Dashboard / Ventas / Productos / Proveedores / Caja / Reportes
+            'href="/dashboard"': 'href="/monolito/dashboard"',
+            'href="/ventas"': 'href="/monolito/ventas"',
+            'href="/ventas/nueva"': 'href="/monolito/ventas/nueva"',
+            'action="/ventas/nueva"': 'action="/monolito/ventas/nueva"',
+            'href="/productos"': 'href="/monolito/productos"',
+            'href="/productos/nuevo"': 'href="/monolito/productos/nuevo"',
+            'action="/productos/guardar"': 'action="/monolito/productos/guardar"',
+            'href="/productos/editar/': 'href="/monolito/productos/editar/',
+            'action="/productos/actualizar/': 'action="/monolito/productos/actualizar/',
+            'action="/productos/eliminar/"': 'action="/monolito/productos/eliminar/',
+            'href="/proveedores"': 'href="/monolito/proveedores"',
+            'href="/proveedores/nuevo"': 'href="/monolito/proveedores/nuevo"',
+            'action="/proveedores/guardar"': 'action="/monolito/proveedores/guardar"',
+            'href="/proveedores/editar/': 'href="/monolito/proveedores/editar/',
+            'action="/proveedores/actualizar/': 'action="/monolito/proveedores/actualizar/',
+            'action="/proveedores/eliminar/': 'action="/monolito/proveedores/eliminar/',
+            'href="/caja"': 'href="/monolito/caja"',
+            'action="/caja/apertura"': 'action="/monolito/caja/apertura"',
+            'action="/caja/cierre"': 'action="/monolito/caja/cierre"',
+            'href="/reportes/ventas_por_ubicacion"': 'href="/monolito/reportes/ventas_por_ubicacion"',
+            'href="/auditoria"': 'href="/monolito/auditoria"',
+            'href="/bloqueos"': 'href="/monolito/bloqueos"',
+            'href="/ips-bloqueadas"': 'href="/monolito/ips-bloqueadas"',
+            'href="/usuarios/nuevo"': 'href="/monolito/usuarios/nuevo"',
+            'action="/usuarios/nuevo"': 'action="/monolito/usuarios/nuevo"',
+            'href="/usuarios-sistema"': 'href="/monolito/usuarios-sistema"',
+            'action="/usuario/bloquear/': 'action="/monolito/usuario/bloquear/',
+            'action="/usuario/desbloquear/': 'action="/monolito/usuario/desbloquear/',
+            'href="/usuario/editar/': 'href="/monolito/usuario/editar/',
+            'action="/usuario/cambiar-clave/': 'action="/monolito/usuario/cambiar-clave/',
+            
+            # Catalogo / POS / Comprobante
+            'href="/catalogo"': 'href="/monolito/catalogo"',
+            'href="/pos"': 'href="/monolito/pos"',
+            'href="/comprobante/': 'href="/monolito/comprobante/',
+            'href="/ver_ventas"': 'href="/monolito/ver_ventas"',
+            'href="/ver_productos_proveedor"': 'href="/monolito/ver_productos_proveedor"',
+            
+            # API admin / ventas / inventario / usuarios / clientes / monitor
+            'href="/api/ventas/rapida"': 'href="/monolito/api/ventas/rapida"',
+            'href="/api/productos/': 'href="/monolito/api/productos/',
+            'href="/api/inventario/': 'href="/monolito/api/inventario/',
+            'href="/api/comercial/': 'href="/monolito/api/comercial/',
+            'href="/api/usuarios"': 'href="/monolito/api/usuarios"',
+            'href="/api/clientes"': 'href="/monolito/api/clientes"',
+            'href="/api/health"': 'href="/monolito/api/health"',
+            
+            # Carrito / URLs en JS
+            '"href="/catalogo"': '"href="/monolito/catalogo"',
+            '"href="/login-cliente"': '"href="/monolito/login-cliente"',
+            '"href="/checkout"': '"href="/monolito/checkout"',
+            '"href="/pago"': '"href="/monolito/pago"',
+            '"href="/mis-pedidos"': '"href="/monolito/mis-pedidos"',
+            
+            # location.href en JS
+            "location.href = '/catalogo'": "location.href = '/monolito/catalogo'",
+            "location.href = '/login-cliente'": "location.href = '/monolito/login-cliente'",
+            "location.href = '/checkout'": "location.href = '/monolito/checkout'",
+            "location.href = '/pago'": "location.href = '/monolito/pago'",
+            "location.href = '/mis-pedidos'": "location.href = '/monolito/mis-pedidos'",
+            "location.href = '/pedidos'": "location.href = '/monolito/pedidos'",
+            "location.href = '/logout-cliente'": "location.href = '/monolito/logout-cliente'",
+            "location.href = '/logout'": "location.href = '/monolito/logout'",
+            
+            # API URLs en JS
+            "fetch('/api/": "fetch('/monolito/api/",
+            "fetch(\"/api/": 'fetch("/monolito/api/',
+            "/api/pedidos/crear": "/monolito/api/pedidos/crear",
+            "/api/consultar-dni/": "/monolito/api/consultar-dni/",
+            "/api/consultar-ruc/": "/monolito/api/consultar-ruc/",
+            "/api/cliente/direccion": "/monolito/api/cliente/direccion",
+            "/api/bloqueos": "/monolito/api/bloqueos",
+            "/api/buscar_producto": "/monolito/api/buscar_producto",
+            "/api/productos/catalogo": "/monolito/api/productos/catalogo",
+            "/api/productos/recomendados": "/monolito/api/productos/recomendados",
+            "/api/productos/top": "/monolito/api/productos/top",
+            "/api/productos/": "/monolito/api/productos/",
+            "/api/ventas/rapida": "/monolito/api/ventas/rapida",
+            "/api/departamentos": "/monolito/api/departamentos",
+            "/api/provincias/": "/monolito/api/provincias/",
+            "/api/distritos/": "/monolito/api/distritos/",
+        }
+        
+        
+        for old, new in mapa.items():
+            body = body.replace(old, new)
+        
+        response.set_data(body.encode(response.charset or "utf-8"))
+    return response
+
+
 app.wsgi_app = PrefijoSubruta(app.wsgi_app, APP_SUBPATH)
 
 
