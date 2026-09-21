@@ -5520,17 +5520,25 @@ def cliente_detalle_pedido(pedido_id):
 
 
 # =============================================
-# MIDDLEWARE: Reescribe URLs absolutas en HTML para que incluyan el prefijo /monolito
-# Esto evita que formularios, enlaces y fetch apunten al sitio principal (librospe.alwaysdata.net)
-# y así todos los registros van a la BD librospe_monolito.
+# MIDDLEWARE: Reescribe URLs absolutas en HTML para incluir /monolito
+# SOLO en despliegue por ruta (APP_SUBPATH=/monolito).
+# Con subdominio propio (librospe-monolito.alwaysdata.net) APP_SUBPATH está
+# vacío y este middleware NO toca las URLs: todo queda en la raíz del subdominio
+# y los registros van a la BD librospe_monolito.
 # =============================================
 @app.after_request
 def rewrite_absolute_urls(response):
-    if 'text/html' in response.content_type:
-        try:
-            body = response.get_data(as_text=True)
-        except:
-            body = response.text
+    # El monolito se sirve en SU PROPIO SUBDOMINIO (librospe-monolito.alwaysdata.net),
+    # en la raíz, así que las URLs NO llevan prefijo /monolito.
+    # Este middleware SOLO reescribe cuando APP_SUBPATH está definido
+    # (despliegue por ruta, ej. librospe.alwaysdata.net/monolito).
+    # Sin APP_SUBPATH pasa directo y los enlaces quedan /catalogo, /login, etc.
+    if not APP_SUBPATH or 'text/html' not in response.content_type:
+        return response
+    try:
+        body = response.get_data(as_text=True)
+    except:
+        body = response.text
         
         # Mapa completo de rutas absolutas -> con prefijo /monolito
         # Cubre templates (href, action, src) y JS (fetch, location.href, etc.)
@@ -5590,8 +5598,8 @@ def rewrite_absolute_urls(response):
             'href="/proveedores/nuevo"': 'href="/monolito/proveedores/nuevo"',
             'action="/proveedores/guardar"': 'action="/monolito/proveedores/guardar"',
             'href="/proveedores/editar/"': 'href="/monolito/proveedores/editar/',
-            'action="/proveedores/actualizar/"': 'action="/monolito/proveedores/actualizar/",
-            'action="/proveedores/eliminar/"': 'action="/monolito/proveedores/eliminar/",
+            'action="/proveedores/actualizar/"': 'action="/monolito/proveedores/actualizar/"',
+            'action="/proveedores/eliminar/"': 'action="/monolito/proveedores/eliminar/"',
             'href="/caja"': 'href="/monolito/caja"',
             'action="/caja/apertura"': 'action="/monolito/caja/apertura"',
             'action="/caja/cierre"': 'action="/monolito/caja/cierre"',
