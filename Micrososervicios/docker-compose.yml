@@ -1,0 +1,27 @@
+version: "3.8"
+services:
+  gateway:
+    build: ./www
+    ports: ["8000:8000"]
+    env_file: .env
+    depends_on: [inventario, ventas, usuarios, clientes]
+  inventario:
+    build: ./servicio-inventario
+    ports: ["8001:8001"]
+    env_file: .env
+    command: python app.py
+  ventas:
+    build: ./servicio-ventas
+    ports: ["8002:8002"]
+    env_file: .env
+    command: python app.py
+  usuarios:
+    build: ./servicio-usuarios
+    ports: ["8003:8003"]
+    env_file: .env
+    command: python app.py
+  clientes:
+    build: ./servicio-clientes
+    ports: ["8004:8004"]
+    env_file: .env
+    command: python app.py

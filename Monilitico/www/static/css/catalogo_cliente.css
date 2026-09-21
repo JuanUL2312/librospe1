@@ -1,0 +1,17 @@
+
+.producto-card {
+    transition: transform 0.3s, box-shadow 0.3s;
+}
+.producto-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 30px -12px rgba(0,0,0,0.2) !important;
+}
+.bg-gradient-primary {
+    background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+}
+.bg-gradient-warning {
+    background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+}
+.rounded-4 {
+    border-radius: 1rem !important;
+}

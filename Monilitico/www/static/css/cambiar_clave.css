@@ -1,0 +1,206 @@
+
+  /* ===== MEDIDAS RESPONSIVE ===== */
+  
+  /* Reset y mejoras generales */
+  * {
+    box-sizing: border-box;
+  }
+  
+  /* Contenedor principal responsive */
+  .container-custom {
+    width: 100%;
+    padding-right: 15px;
+    padding-left: 15px;
+    margin-right: auto;
+    margin-left: auto;
+  }
+  
+  /* Móviles pequeños (menos de 576px) */
+  @media (max-width: 576px) {
+    .row.justify-content-center {
+      margin: 0.5rem !important;
+    }
+    
+    .card {
+      margin: 0 !important;
+      border-radius: 12px !important;
+    }
+    
+    .card-body {
+      padding: 1.25rem !important;
+    }
+    
+    .card-header {
+      padding: 0.75rem 1rem !important;
+    }
+    
+    .card-header h4 {
+      font-size: 1.25rem !important;
+      margin-bottom: 0.25rem !important;
+    }
+    
+    .card-header p {
+      font-size: 0.75rem !important;
+      margin-bottom: 0 !important;
+    }
+    
+    /* Botones más grandes para touch */
+    .btn {
+      padding: 0.625rem 0.75rem !important;
+      font-size: 0.95rem !important;
+      min-height: 44px;
+    }
+    
+    /* Espaciado entre campos */
+    .mb-3 {
+      margin-bottom: 1rem !important;
+    }
+    
+    /* Labels más legibles */
+    .form-label {
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    
+    /* Inputs más grandes para dedos */
+    .form-control {
+      font-size: 16px !important; /* Previene zoom en iOS */
+      padding: 0.5rem 0.75rem !important;
+      min-height: 44px;
+    }
+    
+    /* Grupos de input */
+    .input-group {
+      flex-wrap: nowrap !important;
+    }
+    
+    .input-group .btn {
+      min-width: 44px !important;
+      min-height: 44px !important;
+    }
+    
+    /* Texto pequeño */
+    .text-muted, small {
+      font-size: 0.7rem !important;
+    }
+  }
+  
+  /* Tablets (576px - 768px) */
+  @media (min-width: 576px) and (max-width: 768px) {
+    .card-body {
+      padding: 1.5rem !important;
+    }
+    
+    .btn {
+      padding: 0.5rem 1rem !important;
+      min-height: 40px;
+    }
+    
+    .form-control {
+      min-height: 42px;
+    }
+  }
+  
+  /* Tablets grandes y laptops pequeñas (768px - 992px) */
+  @media (min-width: 768px) and (max-width: 992px) {
+    .col-md-6 {
+      max-width: 75% !important;
+    }
+  }
+  
+  /* Laptops y desktop (992px - 1200px) */
+  @media (min-width: 992px) and (max-width: 1200px) {
+    .col-md-6 {
+      max-width: 60% !important;
+    }
+  }
+  
+  /* Pantallas grandes (más de 1200px) */
+  @media (min-width: 1200px) {
+    .col-md-6 {
+      max-width: 50% !important;
+    }
+  }
+  
+  /* Pantallas extra grandes (más de 1400px) */
+  @media (min-width: 1400px) {
+    .col-md-6 {
+      max-width: 600px !important;
+      margin: 0 auto;
+    }
+  }
+  
+  /* Orientación landscape en móviles */
+  @media (max-width: 768px) and (orientation: landscape) {
+    .card {
+      margin: 0.5rem !important;
+    }
+    
+    .card-body {
+      max-height: 70vh;
+      overflow-y: auto;
+      padding: 1rem !important;
+    }
+    
+    .mb-3 {
+      margin-bottom: 0.5rem !important;
+    }
+    
+    .card-header h4 {
+      font-size: 1rem !important;
+    }
+    
+    .d-grid {
+      gap: 0.5rem !important;
+    }
+  }
+  
+  /* Mejoras para dispositivos táctiles */
+  @media (hover: none) and (pointer: coarse) {
+    button, 
+    .btn,
+    [onclick] {
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    button:active,
+    .btn:active {
+      transform: scale(0.98);
+      transition: transform 0.1s;
+    }
+  }
+  
+  /* Animación suave para mensajes */
+  .alert {
+    animation: slideDown 0.3s ease-out;
+  }
+  
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  /* Barra de progreso de fuerza de contraseña */
+  .strength-bar {
+    transition: width 0.3s ease;
+    border-radius: 3px;
+  }
+  
+  /* Input focus mejorado para móviles */
+  .form-control:focus {
+    font-size: 16px !important;
+    outline: none;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+  }
+  
+  /* Scroll suave */
+  html {
+    scroll-behavior: smooth;
+  }

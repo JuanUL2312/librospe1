@@ -1,0 +1,62 @@
+
+    /* ===== ESTILOS ESPECÍFICOS DE PRODUCTOS ===== */
+    .badge-categoria {
+        display: inline-block;
+        font-size: 0.7rem;
+        font-weight: 600;
+        border-radius: 20px;
+        padding: 0.3rem 0.7rem;
+        color: white;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+    .badge-categoria-cuadernos { background: #4F46E5; }
+    .badge-categoria-lapiceros { background: #DC2626; }
+    .badge-categoria-papeleria { background: #059669; }
+    .badge-categoria-arte { background: #7C3AED; }
+    .badge-categoria-oficina { background: #D97706; }
+    .badge-categoria-herramientas { background: #6B7280; }
+    .badge-categoria-default { background: #6B7280; }
+    
+    .table-row-hover:hover { 
+        background-color: rgba(212, 175, 55, 0.06);
+        transition: background-color 0.2s ease;
+    }
+    .table thead th {
+        background: linear-gradient(135deg, #1e3a8a, #3b82f6) !important;
+        color: white !important;
+        font-weight: 600;
+        border: none;
+    }
+    .card-header.bg-primary {
+        background: linear-gradient(135deg, #1e3a8a, #3b82f6) !important;
+        border: none;
+    }
+    .form-control-sm:focus,
+    .form-select-sm:focus {
+        border-color: #d4af37;
+        outline: none;
+        box-shadow: 0 0 0 0.2rem rgba(212, 175, 55, 0.25);
+    }
+    #filtroCategoria {
+        border: 2px solid #1e3a8a !important;
+        background-color: #eef2ff !important;
+        font-weight: 600 !important;
+        color: #1e3a8a !important;
+    }
+    #filtroCategoria:focus {
+        border-color: #d4af37 !important;
+        box-shadow: 0 0 0 0.25rem rgba(212, 175, 55, 0.3) !important;
+    }
+    .card, .dashboard-header {
+        animation: fadeInUp 0.5s ease-out;
+    }
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }

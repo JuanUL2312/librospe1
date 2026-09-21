@@ -1,0 +1,21 @@
+
+        body { background: linear-gradient(135deg, #1e3a8a, #3b82f6); min-height: 100vh; }
+        .login-card { border-radius: 20px; overflow: hidden; }
+        @media (max-width: 576px) {
+            .login-card { margin: 0.5rem; border-radius: 15px; }
+            .card-header { padding: 1rem !important; }
+            .card-header i { font-size: 2rem !important; }
+            .card-header h3 { font-size: 1.2rem !important; }
+            .card-body { padding: 1rem !important; }
+        }
+        .bloqueo-permanente {
+            background: #dc3545; color: white; padding: 10px 15px; border-radius: 8px;
+            margin-bottom: 15px; display: flex; align-items: center; gap: 10px;
+        }
+        .bloqueo-permanente i { font-size: 1.5rem; }
+        .bloqueo-temporal {
+            background: #f59e0b; color: #1e293b; padding: 10px 15px; border-radius: 8px;
+            margin-bottom: 15px; display: flex; align-items: center; gap: 10px;
+        }
+        .bloqueo-temporal i { font-size: 1.5rem; }
+    

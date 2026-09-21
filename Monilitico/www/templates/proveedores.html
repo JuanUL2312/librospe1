@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block titulito %}👥 Gestión de Proveedores{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/proveedores.css') }}">
+{% endblock %}
+
+{% block contenido %}
+<div class="container-fluid py-3 py-md-4">
+  <div class="row">
+    <div class="col-12">
+      <!-- HEADER DASHBOARD SALESIANO -->
+      <div class="bg-primary p-4 p-md-5 mb-4 mb-md-5 text-white position-relative overflow-hidden hover-lift rounded-4">
+        <div class="bg-overlay"></div>
+        <div class="position-relative z-3">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+              <h1 class="h2 fw-extrabold mb-2 text-shadow-primary">
+                <i class="fas fa-users me-3 text-warning"></i>
+                Gestión de Proveedores
+              </h1>
+              <p class="h5 mb-0 opacity-90">
+                <i class="fas fa-chart-line me-2"></i>
+                {{ proveedores|length }} proveedores registrados
+              </p>
+            </div>
+            {% if session.rol != 'vendedor' %}
+            <div class="d-flex gap-2 flex-wrap">
+              <a href="/proveedores/nuevo" class="btn btn-success btn-lg shadow-lg hover-lift">
+                <i class="fas fa-plus me-2"></i>Nuevo Proveedor
+              </a>
+              <a href="/productos" class="btn btn-warning btn-lg shadow-lg hover-lift">
+                <i class="fas fa-box me-2"></i>Productos
+              </a>
+              <a href="/ver_productos_proveedor" class="btn btn-purple-gradient btn-lg shadow-purple-lg hover-lift">
+                <i class="fas fa-chart-line me-2"></i>Por Proveedor
+              </a>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLA PROVEEDORES PREMIUM -->
+      {% if proveedores %}
+      <div class="card shadow-3xl mb-0 border-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 align-middle" id="tablaProveedores">
+            <thead class="table-dark">
+              <tr>
+                <th style="width: 50px;">#</th>
+                <th>Nombre Completo</th>
+                <th>Empresa</th>
+                <th>Email</th>
+                <th class="text-center" style="width: 120px;">Contacto</th>
+                <th class="text-center" style="width: 100px;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in proveedores %}
+              <tr class="hover-row" data-nombre="{{ p.nombre.lower() }}" data-empresa="{{ p.empresa.lower() if p.empresa else '' }}">
+                <td class="fw-bold text-primary">{{ loop.index }}</td>
+                <td class="fw-bold">
+                  <div class="d-flex align-items-center">
+                    <div class="bg-light rounded-circle d-flex align-items-center justify-content-center me-2" 
+                         style="width: 32px; height: 32px;">
+                      <i class="fas fa-user-tie text-primary fs-6"></i>
+                    </div>
+                    {{ p.nombre }}
+                  </div>
+                </td>
+                <td class="fw-semibold">
+                  {% if p.empresa %}
+                  <span class="badge bg-success bg-opacity-10 text-success px-2 py-1">
+                    <i class="fas fa-building me-1"></i>{{ p.empresa }}
+                  </span>
+                  {% else %}
+                  <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <i class="fas fa-envelope text-info me-1"></i>
+                  <a href="mailto:{{ p.email }}" class="text-decoration-none">{{ p.email }}</a>
+                </td>
+                <td class="text-center">
+                  <i class="fas fa-phone text-warning me-1"></i>
+                  <strong>{{ p.contacto }}</strong>
+                </td>
+                <td class="text-center">
+                  {% if session.rol != 'vendedor' %}
+                  <div class="btn-group" role="group">
+                    <a href="/proveedores/editar/{{ p.id }}" class="btn btn-warning btn-sm shadow-sm hover-lift me-1"
+                      title="Editar proveedor">
+                      <i class="fas fa-edit"></i>
+                    </a>
+                    <form action="{{ url_for('eliminar_proveedor', id=p.id) }}" method="post" class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <button type="submit" class="btn btn-danger btn-sm shadow-sm hover-lift"
+                        onclick="return confirmarEliminacion('{{ p.nombre }}')" title="Eliminar proveedor">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </form>
+                  </div>
+                  {% else %}
+                  <span class="badge bg-secondary px-3 py-2">
+                    <i class="fas fa-lock me-1"></i>Solo lectura
+                  </span>
+                  {% endif %}
+                 </td>
+               </tr>
+              {% endfor %}
+            </tbody>
+           </table>
+        </div>
+      </div>
+      
+      <!-- Contador adicional al final -->
+      <div class="mt-3 text-end">
+        <small class="text-muted">
+          <i class="fas fa-database me-1"></i>
+          Total: {{ proveedores|length }} proveedores
+        </small>
+      </div>
+      
+      {% else %}
+      <!-- EMPTY STATE PREMIUM -->
+      <div class="text-center py-8">
+        <div class="bg-secondary bg-opacity-25 rounded-circle mx-auto mb-5 p-5 d-inline-flex align-items-center justify-content-center shadow-lg"
+          style="width: 150px; height: 150px;">
+          <i class="fas fa-users-slash fa-4x text-secondary"></i>
+        </div>
+        <h3 class="display-6 fw-extrabold text-muted mb-4">No hay proveedores registrados</h3>
+        <p class="text-muted mb-4">Comienza agregando tu primer proveedor para gestionar el inventario</p>
+        {% if session.rol != 'vendedor' %}
+        <a href="/proveedores/nuevo" class="btn btn-success btn-lg px-5 py-3 shadow-lg hover-lift">
+          <i class="fas fa-plus-circle me-2"></i>Registrar Primer Proveedor
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/proveedores.js') }}"></script>
+
+<!-- Estilos adicionales para badges dinámicos -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/proveedores_2.css') }}">
+{% endblock %}

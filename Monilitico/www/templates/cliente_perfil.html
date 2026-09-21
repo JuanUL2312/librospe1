@@ -1,0 +1,206 @@
+{% extends 'base_cliente.html' %}
+{% block titulito %}Mi Perfil - Cliente{% endblock %}
+
+{% block contenido %}
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-6">
+        <div class="card shadow border-0 rounded-3 overflow-hidden">
+            <div class="card-header bg-primary text-white py-3 py-md-4">
+                <h4 class="mb-0 fs-5 fs-md-4">
+                    <i class="fas fa-user-circle me-2"></i> Mi Perfil
+                </h4>
+            </div>
+            <div class="card-body p-3 p-md-4">
+                <form method="POST" action="{{ url_for('cliente_actualizar_perfil') }}">
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6">
+                            <label class="form-label">Nombres</label>
+                            <input type="text" name="nombres" class="form-control" value="{{ cliente.nombres }}" required>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label">Apellidos</label>
+                            <input type="text" name="apellidos" class="form-control" value="{{ cliente.apellidos }}" required>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label">Correo Electrónico</label>
+                        <input type="email" name="email" class="form-control" value="{{ cliente.correo or '' }}" required>
+                    </div>
+
+                    <div class="row g-3 mt-1">
+                        <div class="col-12 col-md-6">
+                            <label class="form-label">Tipo de Documento</label>
+                            <select name="tipo_documento" id="tipo_documento" class="form-control" onchange="cambiarTipoDocumentoPerfil()">
+                                {% if cliente.ce %}
+                                <option value="DNI">DNI</option>
+                                <option value="CE" selected>Carnet de Extranjería</option>
+                                {% else %}
+                                <option value="DNI" selected>DNI</option>
+                                <option value="CE">Carnet de Extranjería</option>
+                                {% endif %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" id="numeroDocLabel">{% if cliente.ce %}Carnet de Extranjería{% else %}DNI{% endif %}</label>
+                            <input type="text" name="numero_documento" id="numero_documento" class="form-control"
+                                   value="{{ (cliente.ce or '') if cliente.ce else (cliente.dni or '') }}"
+                                   maxlength="{% if cliente.ce %}9{% else %}8{% endif %}"
+                                   placeholder="{% if cliente.ce %}9 caracteres (letras y números){% else %}Máximo 8 dígitos{% endif %}">
+                            <small class="text-muted d-block" id="numeroDocHint">{% if cliente.ce %}Opcional{% else %}Opcional, máximo 8 dígitos{% endif %}</small>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label">Teléfono</label>
+                            <input type="text" name="telefono" class="form-control" value="{{ cliente.telefono or '' }}">
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label">Dirección</label>
+                        <textarea name="direccion" class="form-control" rows="3">{{ cliente.direccion or '' }}</textarea>
+                    </div>
+
+                    <div class="row g-3 mt-1">
+                        <div class="col-12 col-md-4">
+                            <label class="form-label">Departamento <span class="text-danger">*</span></label>
+                            <select name="departamento" id="departamento" class="form-control" required>
+                                <option value="">Seleccione departamento</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label">Provincia <span class="text-danger">*</span></label>
+                            <select name="provincia" id="provincia" class="form-control" required>
+                                <option value="">Seleccione provincia</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label">Distrito <span class="text-danger">*</span></label>
+                            <select name="distrito" id="distrito" class="form-control" required>
+                                <option value="">Seleccione distrito</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <small class="text-muted d-block">
+                                <i class="fas fa-home me-1 text-primary"></i>Departamento, Provincia y Distrito son obligatorios: se usan para las entregas a domicilio (delivery).
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between gap-2 mt-4">
+                        <a href="{{ url_for('catalogo_cliente') }}" class="btn btn-secondary flex-fill py-2">
+                            <i class="fas fa-arrow-left me-2"></i> Volver
+                        </a>
+                        <button type="submit" class="btn btn-primary flex-fill py-2">
+                            <i class="fas fa-save me-2"></i> Guardar Cambios
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-3 shadow-sm border-0 rounded-3">
+            <div class="card-body p-3 p-md-4">
+                <div class="d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2">
+                    <div class="text-center text-sm-start">
+                        <i class="fas fa-key text-warning me-2"></i>
+                        <strong>Seguridad:</strong> Cambia tu contraseña regularmente
+                    </div>
+                    <a href="{{ url_for('cliente_cambiar_contrasena') }}" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-key me-1"></i> Cambiar Contraseña
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/cliente_perfil.css') }}">
+
+<script>
+(function() {
+    function cambiarTipoDocumentoPerfil() {
+        const sel = document.getElementById('tipo_documento');
+        const input = document.getElementById('numero_documento');
+        const label = document.getElementById('numeroDocLabel');
+        const hint = document.getElementById('numeroDocHint');
+        if (!sel || !input) return;
+        const esCE = sel.value === 'CE';
+        label.textContent = esCE ? 'Carnet de Extranjería' : 'DNI';
+        input.maxLength = esCE ? 9 : 8;
+        input.placeholder = esCE ? '9 caracteres (letras y números)' : 'Máximo 8 dígitos';
+        hint.textContent = esCE ? 'Opcional, 9 caracteres (letras y números)' : 'Opcional, máximo 8 dígitos';
+        input.value = '';
+    }
+    window.cambiarTipoDocumentoPerfil = cambiarTipoDocumentoPerfil;
+
+    const docInput = document.getElementById('numero_documento');
+    if (docInput) {
+        docInput.addEventListener('input', function () {
+            const esCE = document.getElementById('tipo_documento').value === 'CE';
+            this.value = esCE
+                ? this.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 9)
+                : this.value.replace(/\D/g, '').slice(0, 8);
+        });
+    }
+
+    const depSel = document.getElementById('departamento');
+    const provSel = document.getElementById('provincia');
+    const distSel = document.getElementById('distrito');
+    const actual = {
+        departamento: {{ cliente.departamento|tojson }},
+        provincia: {{ cliente.provincia|tojson }},
+        distrito: {{ cliente.distrito|tojson }}
+    };
+    let departamentos = [];
+
+    function llenar(select, items, placeholder, seleccionado) {
+        select.innerHTML = '<option value="">' + placeholder + '</option>';
+        items.forEach(function(it) {
+            const opt = document.createElement('option');
+            opt.value = it.nombre;
+            opt.textContent = it.nombre;
+            if (seleccionado && it.nombre === seleccionado) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+
+    fetch('/api/departamentos')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            departamentos = data;
+            llenar(depSel, data, 'Seleccione departamento', actual.departamento);
+            if (actual.departamento) depSel.dispatchEvent(new Event('change'));
+        });
+
+    depSel.addEventListener('change', function() {
+        provSel.innerHTML = '<option value="">Seleccione provincia</option>';
+        distSel.innerHTML = '<option value="">Seleccione distrito</option>';
+        const dep = departamentos.find(function(d) { return d.nombre === depSel.value; });
+        if (!dep) return;
+        fetch('/api/provincias/' + dep.id)
+            .then(function(r) { return r.json(); })
+            .then(function(provincias) {
+                llenar(provSel, provincias, 'Seleccione provincia', actual.provincia);
+                if (actual.provincia) provSel.dispatchEvent(new Event('change'));
+            });
+    });
+
+    provSel.addEventListener('change', function() {
+        distSel.innerHTML = '<option value="">Seleccione distrito</option>';
+        const dep = departamentos.find(function(d) { return d.nombre === depSel.value; });
+        if (!dep) return;
+        fetch('/api/provincias/' + dep.id)
+            .then(function(r) { return r.json(); })
+            .then(function(provincias) {
+                const prov = provincias.find(function(p) { return p.nombre === provSel.value; });
+                if (!prov) return;
+                return fetch('/api/distritos/' + prov.id).then(function(r) { return r.json(); });
+            })
+            .then(function(distritos) {
+                if (!distritos) return;
+                llenar(distSel, distritos, 'Seleccione distrito', actual.distrito);
+            });
+    });
+})();
+</script>
+{% endblock %}

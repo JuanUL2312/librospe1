@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block titulito %}Cambiar Contraseña{% endblock %}
+
+{% block contenido %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/cambiar_clave.css') }}">
+
+<div class="container mt-3 mt-md-4 mb-4">
+  <div class="row justify-content-center">
+    <div class="col-11 col-sm-10 col-md-8 col-lg-6 col-xl-5">
+      <div class="card shadow-lg border-0" style="border-radius: 15px;">
+        <div class="card-header bg-primary text-white text-center py-3 py-md-4" style="border-radius: 15px 15px 0 0;">
+          <h4 class="mb-1">
+            <i class="fas fa-key me-2"></i> Cambiar Contraseña
+          </h4>
+          <p class="mb-0 small">Usuario: {{ session.nombre }} ({{ session.rol }})</p>
+        </div>
+        
+        <div class="card-body p-4 p-md-5">
+          <!-- Mensajes flash -->
+          {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+          {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show mb-3" role="alert" style="border-radius: 12px;">
+            <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-triangle' if category == 'danger' else 'info-circle' }} me-2"></i>
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+          {% endfor %}
+          {% endif %}
+          {% endwith %}
+
+          <form method="POST" id="passwordForm">
+            <!-- Contraseña Actual -->
+            <div class="mb-3 mb-md-4">
+              <label class="form-label fw-semibold">
+                <i class="fas fa-lock me-1"></i> Contraseña Actual
+              </label>
+              <div class="input-group">
+                <input type="password" name="actual" id="actual" class="form-control" required 
+                       placeholder="Ingrese su contraseña actual">
+                <button class="btn btn-outline-secondary" type="button" onclick="togglePassword('actual')" 
+                        style="min-width: 44px;">
+                  <i class="fas fa-eye"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Nueva Contraseña -->
+            <div class="mb-3 mb-md-4">
+              <label class="form-label fw-semibold">
+                <i class="fas fa-plus-circle me-1"></i> Nueva Contraseña
+              </label>
+              <div class="input-group">
+                <input type="password" name="nueva" id="nueva" class="form-control" required minlength="8"
+                       placeholder="Mínimo 8 caracteres">
+                <button class="btn btn-outline-secondary" type="button" onclick="togglePassword('nueva')"
+                        style="min-width: 44px;">
+                  <i class="fas fa-eye"></i>
+                </button>
+              </div>
+              <small class="text-muted d-block mt-1">
+                <i class="fas fa-info-circle"></i> Mínimo 8 caracteres
+              </small>
+              <!-- Indicador de fuerza -->
+              <div id="strengthInfo" class="mt-2"></div>
+            </div>
+
+            <!-- Confirmar Contraseña -->
+            <div class="mb-3 mb-md-4">
+              <label class="form-label fw-semibold">
+                <i class="fas fa-check-circle me-1"></i> Confirmar Contraseña
+              </label>
+              <div class="input-group">
+                <input type="password" name="confirmar" id="confirmar" class="form-control" required minlength="8"
+                       placeholder="Repita la nueva contraseña">
+                <button class="btn btn-outline-secondary" type="button" onclick="togglePassword('confirmar')"
+                        style="min-width: 44px;">
+                  <i class="fas fa-eye"></i>
+                </button>
+              </div>
+              <!-- Mensaje de coincidencia -->
+              <div id="matchMsg" class="mt-1"></div>
+            </div>
+
+            <!-- Botones -->
+            <div class="d-grid gap-2 gap-md-3 mt-4">
+              <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                <i class="fas fa-save me-2"></i> Actualizar Contraseña
+              </button>
+              <a href="{{ url_for('productos') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-2"></i> Volver al inicio
+              </a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/cambiar_clave.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,159 @@
+{% extends "base_cliente.html" %}
+{% block titulito %}🛒 Mi Carrito - Librería Salesiana{% endblock %}
+
+{% block contenido %}
+<input type="hidden" id="usuarioLogueado" value="{{ 'true' if session.cliente_id else 'false' }}">
+<input type="hidden" id="clienteId" value="{{ session.cliente_id }}">
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/carrito.css') }}">
+
+<div class="container py-4 fade-in">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2">
+                <h3 class="mb-0">
+                    <i class="fas fa-shopping-cart text-primary me-2"></i>
+                    Mi Carrito
+                    <span class="badge bg-secondary ms-2" id="cartCountBadge">0</span>
+                </h3>
+                <div class="text-muted small">
+                    <i class="fas fa-lock me-1"></i> Compra 100% segura
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- COLUMNA IZQUIERDA - PRODUCTOS -->
+        <div class="col-lg-8">
+            <div id="carritoVacio" class="text-center py-5 bg-light rounded">
+                <i class="fas fa-shopping-cart fa-5x text-muted mb-3"></i>
+                <h5>¡Tu carrito está vacío!</h5>
+                <p class="text-muted">Explora nuestro catálogo</p>
+                <a href="/catalogo" class="btn btn-primary btn-lg mt-3">
+                    <i class="fas fa-book me-2"></i>Ir a la tienda
+                </a>
+            </div>
+
+            <div id="carritoLleno" style="display:none;">
+                <div class="alert alert-info alert-dismissible fade show mb-3">
+                    <i class="fas fa-gift me-2"></i>
+                    🎉 ¡Llevas más de S/. 100! Usa <strong>LIBROS10</strong> y obtén 10% descuento
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white border-0 py-3 d-none d-sm-block">
+                        <div class="row fw-bold text-muted">
+                            <div class="col-6">Producto</div>
+                            <div class="col-3 text-center">Cantidad</div>
+                            <div class="col-2 text-end">Subtotal</div>
+                            <div class="col-1"></div>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="carritoBody"></div>
+                    </div>
+                </div>
+
+                <div class="card mt-3 border-0 shadow-sm">
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-12 col-md-8 mb-3 mb-md-0">
+                                <label class="fw-bold mb-2">
+                                    <i class="fas fa-tag me-2"></i>¿Tienes cupón?
+                                </label>
+                                <div class="input-group">
+                                    <input type="text" id="cuponInput" class="form-control" placeholder="Código">
+                                    <button class="btn btn-outline-primary" id="btnAplicarCupon">Aplicar</button>
+                                </div>
+                                <small class="text-muted d-block mt-1">LIBROS10 (10%), BIENVENIDO5 (S/5), FREESHIP</small>
+                            </div>
+                            <div class="col-12 col-md-4 text-md-end">
+                                <div id="mensajeCupon" class="small"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-column flex-sm-row justify-content-between gap-2 mt-3">
+                    <a href="/catalogo" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-2"></i>Seguir comprando
+                    </a>
+                    <button class="btn btn-outline-danger" onclick="vaciarCarrito()">
+                        <i class="fas fa-trash-alt me-2"></i>Vaciar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- COLUMNA DERECHA - RESUMEN -->
+        <div class="col-lg-4 mt-4 mt-lg-0">
+            <div class="card shadow-lg border-0 summary-card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-file-invoice me-2"></i>Resumen</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Subtotal (<span id="itemCount">0</span>):</span>
+                            <span id="subtotalCarrito">S/. 0.00</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2" id="descuentoRow" style="display:none">
+                            <span class="text-success">Descuento:</span>
+                            <span class="text-success" id="descuentoMonto">-S/. 0.00</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Envío:</span>
+                            <span id="envioTexto">Gratis</span>
+                        </div>
+                        <hr>
+                        <div class="d-flex justify-content-between fs-5 fw-bold">
+                            <span>Total:</span>
+                            <span class="text-primary" id="totalFinal">S/. 0.00</span>
+                        </div>
+                    </div>
+
+                    <!-- TIPO DE ENTREGA -->
+                    <div class="mb-3">
+                        <label class="fw-bold mb-2">
+                            <i class="fas fa-truck me-2"></i>Tipo de entrega
+                        </label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <div class="delivery-option selected text-center" data-tipo="recojo"
+                                    onclick="seleccionarEntrega('recojo')">
+                                    <i class="fas fa-store fa-2x mb-2"></i>
+                                    <div><strong>Recojo en tienda</strong></div>
+                                    <small>Gratis</small>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="delivery-option text-center" data-tipo="delivery"
+                                    onclick="seleccionarEntrega('delivery')">
+                                    <i class="fas fa-truck fa-2x mb-2"></i>
+                                    <div><strong>Delivery</strong></div>
+                                    <small>S/. 5.00</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="direccionEntrega" class="mt-3" style="display: none;">
+                            <textarea id="direccion" class="form-control" rows="2"
+                                placeholder="📍 Calle, número, urbanización, referencia"></textarea>
+                            <small id="direccionAyuda" class="text-muted"></small>
+                            <small class="text-muted d-block mt-1">* Tiempo de entrega: 3-5 días hábiles</small>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-success w-100 mt-2 py-2 fw-bold" onclick="irACheckout()">
+                        <i class="fas fa-arrow-right me-2"></i>Continuar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="{{ url_for('static', filename='js/carrito_2.js') }}"></script>
+{% endblock %}

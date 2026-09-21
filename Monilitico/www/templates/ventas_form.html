@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+{% block titulito %}🛒 Nueva Venta Salesiana{% endblock %}
+
+{% block contenido %}
+{% set vendedores = vendedores or [] %}
+
+<div class="container-fluid px-2 px-sm-3">
+    <div class="row justify-content-center">
+        <div class="col-12 col-lg-10 col-xl-10">
+            <div class="row g-4">
+
+                <div class="col-12">
+                    <div class="text-center mb-4 mb-md-5">
+                        <div class="hero-icon mb-3 mb-md-4">
+                            <i class="fas fa-cash-register fa-3x fa-md-4x text-success glow-icon"></i>
+                        </div>
+                        <h1 class="display-5 display-md-4 fw-bolder text-dark mb-2">Nueva Venta</h1>
+                        <p class="lead text-muted mb-0 fs-6 fs-sm-5">Registra ventas con bendición salesiana</p>
+                    </div>
+                </div>
+
+                <div class="col-12 col-lg-8 col-xl-8 order-2 order-lg-1">
+                    <div class="card shadow-3xl border-0 overflow-hidden">
+                        <div class="card-body p-3 p-sm-4 p-lg-6">
+
+                            {% with messages = get_flashed_messages(with_categories=true) %}
+                            {% if messages %}
+                            {% for category, message in messages %}
+                            <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show shadow-sm mb-4 mb-md-5">
+                                <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-triangle' }} me-2 me-md-3"></i>
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                            {% endfor %}
+                            {% endif %}
+                            {% endwith %}
+
+                            <form method="POST" id="ventaForm" class="needs-validation" novalidate>
+                                <input type="hidden" name="cliente_email" id="cliente_email_hidden" value="">
+                                <input type="hidden" name="cliente_documento" id="cliente_documento_hidden" value="">
+                                <input type="hidden" name="tipo_documento_cliente" id="cliente_tipo_documento_hidden" value="">
+
+                                <div class="mb-4 mb-md-5">
+                                    <label class="form-label fw-bolder fs-6 fs-md-5 mb-2 mb-md-3">
+                                        <i class="fas fa-user-tie me-2 me-md-3 text-purple"></i>Vendedor
+                                    </label>
+                                    {% if session.rol == 'administrador' %}
+                                    <select name="vendedor_id" class="form-select form-select-xl shadow-sm" required>
+                                        <option value="">👤 Seleccione vendedor</option>
+                                        {% for v in vendedores %}
+                                        <option value="{{ v.id }}">{{ v.nombres }} {{ v.apellidos }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    {% else %}
+                                    {% if vendedores|length > 0 %}
+                                    <input type="hidden" name="vendedor_id" value="{{ vendedores[0].id }}">
+                                    <div class="input-group input-group-xl shadow-sm">
+                                        <span class="input-group-text bg-white"><i class="fas fa-user-check text-success"></i></span>
+                                        <input type="text" class="form-control fw-semibold" value="{{ vendedores[0].nombres }} {{ vendedores[0].apellidos }}" readonly>
+                                    </div>
+                                    {% else %}
+                                    <div class="alert alert-danger mb-0">No hay vendedor asignado.</div>
+                                    <input type="hidden" name="vendedor_id" value="">
+                                    {% endif %}
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-4 mb-md-5">
+                                    <label class="form-label fw-bolder fs-6 fs-md-5 mb-2 mb-md-3">
+                                        <i class="fas fa-file-invoice me-2 me-md-3 text-primary"></i>Tipo de Comprobante
+                                    </label>
+                                    <div class="row g-3">
+                                        <div class="col-md-12 d-flex flex-column flex-sm-row gap-2 gap-sm-0">
+                                            <div class="form-check form-check-inline me-0 me-sm-4">
+                                                <input class="form-check-input" type="radio" name="tipo_comprobante" id="boleta" value="boleta" checked>
+                                                <label class="form-check-label fw-semibold" for="boleta">
+                                                    <i class="fas fa-receipt text-info me-1"></i> Boleta (Consumidor Final)
+                                                </label>
+                                            </div>
+                                            <div class="form-check form-check-inline me-0">
+                                                <input class="form-check-input" type="radio" name="tipo_comprobante" id="factura" value="factura">
+                                                <label class="form-check-label fw-semibold" for="factura">
+                                                    <i class="fas fa-file-invoice text-success me-1"></i> Factura (Con RUC)
+                                                </label>
+                                            </div>
+                                            <div class="form-check form-check-inline me-0">
+                                                <input class="form-check-input" type="radio" name="tipo_comprobante" id="ninguno" value="ninguno">
+                                                <label class="form-check-label fw-semibold" for="ninguno">
+                                                    <i class="fas fa-window-close text-danger me-1"></i> Sin comprobante
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="datos_boleta" class="mb-4 mb-md-5">
+                                    <label class="form-label fw-bolder fs-6 fs-md-5 mb-2 mb-md-3">
+                                        <i class="fas fa-user me-2 me-md-3 text-primary"></i>Datos del Cliente - Boleta
+                                    </label>
+                                    <div class="row g-3">
+                                        <div class="col-12 col-md-4">
+                                            <label class="form-label fw-semibold">Tipo de Documento</label>
+                                            <select id="tipo_documento" class="form-select shadow-sm" onchange="cambiarTipoDocumentoCliente()">
+                                                <option value="DNI">DNI</option>
+                                                <option value="CE">Carnet de Extranjería</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-12 col-md-5">
+                                            <label class="form-label fw-semibold">Número de Documento</label>
+                                            <input type="text" id="numero_documento" class="form-control shadow-sm" placeholder="Ingrese DNI (8 dígitos)" maxlength="8">
+                                        </div>
+                                        <div class="col-12 col-md-3 d-flex align-items-end">
+                                            <button type="button" id="btnConsultarDni" class="btn btn-info w-100 py-2 py-md-auto">
+                                                <i class="fas fa-search"></i> Consultar
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="resultadoCliente" class="mt-3"></div>
+                                    <div class="mt-4 p-3 bg-light rounded">
+                                        <h6 class="fw-bold"><i class="fas fa-edit"></i> Datos del Cliente</h6>
+                                        <div class="row g-3 mt-2">
+                                            <div class="col-12 col-md-6">
+                                                <label class="form-label small">Nombres</label>
+                                                <input type="text" name="cliente_nombres" id="cliente_nombres" class="form-control" placeholder="Nombres">
+                                            </div>
+                                            <div class="col-12 col-md-6">
+                                                <label class="form-label small">Apellidos</label>
+                                                <input type="text" name="cliente_apellidos" id="cliente_apellidos" class="form-control" placeholder="Apellidos">
+                                            </div>
+                                            <div class="col-12 col-md-6">
+                                                <label class="form-label small">N° Documento</label>
+                                                <input type="text" name="cliente_documento" id="cliente_documento_boleta" class="form-control" placeholder="Número de documento">
+                                            </div>
+                                            <div class="col-12 col-md-6">
+                                                <label class="form-label small"><i class="fas fa-envelope me-1 text-primary"></i>Correo Electrónico</label>
+                                                <input type="email" id="cliente_email_boleta" class="form-control mb-1" placeholder="cliente@ejemplo.com">
+                                                <small class="text-muted d-block">📧 Recibirá la boleta por correo</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="datos_factura" class="mb-4 mb-md-5" style="display: none;">
+                                    <label class="form-label fw-bolder fs-6 fs-md-5 mb-2 mb-md-3">
+                                        <i class="fas fa-building me-2 me-md-3 text-success"></i>Datos del Cliente - Factura
+                                    </label>
+                                    <div class="row g-3">
+                                        <div class="col-12 col-md-8">
+                                            <input type="text" name="factura_ruc" id="factura_ruc" class="form-control shadow-sm" placeholder="Ingrese RUC (11 dígitos)" maxlength="11">
+                                        </div>
+                                        <div class="col-12 col-md-4">
+                                            <button type="button" id="btnConsultarRuc" class="btn btn-info w-100">
+                                                <i class="fas fa-search"></i> Consultar RUC
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="resultadoRuc" class="mt-3"></div>
+                                    <div class="mt-4 p-3 bg-light rounded">
+                                        <h6 class="fw-bold"><i class="fas fa-file-invoice"></i> Datos para Facturación</h6>
+                                        <div class="row g-3 mt-2">
+                                            <div class="col-12">
+                                                <label class="form-label small">Razón Social</label>
+                                                <input type="text" name="cliente_razon_social" id="factura_razon_social" class="form-control" placeholder="Razón Social">
+                                            </div>
+                                            <div class="col-12 col-md-6">
+                                                <label class="form-label small">RUC</label>
+                                                <input type="text" id="factura_ruc_display" class="form-control" placeholder="N° RUC" readonly>
+                                            </div>
+                                            <div class="col-12 col-md-6">
+                                                <label class="form-label small">Dirección</label>
+                                                <input type="text" name="factura_direccion" id="factura_direccion" class="form-control" placeholder="Dirección">
+                                            </div>
+                                            <div class="col-12">
+                                                <label class="form-label small"><i class="fas fa-envelope me-1 text-primary"></i>Correo Electrónico</label>
+                                                <input type="email" name="factura_email" id="factura_email" class="form-control mb-1" placeholder="cliente@ejemplo.com">
+                                                <small class="text-muted d-block">📧 Recibirá la factura por correo</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="datos_ninguno" class="mb-4 mb-md-5" style="display: none;">
+                                    <label class="form-label fw-bolder fs-6 fs-md-5 mb-2 mb-md-3">
+                                        <i class="fas fa-window-close me-2 me-md-3 text-danger"></i>Sin Comprobante
+                                    </label>
+                                    <div class="alert alert-info border-0">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        Venta sin boleta ni factura. Solo se registra el ingreso en el sistema; el cliente no recibe ningún comprobante.
+                                    </div>
+                                </div>
+
+                                <div class="mb-4 p-3 border rounded bg-white" id="envio_correo_block">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="checkbox_email" checked>
+                                        <label class="form-check-label fw-semibold text-wrap" for="checkbox_email">
+                                            <i class="fas fa-envelope-open-text me-2 text-success"></i>
+                                            Enviar comprobante por correo electrónico
+                                        </label>
+                                    </div>
+                                    <small class="text-muted d-block ms-4 mt-1">📧 El cliente recibirá su comprobante en el correo proporcionado</small>
+                                    <input type="hidden" name="enviar_email" id="enviar_email" value="1">
+                                </div>
+
+                                <!-- ========================================= -->
+                                <!-- PRODUCTO CON IMAGEN Y VALIDACIÓN DE STOCK -->
+                                <!-- ========================================= -->
+                                <div class="mb-4 mb-md-5">
+                                    <label class="form-label fw-bolder fs-6 fs-md-5 mb-2 mb-md-3">
+                                        <i class="fas fa-box me-2 me-md-3 text-warning"></i>Producto
+                                    </label>
+                                    <select name="producto_id" class="form-select form-select-xl shadow-sm" id="producto_select" required>
+                                        <option value="" disabled selected>📦 Seleccione producto</option>
+                                        {% for p in productos %}
+                                        <option value="{{ p.id }}" 
+                                                data-precio="{{ p.precio }}" 
+                                                data-stock="{{ p.cantidad }}" 
+                                                data-nombre="{{ p.nombre }}"
+                                                data-imagen="{{ p.imagen if p.imagen else '' }}">
+                                            {{ p.nombre }} - S/.{{ p.precio }}
+                                            {% if p.cantidad == 0 %}(❌ Sin stock)
+                                            {% elif p.cantidad <= 5 %}(⚠️ {{ p.cantidad }})
+                                            {% else %}(✅ {{ p.cantidad }})
+                                            {% endif %}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    <div id="stock_info" class="mt-3 p-3 bg-light rounded"></div>
+                                </div>
+
+                                <!-- ========================================= -->
+                                <!-- CANTIDAD CON VALIDACIÓN EN TIEMPO REAL -->
+                                <!-- ========================================= -->
+                                <div class="row g-4 mb-4">
+                                    <div class="col-12 col-md-6">
+                                        <label class="form-label fw-semibold mb-2 mb-md-3">
+                                            <i class="fas fa-hashtag me-2 text-info"></i>Cantidad
+                                        </label>
+                                        <input type="number" name="cantidad" id="cantidad_input" 
+                                               class="form-control form-control-lg shadow-sm" 
+                                               value="1" min="1" required>
+                                        <div id="cantidad_error" class="text-danger mt-1 small" style="display: none;">
+                                            <i class="fas fa-exclamation-triangle me-1"></i>
+                                            <span id="cantidad_error_text"></span>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-md-6">
+                                        <label class="form-label fw-semibold mb-2 mb-md-3">
+                                            <i class="fas fa-coins me-2 text-success"></i>Total
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text">S/.</span>
+                                            <input type="text" id="total_display" class="form-control form-control-lg shadow-sm fw-bold fs-4 text-success" value="0.00" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- ========================================= -->
+                                <!-- FECHA Y HORA DE PERÚ EN TIEMPO REAL -->
+                                <!-- ========================================= -->
+                                <div class="row g-4 mb-4 mb-md-5">
+                                    <div class="col-12 col-md-12">
+                                        <label class="form-label fw-semibold mb-2 mb-md-3">
+                                            <i class="fas fa-calendar-alt me-2 text-info"></i>Fecha y Hora de Venta
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-light"><i class="fas fa-clock text-success"></i></span>
+                                            <input type="text" id="fecha_hora_display" class="form-control form-control-lg shadow-sm bg-light fw-semibold" readonly>
+                                        </div>
+                                        <small class="text-muted d-block mt-1">
+                                            <i class="fas fa-clock me-1"></i> Hora de Perú (UTC-5) - Se actualiza automáticamente
+                                        </small>
+                                    </div>
+                                </div>
+                                <!-- ========================================= -->
+                                <!-- MÉTODO DE PAGO Y VUELTO -->
+                                <!-- ========================================= -->
+                                <div class="row g-4 mb-4 mb-md-5">
+                                    <div class="col-12 col-md-6">
+                                        <label class="form-label fw-semibold mb-2 mb-md-3">
+                                            <i class="fas fa-credit-card me-2 text-success"></i>Método de Pago
+                                        </label>
+                                        <select name="metodo_pago" id="metodo_pago" class="form-select form-select-lg shadow-sm">
+                                            <option value="efectivo">💵 Efectivo</option>
+                                            <option value="tarjeta">💳 Tarjeta</option>
+                                            <option value="yape">📱 Yape</option>
+                                            <option value="plin">📱 Plin</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-md-6" id="vueltoSection">
+                                        <label class="form-label fw-semibold mb-2 mb-md-3">
+                                            <i class="fas fa-hand-holding-usd me-2 text-warning"></i>Monto recibido (S/.)
+                                        </label>
+                                        <input type="number" name="monto_recibido" id="monto_recibido" class="form-control form-control-lg shadow-sm" step="0.01" min="0" placeholder="0.00">
+                                        <div class="mt-2" id="vueltoInfo"></div>
+                                    </div>
+                                </div>
+                                <div class="d-grid gap-3">
+                                    <button type="submit" class="btn btn-success btn-lg px-5 py-3 shadow-lg fw-bold fs-5" id="submitBtn">
+                                        <i class="fas fa-check-circle me-2"></i>¡REALIZAR VENTA!
+                                    </button>
+                                    <a href="/productos" class="btn btn-outline-secondary btn-lg px-5 py-3 shadow-sm">Cancelar</a>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========================================= -->
+                <!-- COLUMNA DERECHA - VISTA PREVIA DEL PRODUCTO -->
+                <!-- ========================================= -->
+                <div class="col-12 col-lg-4 col-xl-4 order-1 order-lg-2">
+                    <div class="card shadow-lg h-100 card-preview-sticky">
+                        <div class="card-header bg-info text-white text-center py-3 py-md-4">
+                            <i class="fas fa-image fa-2x mb-2 d-none d-sm-inline-block"></i>
+                            <h6 class="mb-0 fw-bold">Producto Seleccionado</h6>
+                        </div>
+                        <div class="card-body p-4 text-center">
+                            <div id="producto-preview" class="producto-preview mb-4">
+                                <div class="bg-light rounded-3 p-3 d-flex align-items-center justify-content-center contenedor-preview-caja">
+                                    <div class="text-center">
+                                        <i class="fas fa-box fa-3x text-muted mb-2"></i>
+                                        <small class="text-muted d-block">Selecciona un producto</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="producto-info" class="text-center text-muted small">
+                                <i class="fas fa-info-circle me-2"></i>Información del producto aparecerá aquí
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/ventas_form.js') }}"></script>
+
+<script src="{{ url_for('static', filename='js/ventas_form_2.js') }}"></script>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ventas_form.css') }}">
+{% endblock %}

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1e3a8a">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="{{ url_for('static', filename='img/icon.svg') }}" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/icon-192.png') }}">
+    <title>📚 Librería Salesiana</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
+</head>
+<body>
+    <div class="loading-screen" id="loadingScreen">
+        <div class="milky-way"></div>
+        <div class="stars-container"></div>
+
+        <div class="loading-content">
+            <div class="logo-ring">
+                <i class="fas fa-book-open"></i>
+            </div>
+            <h1 class="logo-title">Salesiana</h1>
+            <p class="logo-subtitle">Librería Don Bosco</p>
+
+            <div class="progress-section">
+                <div class="progress-label">
+                    <span id="progressText">Inicializando sistema...</span>
+                </div>
+                <div class="progress-bar-wrapper">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-percent" id="progressPercent">0%</div>
+            </div>
+
+            <div class="dots-container">
+                <span class="loading-dot"></span>
+                <span class="loading-dot dot-delay-1"></span>
+                <span class="loading-dot dot-delay-2"></span>
+            </div>
+
+            <div>
+                <span class="countdown-number" id="countdownNum">3</span>
+                <span class="countdown-label">s</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/sw.js').catch(function () {});
+            });
+        }
+    </script>
+
+    <noscript>
+        <meta http-equiv="refresh" content="3;url=/catalogo">
+    </noscript>
+</body>
+</html>

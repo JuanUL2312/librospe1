@@ -1,0 +1,410 @@
+{% extends 'base.html' %}
+{% block titulito %}📊 Dashboard - Librería Salesiana{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+{% endblock %}
+
+{% block contenido %}
+<div class="container-fluid px-2 px-md-3">
+    <!-- Header -->
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2 mb-4">
+        <h2 class="fs-4 fs-md-3 mb-0"><i class="fas fa-chart-line me-2 text-primary"></i>Panel de Control</h2>
+        <div class="d-flex flex-wrap justify-content-center gap-2">
+            <a href="/productos" class="btn btn-primary btn-sm btn-md-normal">
+                <i class="fas fa-box me-2"></i>Ver Productos
+            </a>
+            <span class="text-muted small">{{ ahora_peru.strftime('%d/%m/%Y %H:%M') }}</span>
+        </div>
+    </div>
+    
+    <!-- Estadísticas -->
+    <div class="row g-2 g-md-3 mb-4">
+        <div class="col-12 col-sm-6 col-md-3 mb-2 mb-md-0">
+            <div class="card stat-card border-primary shadow-sm h-100">
+                <div class="card-body p-2 p-md-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1 small">Ventas Hoy</h6>
+                            <h3 class="mb-0 text-primary fs-5 fs-md-4">S/ {{ "%.2f"|format(total_ventas_hoy|float) }}</h3>
+                            <small class="text-muted d-block">{{ cantidad_ventas_hoy }} transacciones</small>
+                        </div>
+                        <div class="bg-primary-light"><i class="fas fa-shopping-cart fa-1x fa-md-2x text-primary"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3 mb-2 mb-md-0">
+            <div class="card stat-card border-success shadow-sm h-100">
+                <div class="card-body p-2 p-md-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1 small">Ventas del Mes</h6>
+                            <h3 class="mb-0 text-success fs-5 fs-md-4">S/ {{ "%.2f"|format(total_ventas_mes|float) }}</h3>
+                            <small class="text-muted d-block">{{ cantidad_ventas_mes }} transacciones</small>
+                        </div>
+                        <div class="bg-success-light"><i class="fas fa-calendar-alt fa-1x fa-md-2x text-success"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3 mb-2 mb-md-0">
+            <div class="card stat-card border-warning shadow-sm h-100">
+                <div class="card-body p-2 p-md-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1 small">Pedidos Pendientes</h6>
+                            <h3 class="mb-0 text-warning fs-5 fs-md-4">{{ pedidos_pendientes }}</h3>
+                            <small class="text-muted d-block">{{ pedidos_en_proceso }} en proceso</small>
+                        </div>
+                        <div class="bg-warning-light"><i class="fas fa-truck fa-1x fa-md-2x text-warning"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3 mb-2 mb-md-0">
+            <div class="card stat-card border-info shadow-sm h-100">
+                <div class="card-body p-2 p-md-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1 small">Clientes</h6>
+                            <h3 class="mb-0 text-info fs-5 fs-md-4">{{ total_clientes }}</h3>
+                            <small class="text-muted d-block">+{{ clientes_nuevos }} nuevos (7d)</small>
+                        </div>
+                        <div class="bg-info-light"><i class="fas fa-users fa-1x fa-md-2x text-info"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPI Adicionales -->
+    <div class="row g-2 g-md-3 mb-4">
+        <div class="col-12 col-sm-6 col-md-3 mb-2 mb-md-0">
+            <div class="card stat-card border-secondary shadow-sm h-100">
+                <div class="card-body p-2 p-md-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1 small">Ticket Promedio (Mes)</h6>
+                            <h3 class="mb-0 text-secondary fs-5 fs-md-4">S/ {{ "%.2f"|format(ticket_promedio_mes|float) }}</h3>
+                            <small class="text-muted d-block">Hoy: S/ {{ "%.2f"|format(ticket_promedio_hoy|float) }}</small>
+                        </div>
+                        <div class="bg-secondary-light"><i class="fas fa-receipt fa-1x fa-md-2x text-secondary"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3 mb-2 mb-md-0">
+            <div class="card stat-card border-success shadow-sm h-100">
+                <div class="card-body p-2 p-md-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1 small">Margen Bruto (30 días)</h6>
+                            <h3 class="mb-0 text-success fs-5 fs-md-4">S/ {{ "%.2f"|format(margen_bruto|float) }}</h3>
+                            <small class="text-muted d-block">{{ "%.1f"|format(margen_pct|float) }}% · {{ productos_con_costo }} prod. con costo</small>
+                        </div>
+                        <div class="bg-success-light"><i class="fas fa-percentage fa-1x fa-md-2x text-success"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3 mb-2 mb-md-0">
+            <div class="card stat-card border-info shadow-sm h-100">
+                <div class="card-body p-2 p-md-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1 small">Rotación de Inventario (30 días)</h6>
+                            <h3 class="mb-0 text-info fs-5 fs-md-4">{{ "%.2f"|format(rotacion_inventario|float) }} veces</h3>
+                            <small class="text-muted d-block">{% if dias_stock %}{{ "%.0f"|format(dias_stock|float) }} días de stock{% else %}Sin ventas{% endif %} · {{ unidades_vendidas_30d }} uds</small>
+                        </div>
+                        <div class="bg-info-light"><i class="fas fa-sync-alt fa-1x fa-md-2x text-info"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3 mb-2 mb-md-0">
+            <div class="card stat-card border-warning shadow-sm h-100">
+                <div class="card-body p-2 p-md-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1 small">Conversión Pedido → Venta</h6>
+                            <h3 class="mb-0 text-warning fs-5 fs-md-4">{{ "%.1f"|format(conversion_pedidos|float) }}%</h3>
+                            <small class="text-muted d-block">{{ pedidos_convertidos }} de {{ total_pedidos }} pedidos</small>
+                        </div>
+                        <div class="bg-warning-light"><i class="fas fa-arrow-right-arrow-left fa-1x fa-md-2x text-warning"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gráficos con Plotly -->
+    <div class="row g-3 mb-4">
+        <div class="col-12">
+            <div class="card shadow">
+                <div class="card-body">
+                    <div id="graficoVentas" class="chart-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-md-6">
+            <div class="card shadow h-100">
+                <div class="card-body">
+                    <div id="graficoTop" class="chart-container" style="min-height: 280px;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card shadow h-100">
+                <div class="card-body">
+                    <div id="graficoEstados" class="chart-container" style="min-height: 280px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-md-6">
+            <div class="card shadow h-100">
+                <div class="card-body">
+                    <div id="graficoCategoria" class="chart-container" style="min-height: 280px;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card shadow h-100">
+                <div class="card-header bg-white py-2 py-md-3">
+                    <h5 class="mb-0 fs-6 fs-md-5"><i class="fas fa-trophy me-2 text-warning"></i>Top Productos</h5>
+                </div>
+                <div class="card-body p-2 p-md-3" style="max-height: 300px; overflow-y: auto;">
+                    {% if top_productos %}
+                        {% for producto in top_productos %}
+                        <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom gap-2">
+                            <div class="d-flex align-items-center gap-2">
+                                {% if producto.imagen %}
+                                    <img src="{{ url_for('static', filename='img/productos/' + producto.imagen) }}" 
+                                         alt="{{ producto.nombre }}"
+                                         class="producto-imagen"
+                                         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                                    <div class="producto-imagen-placeholder" style="display:none;">
+                                        <i class="fas fa-box text-muted" style="font-size: 1.2rem;"></i>
+                                    </div>
+                                {% else %}
+                                    <div class="producto-imagen-placeholder">
+                                        <i class="fas fa-box text-muted" style="font-size: 1.2rem;"></i>
+                                    </div>
+                                {% endif %}
+                                <div class="small">
+                                    <div class="fw-semibold">{{ producto.nombre[:25] }}{% if producto.nombre|length > 25 %}...{% endif %}</div>
+                                    <small class="text-muted">{{ producto.total_vendido }} vendidos</small>
+                                </div>
+                            </div>
+                            <span class="badge bg-primary rounded-pill">{{ producto.total_vendido }}</span>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <p class="text-muted text-center small mb-0">Sin ventas registradas</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stock Bajo y Crítico -->
+    <div class="row g-3">
+        <div class="col-12 col-md-6">
+            <div class="card shadow h-100">
+                <div class="card-header bg-white py-2 py-md-3">
+                    <h5 class="mb-0 fs-6 fs-md-5"><i class="fas fa-exclamation-triangle me-2 text-warning"></i>Stock Bajo (umbral configurable)</h5>
+                </div>
+                <div class="card-body p-2 p-md-3" style="max-height: 250px; overflow-y: auto;">
+                    {% if stock_bajo %}
+                        {% for producto in stock_bajo %}
+                        <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom stock-bajo p-2 rounded gap-2">
+                            <div class="small"><i class="fas fa-box me-2"></i>{{ producto.nombre[:35] }}{% if producto.nombre|length > 35 %}...{% endif %}</div>
+                            <span class="badge bg-warning text-dark">{{ producto.cantidad }} unidades</span>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <p class="text-success text-center small mb-0"><i class="fas fa-check-circle me-2"></i>No hay productos con stock bajo</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card shadow h-100">
+                <div class="card-header bg-white py-2 py-md-3">
+                    <h5 class="mb-0 fs-6 fs-md-5"><i class="fas fa-times-circle me-2 text-danger"></i>Stock Crítico (Agotados)</h5>
+                </div>
+                <div class="card-body p-2 p-md-3" style="max-height: 250px; overflow-y: auto;">
+                    {% if stock_critico %}
+                        {% for producto in stock_critico %}
+                        <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom stock-critico p-2 rounded gap-2">
+                            <div class="small"><i class="fas fa-box-open me-2"></i>{{ producto.nombre[:35] }}{% if producto.nombre|length > 35 %}...{% endif %}</div>
+                            <span class="badge bg-danger">AGOTADO</span>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <p class="text-success text-center small mb-0"><i class="fas fa-check-circle me-2"></i>Todos los productos tienen stock</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card shadow h-100">
+                <div class="card-header bg-white py-2 py-md-3">
+                    <h5 class="mb-0 fs-6 fs-md-5"><i class="fas fa-arrow-up me-2 text-info"></i>Stock en Exceso (umbral configurable)</h5>
+                </div>
+                <div class="card-body p-2 p-md-3" style="max-height: 250px; overflow-y: auto;">
+                    {% if stock_exceso %}
+                        {% for producto in stock_exceso %}
+                        <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom p-2 rounded gap-2">
+                            <div class="small"><i class="fas fa-boxes me-2"></i>{{ producto.nombre[:35] }}{% if producto.nombre|length > 35 %}...{% endif %}</div>
+                            <span class="badge bg-info">{{ producto.cantidad }} unidades</span>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <p class="text-success text-center small mb-0"><i class="fas fa-check-circle me-2"></i>No hay productos con exceso de stock</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ventas por Vendedor y Desviación de Caja -->
+    <div class="row g-3 mt-1">
+        <div class="col-12 col-md-6">
+            <div class="card shadow h-100">
+                <div class="card-header bg-white py-2 py-md-3">
+                    <h5 class="mb-0 fs-6 fs-md-5"><i class="fas fa-user-tie me-2 text-primary"></i>Ventas por Vendedor (30 días)</h5>
+                </div>
+                <div class="card-body p-2 p-md-3" style="max-height: 300px; overflow-y: auto;">
+                    {% if ventas_vendedor %}
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead>
+                            <tr>
+                                <th class="small">Vendedor</th>
+                                <th class="small text-center">Ventas</th>
+                                <th class="small text-center">Uds.</th>
+                                <th class="small text-end">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for v in ventas_vendedor %}
+                            <tr>
+                                <td class="small">{{ v.vendedor }}</td>
+                                <td class="small text-center">{{ v.num_ventas }}</td>
+                                <td class="small text-center">{{ v.unidades }}</td>
+                                <td class="small text-end fw-semibold">S/ {{ "%.2f"|format(v.total|float) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-muted text-center small mb-0">Sin ventas registradas</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card shadow h-100">
+                <div class="card-header bg-white py-2 py-md-3">
+                    <h5 class="mb-0 fs-6 fs-md-5"><i class="fas fa-cash-register me-2 text-danger"></i>Desviación de Caja</h5>
+                </div>
+                <div class="card-body p-2 p-md-3">
+                    {% if total_cierres %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-1 small">
+                            <span class="text-muted">Cierres con diferencia ≠ 0</span>
+                            <span class="fw-semibold">{{ cierres_con_diferencia }} de {{ total_cierres }} ({{ "%.1f"|format(pct_cierres_con_diferencia|float) }}%)</span>
+                        </div>
+                        <div class="progress" style="height: 10px;">
+                            <div class="progress-bar bg-danger" role="progressbar"
+                                 style="width: {{ "%.1f"|format(pct_cierres_con_diferencia|float) }}%"></div>
+                        </div>
+                    </div>
+                    <div class="text-center pt-2">
+                        <div class="text-muted small">Diferencia promedio por cierre</div>
+                        <h4 class="mb-0 text-danger">S/ {{ "%.2f"|format(promedio_diferencia|float) }}</h4>
+                    </div>
+                    {% else %}
+                    <p class="text-success text-center small mb-0"><i class="fas fa-check-circle me-2"></i>Aún no hay cierres de caja registrados</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Plotly JS -->
+<script src="https://cdn.plot.ly/plotly-3.1.0.min.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Gráfico de Ventas
+    try {
+        const ventasData = {{ graph_ventas|safe }};
+        if (ventasData && ventasData.data) {
+            Plotly.newPlot('graficoVentas', ventasData.data, ventasData.layout, {
+                responsive: true,
+                displayModeBar: false
+            });
+        }
+    } catch(e) {
+        console.log('Error en gráfico de ventas:', e);
+    }
+
+    // Gráfico Top Productos
+    try {
+        const topData = {{ graph_top|safe }};
+        if (topData && topData.data) {
+            Plotly.newPlot('graficoTop', topData.data, topData.layout, {
+                responsive: true,
+                displayModeBar: false
+            });
+        }
+    } catch(e) {
+        console.log('Error en gráfico top:', e);
+    }
+
+    // Gráfico Categorías
+    try {
+        const catData = {{ graph_cat|safe }};
+        if (catData && catData.data) {
+            Plotly.newPlot('graficoCategoria', catData.data, catData.layout, {
+                responsive: true,
+                displayModeBar: false
+            });
+        }
+    } catch(e) {
+        console.log('Error en gráfico categorías:', e);
+    }
+
+    // Gráfico Estados
+    try {
+        const estadosData = {{ graph_estados|safe }};
+        if (estadosData && estadosData.data) {
+            Plotly.newPlot('graficoEstados', estadosData.data, estadosData.layout, {
+                responsive: true,
+                displayModeBar: false
+            });
+        }
+    } catch(e) {
+        console.log('Error en gráfico estados:', e);
+    }
+
+    // Redimensionar gráficos al cambiar tamaño de ventana
+    window.addEventListener('resize', function() {
+        try {
+            Plotly.Plots.resize('graficoVentas');
+            Plotly.Plots.resize('graficoTop');
+            Plotly.Plots.resize('graficoCategoria');
+            Plotly.Plots.resize('graficoEstados');
+        } catch(e) {}
+    });
+});
+</script>
+{% endblock %}

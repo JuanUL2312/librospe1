@@ -1,0 +1,33 @@
+
+  .hover-row {
+    transition: background-color 0.2s ease-in-out;
+  }
+  .hover-row:hover {
+    background-color: rgba(0, 123, 255, 0.02) !important;
+  }
+  .hover-lift {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+  }
+  .fs-7 {
+    font-size: 0.785rem;
+  }
+  .mono-font {
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  .border-end-md {
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  @media (max-width: 767.98px) {
+    .table-responsive {
+      font-size: 0.85rem;
+    }
+    .border-end-md {
+      border-right: none !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 1rem;
+    }
+  }

@@ -1,0 +1,162 @@
+{% extends "base_cliente.html" %}
+{% block titulito %}🏪 Tienda Online - Librería Salesiana{% endblock %}
+
+{% block contenido %}
+<div class="container-fluid py-3 py-md-4">
+    <div class="row">
+        <!-- Panel de Filtros - Lado Izquierdo -->
+        <div class="col-12 col-md-3 mb-4">
+            <div class="card shadow-lg border-0 rounded-4">
+                <div class="card-header bg-gradient-primary text-white rounded-top-4 py-3">
+                    <h6 class="mb-0 fw-bold"><i class="fas fa-sliders-h me-2"></i>Filtrar Productos</h6>
+                </div>
+                <div class="card-body p-3">
+                    <!-- Búsqueda por nombre -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-uppercase text-muted">
+                            <i class="fas fa-search me-1 text-primary"></i> Buscar
+                        </label>
+                        <div class="autocomplete-wrap position-relative">
+                            <input type="text" id="filtroBuscar" class="form-control form-control-sm rounded-pill autocomplete-input"
+                                   placeholder="🔍 Nombre del producto..." autocomplete="off"
+                                   onkeyup="if(event.key==='Enter') aplicarFiltros();">
+                            <div id="autocompleteResultados" class="autocomplete-results d-none"></div>
+                        </div>
+                        <small class="text-muted d-block mt-1">Escribe para ver sugerencias en tiempo real</small>
+                    </div>
+                    
+                    <!-- Filtro por categoría -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-uppercase text-muted">
+                            <i class="fas fa-folder me-1 text-primary"></i> Categoría
+                        </label>
+                        <select id="filtroCategoria" class="form-select form-select-sm rounded-pill" onchange="aplicarFiltros()">
+                            <option value="">📂 Todas las categorías</option>
+                            {% for categoria in categorias %}
+                            <option value="{{ categoria.id_categoria }}">
+                                {% if categoria.nombre == 'cuadernos' %}📓
+                                {% elif categoria.nombre == 'lapiceros' %}✍️
+                                {% elif categoria.nombre == 'papeleria' %}📄
+                                {% elif categoria.nombre == 'arte' %}🎨
+                                {% elif categoria.nombre == 'oficina' %}📎
+                                {% elif categoria.nombre == 'herramientas' %}🔧
+                                {% else %}📂{% endif %}
+                                {{ categoria.nombre|capitalize }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <!-- Filtro por precio (rango) -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-uppercase text-muted">
+                            <i class="fas fa-coins me-1 text-primary"></i> Precio
+                        </label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text">S/.</span>
+                                    <input type="number" id="precioMin" class="form-control" placeholder="Mín" value="0" step="1" onchange="aplicarFiltros()">
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text">S/.</span>
+                                    <input type="number" id="precioMax" class="form-control" placeholder="Máx" value="100" step="1" onchange="aplicarFiltros()">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Filtro por stock -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-uppercase text-muted">
+                            <i class="fas fa-boxes me-1 text-primary"></i> Disponibilidad
+                        </label>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="filtroStock" id="stockTodos" value="" checked onchange="aplicarFiltros()">
+                                <label class="form-check-label small" for="stockTodos">Todos</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="filtroStock" id="stockDisponible" value="stock" onchange="aplicarFiltros()">
+                                <label class="form-check-label small" for="stockDisponible">En stock</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="filtroStock" id="stockBajo" value="bajo" onchange="aplicarFiltros()">
+                                <label class="form-check-label small" for="stockBajo">Stock bajo</label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Ordenar -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-uppercase text-muted">
+                            <i class="fas fa-sort-amount-down me-1 text-primary"></i> Ordenar por
+                        </label>
+                        <select id="filtroOrden" class="form-select form-select-sm rounded-pill" onchange="aplicarFiltros()">
+                            <option value="nombre_asc">📝 Nombre A-Z</option>
+                            <option value="nombre_desc">📝 Nombre Z-A</option>
+                            <option value="precio_asc">💰 Menor precio</option>
+                            <option value="precio_desc">💰 Mayor precio</option>
+                            <option value="stock_desc">📦 Más stock</option>
+                            <option value="destacado_desc">⭐ Destacados primero</option>
+                        </select>
+                    </div>
+                    
+                    <hr class="my-3">
+                    
+                    <!-- Botones -->
+                    <button class="btn btn-primary w-100 mb-2 rounded-pill" id="btnAplicarFiltros">
+                        <i class="fas fa-search me-2"></i>Aplicar Filtros
+                    </button>
+                    <button class="btn btn-outline-secondary w-100 rounded-pill" id="btnLimpiarFiltros">
+                        <i class="fas fa-undo-alt me-2"></i>Limpiar Filtros
+                    </button>
+                </div>
+                
+                <!-- Banner promocional -->
+                <div class="card-footer bg-gradient-warning text-center py-3 rounded-bottom-4">
+                    <i class="fas fa-truck fa-2x mb-2 text-dark"></i>
+                    <h6 class="fw-bold mb-1 text-dark">¡Envíos a domicilio!</h6>
+                    <small class="text-dark">Recibe tus pedidos en casa</small>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Productos - Lado Derecho -->
+        <div class="col-12 col-md-9">
+            <!-- ===== LOS MÁS VENDIDOS / RECOMENDADOS ===== -->
+            <div id="recomendadosSection" class="mb-4 d-none"></div>
+
+            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+                <h5 class="mb-0 fw-bold fs-6 fs-md-5">
+                    <i class="fas fa-gem me-2 text-primary"></i>Nuestros Productos
+                    <span id="categoriaSeleccionadaLabel" class="badge bg-gold ms-2" style="display:none;"></span>
+                </h5>
+                <div class="d-flex align-items-center gap-2 gap-md-3">
+                    <span class="badge bg-primary rounded-pill px-2 px-md-3 py-2" id="contadorProductos">
+                        <i class="fas fa-box me-1"></i> 0 productos
+                    </span>
+                    <button class="btn btn-sm btn-outline-secondary rounded-pill" id="btnVerCarrito" onclick="window.location.href='/carrito'">
+                        <i class="fas fa-shopping-cart me-1"></i><span class="d-none d-sm-inline"> Ver carrito</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="row g-3 g-md-4" id="productosGrid">
+                <div class="col-12 text-center py-5">
+                    <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
+                    <p class="mt-3 text-muted">Cargando productos...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="{{ url_for('static', filename='js/autocomplete.js') }}"></script>
+<script src="{{ url_for('static', filename='js/catalogo_cliente_2.js') }}"></script>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/catalogo_cliente.css') }}">
+{% endblock %}

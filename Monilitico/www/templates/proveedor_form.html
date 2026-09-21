@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block titulito %}👥 {% if proveedor %}✏️ Editar {% else %}➕ Nuevo {% endif %}Proveedor{% endblock %}
+{% block contenido %}
+<div class="container-fluid px-2 px-md-3">
+  <div class="row justify-content-center">
+    <div class="col-12 col-lg-10 col-xl-8">
+      <!-- HEADER FORM SALESIANO -->
+      <div class="text-center mb-4 mb-md-5 pb-3 pb-md-5">
+        <div
+          class="bg-primary rounded-circle mx-auto mb-3 mb-md-4 p-3 p-md-4 shadow-lg d-inline-flex align-items-center justify-content-center"
+          style="width: 80px; height: 80px;">
+          {% if proveedor %}
+          <i class="fas fa-user-edit fa-1x fa-md-2x text-white"></i>
+          {% else %}
+          <i class="fas fa-user-plus fa-1x fa-md-2x text-white"></i>
+          {% endif %}
+        </div>
+        <h1 class="h3 h2-md fw-extrabold mb-2 text-warning">
+          {% if proveedor %}✏️ Editar Proveedor{% else %}➕ Nuevo Proveedor{% endif %}
+        </h1>
+        <p class="lead text-muted small">
+          {% if proveedor %}
+          Actualiza la información del proveedor
+          {% else %}
+          Registra un nuevo proveedor confiable
+          {% endif %}
+        </p>
+      </div>
+
+      <!-- FORM PREMIUM -->
+      <div class="card shadow-3xl p-3 p-md-5 border-0 rounded-3">
+        <form method="POST"
+          action="{% if proveedor %}/proveedores/actualizar/{{ proveedor.id }}{% else %}/proveedores/guardar{% endif %}">
+
+          <!-- CONSULTAR DNI/RUC -->
+          <div class="mb-4 mb-md-5">
+            <label class="form-label fw-bold text-dark mb-3 mb-md-4 fs-6 fs-md-5">
+              <i class="fas fa-id-card me-2 text-primary"></i>Consultar Datos por DNI/RUC
+            </label>
+
+            <div class="row g-2 g-md-3">
+              <div class="col-6 col-md-4">
+                <select id="tipo_documento" class="form-select form-select-sm form-select-md-lg shadow-sm">
+                  <option value="DNI">DNI</option>
+                  <option value="RUC">RUC</option>
+                </select>
+              </div>
+              <div class="col-6 col-md-5">
+                <input type="text" id="numero_documento" class="form-control form-control-sm form-control-md-lg shadow-sm"
+                  placeholder="Número de documento" maxlength="11">
+              </div>
+              <div class="col-12 col-md-3 mt-2 mt-md-0">
+                <button type="button" id="btnConsultar" class="btn btn-info w-100 btn-sm btn-md-normal">
+                  <i class="fas fa-search"></i> Consultar
+                </button>
+              </div>
+            </div>
+            <div id="resultadoCliente" class="mt-2 mt-md-3"></div>
+          </div>
+
+          <hr class="my-3 my-md-4">
+
+          <!-- NOMBRE -->
+          <div class="mb-4 mb-md-5">
+            <label class="form-label fw-bold text-dark mb-2 mb-md-3 fs-6 fs-md-5">
+              <i class="fas fa-user me-2 text-primary"></i>Nombre Completo / Razón Social
+            </label>
+            <div class="input-group">
+              <span class="input-group-text bg-transparent border-0 text-muted">
+                <i class="fas fa-id-card"></i>
+              </span>
+              <input type="text" name="nombre" id="nombre" class="form-control border-0 shadow-sm"
+                placeholder="Juan Pérez García" required value="{% if proveedor %}{{ proveedor.nombre }}{% endif %}">
+            </div>
+          </div>
+
+          <!-- EMPRESA -->
+          <div class="mb-4 mb-md-5">
+            <label class="form-label fw-bold text-dark mb-2 mb-md-3 fs-6 fs-md-5">
+              <i class="fas fa-building me-2 text-success"></i>Empresa
+            </label>
+            <div class="input-group">
+              <span class="input-group-text bg-transparent border-0 text-muted">
+                <i class="fas fa-briefcase"></i>
+              </span>
+              <input type="text" name="empresa" id="empresa" class="form-control border-0 shadow-sm"
+                placeholder="Distribuidora Salesiana SAC" required value="{% if proveedor %}{{ proveedor.empresa }}{% endif %}">
+            </div>
+          </div>
+
+          <!-- EMAIL -->
+          <div class="mb-4 mb-md-5">
+            <label class="form-label fw-bold text-dark mb-2 mb-md-3 fs-6 fs-md-5">
+              <i class="fas fa-envelope me-2 text-info"></i>Correo Electrónico
+            </label>
+            <div class="input-group">
+              <span class="input-group-text bg-transparent border-0 text-muted">
+                <i class="fas fa-at"></i>
+              </span>
+              <input type="email" name="email" id="email" class="form-control border-0 shadow-sm"
+                placeholder="contacto@empresa.com" required value="{% if proveedor %}{{ proveedor.email }}{% endif %}">
+            </div>
+          </div>
+
+          <!-- CONTACTO -->
+          <div class="mb-4 mb-md-5">
+            <label class="form-label fw-bold text-dark mb-2 mb-md-3 fs-6 fs-md-5">
+              <i class="fas fa-phone me-2 text-warning"></i>Número de Contacto
+            </label>
+            <div class="input-group">
+              <span class="input-group-text bg-transparent border-0 text-muted">
+                <i class="fas fa-mobile-alt"></i>
+              </span>
+              <input type="tel" name="contacto" id="contacto" class="form-control border-0 shadow-sm"
+                placeholder="+51 999 888 777" required value="{% if proveedor %}{{ proveedor.contacto }}{% endif %}">
+            </div>
+          </div>
+
+          <!-- BOTONES PREMIUM -->
+          <div class="d-grid gap-2 gap-md-3 mt-4 mt-md-5">
+            <button type="submit" class="btn btn-success btn-md btn-lg-md py-2 py-md-3 shadow-lg hover-lift">
+              <i class="fas fa-save me-2"></i>
+              {% if proveedor %}Actualizar Proveedor{% else %}Guardar Proveedor{% endif %}
+            </button>
+
+            <a href="/proveedores" class="btn btn-outline-secondary btn-md btn-lg-md py-2 py-md-3 shadow-sm hover-lift text-decoration-none">
+              <i class="fas fa-times me-2"></i>Cancelar
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/proveedor_form.js') }}"></script>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/proveedor_form.css') }}">
+{% endblock %}

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block titulito %}🖥️ POS Rápido - Librería Salesiana{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pos_rapido.css') }}">
+{% endblock %}
+
+{% block contenido %}
+<script type="application/json" id="posProductosJson">{{ productos|tojson|safe }}</script>
+
+<div class="pos-wrap">
+    <div class="pos-header">
+        <div>
+            <h1 class="pos-title"><i class="fas fa-tablet-alt me-2 text-success"></i>POS Rápido</h1>
+            <p class="pos-subtitle">Venta presencial — {{ session.nombre }} <span class="badge bg-warning text-dark ms-1">{{ session.rol }}</span></p>
+        </div>
+        <div class="pos-header-actions">
+            <a href="/ventas" class="btn btn-outline-secondary btn-sm"><i class="fas fa-receipt me-1"></i>Ventas</a>
+            <a href="/caja" class="btn btn-outline-secondary btn-sm"><i class="fas fa-coins me-1"></i>Caja</a>
+        </div>
+    </div>
+
+    <div class="row g-3 pos-body">
+        <!-- ===== COLUMNA PRODUCTOS ===== -->
+        <div class="col-12 col-xl-7">
+            <div class="pos-buscador-wrap">
+                <div class="input-group input-group-lg shadow-sm">
+                    <span class="input-group-text bg-white"><i class="fas fa-barcode text-primary"></i></span>
+                    <input type="text" id="posBuscar" class="form-control form-control-lg" placeholder="Buscar por nombre o ESCANEAR código de barras..." autocomplete="off" autofocus>
+                    <button class="btn btn-light" type="button" id="posLimpiarBusqueda" title="Limpiar búsqueda"><i class="fas fa-times"></i></button>
+                </div>
+                <small class="text-muted d-block mt-1"><i class="fas fa-info-circle me-1"></i>Escanea el código de barras y agrega automáticamente, o toca el producto.</small>
+            </div>
+
+            <div class="pos-grilla" id="posProductos">
+                <div class="text-center py-5 text-muted">
+                    <div class="spinner-border text-primary mb-2"></div>
+                    <div>Cargando productos...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== COLUMNA TICKET ===== -->
+        <div class="col-12 col-xl-5">
+            <div class="pos-ticket shadow-sm">
+                <div class="pos-ticket-header">
+                    <span><i class="fas fa-shopping-basket me-2"></i>Venta actual</span>
+                    <span class="badge bg-light text-dark" id="posItemsCount">0 item</span>
+                </div>
+
+                <div class="pos-ticket-body" id="posTicket">
+                    <div class="text-center text-muted py-5" id="posTicketVacio">
+                        <i class="fas fa-cart-plus fa-3x mb-2 opacity-50"></i>
+                        <p class="mb-0">Toca un producto para agregarlo</p>
+                    </div>
+                </div>
+
+                <div class="pos-ticket-total">
+                    <span>SUBTOTAL</span>
+                    <span class="pos-total-monto" id="posSubtotal">S/ 0.00</span>
+                </div>
+
+                <!-- Método de pago -->
+                <div class="pos-metodos" id="posMetodos">
+                    <button class="pos-metodo active" data-metodo="efectivo"><i class="fas fa-money-bill-wave"></i>Efectivo</button>
+                    <button class="pos-metodo" data-metodo="tarjeta"><i class="fas fa-credit-card"></i>Tarjeta</button>
+                    <button class="pos-metodo" data-metodo="yape"><i class="fas fa-mobile-alt"></i>Yape</button>
+                    <button class="pos-metodo" data-metodo="plin"><i class="fas fa-mobile-alt"></i>Plin</button>
+                </div>
+
+                <!-- Monto recibido / vuelto (solo efectivo) -->
+                <div id="posEfectivoBlock">
+                    <label class="small fw-bold text-uppercase text-muted mb-1">Monto recibido (S/.)</label>
+                    <input type="number" id="posMontoRecibido" class="form-control form-control-lg mb-2" step="0.01" min="0" placeholder="0.00" inputmode="decimal">
+                    <div id="posVueltoInfo"></div>
+                </div>
+
+                <button class="btn btn-success btn-lg w-100 fw-bold pos-cobrar" id="posCobrar" disabled>
+                    <i class="fas fa-check-circle me-2"></i>COBRAR
+                </button>
+                <button class="btn btn-outline-danger w-100 mt-2" id="posVaciar">
+                    <i class="fas fa-trash-alt me-2"></i>Vaciar venta
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== OVERLAY DE ÉXITO ===== -->
+<div class="pos-overlay" id="posOverlay" style="display:none;">
+    <div class="pos-overlay-card text-center">
+        <div class="pos-overlay-ok"><i class="fas fa-check"></i></div>
+        <h2 class="fw-bold text-success">¡Venta registrada!</h2>
+        <p class="mb-1">Comprobante: <strong id="posOverlayComprobante" class="text-dark"></strong></p>
+        <p class="mb-0">Total cobrado: <span class="fs-3 fw-bold text-primary" id="posOverlayTotal"></span></p>
+        <div id="posOverlayVuelto"></div>
+        <button class="btn btn-success btn-lg px-5 fw-bold mt-3" id="posOverlayCerrar">NUEVA VENTA</button>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/pos_rapido.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,165 @@
+{% extends "base_cliente.html" %}
+{% block titulito %}💳 Método de pago - Librería Salesiana{% endblock %}
+
+{% block contenido %}
+<div class="container py-3 py-md-4">
+    <div class="row mb-3 mb-md-4">
+        <div class="col-12">
+            <div class="d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2">
+                <h3 class="fs-4 fs-md-3 mb-0"><i class="fas fa-credit-card me-2"></i>Método de pago</h3>
+                <div class="d-flex align-items-center gap-1 gap-md-2">
+                    <span class="badge bg-success">1. Carrito ✓</span>
+                    <i class="fas fa-arrow-right mx-1 mx-md-2 text-muted d-none d-sm-inline"></i>
+                    <span class="badge bg-success">2. Datos ✓</span>
+                    <i class="fas fa-arrow-right mx-1 mx-md-2 text-muted d-none d-sm-inline"></i>
+                    <span class="badge bg-primary">3. Pago</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-12 col-lg-8">
+            <div class="card mb-3 border-0 shadow-sm rounded-3">
+                <div class="card-header bg-white py-2 py-md-3">
+                    <h6 class="mb-0 fs-6 fs-md-5"><i class="fas fa-credit-card me-2"></i>Selecciona tu método de pago</h6>
+                </div>
+                <div class="card-body p-3 p-md-4">
+                    <!-- Tarjeta -->
+                    <div class="payment-method-card" data-metodo="tarjeta" onclick="selectPaymentMethod('tarjeta')">
+                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                            <div class="d-flex align-items-center flex-wrap gap-2">
+                                <div class="payment-icon">
+                                    <i class="fab fa-cc-visa fa-2x fa-md-3x me-1"></i>
+                                    <i class="fab fa-cc-mastercard fa-2x fa-md-3x me-1"></i>
+                                    <i class="fab fa-cc-amex fa-2x fa-md-3x"></i>
+                                </div>
+                                <div>
+                                    <strong class="small">Tarjeta de crédito/débito</strong>
+                                    <p class="text-muted small mb-0">Visa, Mastercard, American Express</p>
+                                </div>
+                            </div>
+                            <div class="payment-radio">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="metodoPago" id="tarjetaRadio" value="tarjeta">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="payment-form mt-3" id="tarjetaForm" style="display: none;">
+                            <div class="row g-2">
+                                <div class="col-12 mb-2">
+                                    <label class="form-label small">Número de tarjeta</label>
+                                    <input type="text" class="form-control form-control-sm" id="numeroTarjeta" 
+                                           placeholder="1234 5678 9012 3456" maxlength="19"
+                                           oninput="formatearNumeroTarjeta(this)">
+                                    <small class="text-muted" id="tarjetaError"></small>
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small">Fecha expiración</label>
+                                    <input type="text" class="form-control form-control-sm" id="fechaExpiracion" 
+                                           placeholder="MM/YY" maxlength="5"
+                                           oninput="formatearFechaExpiracion(this)">
+                                    <small class="text-muted" id="fechaError"></small>
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small">CVV</label>
+                                    <input type="password" class="form-control form-control-sm" id="cvv" 
+                                           placeholder="123" maxlength="4"
+                                           oninput="validarCVV(this)">
+                                    <small class="text-muted" id="cvvError"></small>
+                                </div>
+                            </div>
+                            <div class="alert alert-info mt-2 py-2">
+                                <i class="fas fa-lock me-2"></i> 
+                                <small>Pago 100% seguro. Los datos de tu tarjeta están protegidos.</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Yape -->
+                    <div class="payment-method-card" data-metodo="yape" onclick="selectPaymentMethod('yape')">
+                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="payment-icon"><i class="fas fa-mobile-alt fa-2x fa-md-3x text-success"></i></div>
+                                <div><strong class="small">Yape / Plin</strong><p class="text-muted small mb-0">Paga al instante desde tu celular</p></div>
+                            </div>
+                            <div class="payment-radio"><div class="form-check"><input class="form-check-input" type="radio" name="metodoPago" id="yapeRadio" value="yape"></div></div>
+                        </div>
+                        <div class="payment-form mt-3" id="yapeForm" style="display: none;">
+                            <div class="alert alert-info py-2"><i class="fas fa-info-circle me-2"></i>Escanea el código QR o usa: <strong>999 888 777</strong></div>
+                            <div class="text-center"><div class="bg-light p-3 p-md-4 rounded d-inline-block"><i class="fas fa-qrcode fa-3x fa-md-5x text-secondary"></i></div></div>
+                        </div>
+                    </div>
+
+                    <!-- Transferencia -->
+                    <div class="payment-method-card" data-metodo="transferencia" onclick="selectPaymentMethod('transferencia')">
+                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                            <div class="d-flex align-items-center gap-2"><div class="payment-icon"><i class="fas fa-university fa-2x fa-md-3x text-primary"></i></div>
+                            <div><strong class="small">Transferencia bancaria</strong><p class="text-muted small mb-0">BCP, BBVA, Interbank</p></div></div>
+                            <div class="payment-radio"><div class="form-check"><input class="form-check-input" type="radio" name="metodoPago" id="transferenciaRadio" value="transferencia"></div></div>
+                        </div>
+                        <div class="payment-form mt-3" id="transferenciaForm" style="display: none;">
+                            <div class="alert alert-warning py-2 small"><strong>Datos para transferencia:</strong></div>
+                            <div class="p-2 p-md-3 bg-light rounded small"><p class="mb-1"><strong>Banco:</strong> BCP</p><p class="mb-1"><strong>Titular:</strong> Librería Salesiana Don Bosco</p><p class="mb-1"><strong>Cuenta soles:</strong> 123-4567890-123</p><p class="mb-0"><strong>CCI:</strong> 123-456-789012345678-90</p></div>
+                        </div>
+                    </div>
+
+                    <!-- Contraentrega -->
+                    <div class="payment-method-card" id="contraentregaCard" data-metodo="contraentrega" onclick="selectPaymentMethod('contraentrega')">
+                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                            <div class="d-flex align-items-center gap-2"><div class="payment-icon"><i class="fas fa-hand-holding-usd fa-2x fa-md-3x text-warning"></i></div>
+                            <div><strong class="small">Pago contraentrega</strong><p class="text-muted small mb-0">Paga cuando recibas tu pedido</p></div></div>
+                            <div class="payment-radio"><div class="form-check"><input class="form-check-input" type="radio" name="metodoPago" id="contraentregaRadio" value="contraentrega"></div></div>
+                        </div>
+                        <div class="payment-form mt-3" id="contraentregaForm" style="display: none;">
+                            <div class="alert alert-success py-2"><i class="fas fa-check-circle me-2"></i>Pagas en efectivo al recibir. <strong>Costo adicional: S/. 3.00</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between gap-2 mt-3">
+                <a href="/checkout" class="btn btn-outline-secondary btn-sm btn-md-normal">
+                    <i class="fas fa-arrow-left me-2"></i>Volver
+                </a>
+                <button class="btn btn-success btn-sm btn-md-normal" onclick="confirmarPedido()" id="btnConfirmar">
+                    <i class="fas fa-check-circle me-2"></i>Confirmar pedido
+                </button>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-4">
+            <div class="card shadow-sm sticky-top" style="top:20px">
+                <div class="card-header bg-primary text-white py-2 py-md-3">
+                    <h6 class="mb-0 fs-6"><i class="fas fa-shopping-cart me-2"></i>Resumen del pedido</h6>
+                </div>
+                <div class="card-body p-3 p-md-4">
+                    <div id="resumenProductos" class="small"></div>
+                    <hr class="my-2 my-md-3">
+                    <div class="d-flex justify-content-between mb-2 small">
+                        <span>Subtotal:</span><span id="subtotalTexto">S/. 0.00</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 small" id="descuentoResumen" style="display:none">
+                        <span class="text-success">Descuento:</span><span class="text-success" id="descuentoTexto">-S/. 0.00</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 small" id="envioRow" style="display:none">
+                        <span>Envío:</span><span id="envioTexto">S/. 0.00</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 small" id="contraentregaCosto" style="display:none">
+                        <span>Cargo contraentrega:</span><span>S/. 3.00</span>
+                    </div>
+                    <hr class="my-2 my-md-3">
+                    <div class="d-flex justify-content-between fs-6 fs-md-5 fw-bold">
+                        <span>Total a pagar:</span><span class="text-primary" id="totalFinal">S/. 0.00</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pago.css') }}">
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="{{ url_for('static', filename='js/pago_2.js') }}"></script>
+{% endblock %}

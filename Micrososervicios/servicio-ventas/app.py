@@ -1,0 +1,107 @@
+"""Servicio VENTAS/COMERCIAL (puerto 8002). BD propia: librospe_ms_ventas.
+
+Tablas: comercial_pedidos, comercial_detalle_pedido, comercial_ventas.
+Valida stock consultando a INVENTARIO por HTTP + token (nunca toca su BD).
+"""
+import hmac
+import json
+import os
+from functools import wraps
+from pathlib import Path
+from urllib.parse import quote_plus
+from urllib.request import Request, urlopen
+
+from flask import Flask, jsonify, request
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text
+
+
+def cargar_entorno():
+    for base in (Path(__file__).resolve().parent.parent, Path(__file__).resolve().parent):
+        f = base / ".env"
+        if f.is_file():
+            for linea in f.read_text(encoding="utf-8").splitlines():
+                linea = linea.strip()
+                if linea and not linea.startswith("#") and "=" in linea:
+                    k, v = linea.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+cargar_entorno()
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-ventas")
+DB_USER = os.environ.get("DB_USER", "root")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+DB_NAME = os.environ.get("MS_VENTAS_DB", "librospe_ms_ventas")
+SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", "librospe-interno-dev")
+INVENTARIO_URL = os.environ.get("MS_INVENTARIO_URL", "http://127.0.0.1:8001")
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+db = SQLAlchemy(app)
+
+
+@app.route("/health")
+def health():
+    db.session.execute(text("SELECT 1"))
+    n = db.session.execute(text("SELECT COUNT(*) FROM comercial_pedidos")).scalar()
+    return jsonify({"status": "OK", "servicio": "ventas", "bd": DB_NAME, "pedidos": n})
+
+
+@app.route("/pedidos")
+def pedidos():
+    rows = db.session.execute(
+        text("SELECT * FROM comercial_pedidos ORDER BY fecha_pedido DESC")).mappings().all()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/pedidos/<int:pid>")
+def pedido(pid):
+    p = db.session.execute(
+        text("SELECT * FROM comercial_pedidos WHERE id=:id"), {"id": pid}).mappings().first()
+    if not p:
+        return jsonify({"error": "No encontrado"}), 404
+    det = db.session.execute(
+        text("SELECT * FROM comercial_detalle_pedido WHERE pedido_id=:id"),
+        {"id": pid}).mappings().all()
+    d = dict(p)
+    d["detalles"] = [dict(x) for x in det]
+    return jsonify(d)
+
+
+@app.route("/pedidos/<int:pid>/estado", methods=["PUT"])
+def estado(pid):
+    estado = (request.get_json(silent=True) or {}).get("estado")
+    if not estado:
+        return jsonify({"error": "Estado requerido"}), 400
+    res = db.session.execute(
+        text("UPDATE comercial_pedidos SET estado=:e WHERE id=:id"), {"e": estado, "id": pid})
+    db.session.commit()
+    return jsonify({"success": True}) if res.rowcount else (jsonify({"error": "No encontrado"}), 404)
+
+
+@app.route("/ventas")
+def ventas():
+    rows = db.session.execute(
+        text("SELECT * FROM comercial_ventas ORDER BY fecha_venta DESC")).mappings().all()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/validar-stock/<int:pid>/<int:cant>")
+def validar(pid, cant):
+    """DEMO servicio-a-servicio: ventas -> inventario por HTTP + token."""
+    try:
+        req = Request(f"{INVENTARIO_URL}/_verificar-stock/{pid}/{cant}",
+                      headers={"X-Service-Token": SERVICE_TOKEN})
+        with urlopen(req, timeout=5) as resp:
+            r = json.loads(resp.read().decode("utf-8"))
+        return jsonify({"origen": "ventas", "consulto_a": "inventario (HTTP+token)", "respuesta": r})
+    except Exception as e:
+        return jsonify({"origen": "ventas", "error": "inventario no disponible",
+                        "detalle": str(e)}), 503
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8002)

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <meta name="theme-color" content="#1e3a8a">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="{{ url_for('static', filename='img/icon.svg') }}" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/icon-192.png') }}">
+    <title>{% block titulito %}Inventario Librería Salesiana{% endblock %}</title>
+    <!-- BOOTSTRAP 5 CSS + ICONOS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- GOOGLE FONTS -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Crimson+Text:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <!-- ESTILOS LOCALES -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+
+<body>
+    <!-- NAVBAR -->
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/">Librería Salesiana</a>
+            {% if session.usuario_id %}
+            <div class="d-flex align-items-center text-white gap-2 gap-sm-3">
+                <div class="d-none d-md-block">
+                    <i class="fas fa-user-circle me-2"></i>
+                    {{ session.nombre }}
+                    <span class="badge bg-warning text-dark px-2 py-1 ms-1">{{ session.rol }}</span>
+                </div>
+                <div class="d-flex gap-1 gap-sm-2">
+                    <a class="btn btn-outline-light btn-sm px-2 px-sm-3" href="/cambiar_clave">
+                        <i class="fas fa-key me-1"></i><span class="d-none d-sm-inline">Clave</span>
+                    </a>
+                    <a class="btn btn-outline-light btn-sm px-2 px-sm-3" href="/logout">
+                        <i class="fas fa-sign-out-alt me-1"></i><span class="d-none d-sm-inline">Salir</span>
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </nav>
+
+    <!-- ========================================================= -->
+    <!-- ===== PANEL SALESIANO CON BOTONES - STICKY ===== -->
+    <!-- ========================================================= -->
+    {% if session.usuario_id %}
+    <div class="panel-salesiano-wrapper" id="panelSalesiano">
+        <div class="container">
+            <div class="dashboard-header">
+                <div class="row align-items-center g-1 g-md-2">
+                    <div class="col-12 col-lg-4">
+                        <h1 class="fw-bold mb-0 text-dark">
+                            <i class="fas fa-cube me-2 text-primary"></i>Panel Salesiano
+                        </h1>
+                        <p class="mb-0 text-secondary small">
+                            <i class="fas fa-warehouse me-1"></i>Sistema de gestión completa
+                        </p>
+                    </div>
+
+                    <!-- BOTONES EN HORIZONTAL SEGÚN ROL -->
+                    <div class="col-12 col-lg-8">
+                        <div class="admin-dashboard-grid">
+                            <!-- ===== ADMINISTRADOR: USUARIOS (desplegable) ===== -->
+                            {% if session.rol == 'administrador' %}
+                            <div class="dropdown position-relative">
+                                <a class="btn-card btn-card-purple dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="fas fa-users"></i>
+                                    <span>Usuarios</span>
+                                    <span class="badge bg-danger ms-1" id="contador-bloqueos" style="display:none;font-size:0.6rem;">0</span>
+                                </a>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="/usuarios/nuevo"><i class="fas fa-user-plus text-success me-2"></i>Nuevo Vendedor</a></li>
+                                    <li><a class="dropdown-item" href="/usuarios-sistema"><i class="fas fa-users-cog text-primary me-2"></i>Usuarios Sistema</a></li>
+                                    <li><a class="dropdown-item" href="/bloqueos"><i class="fas fa-lock text-danger me-2"></i>Bloqueados</a></li>
+                                    <li><a class="dropdown-item" href="/bloqueos-sistema"><i class="fas fa-user-lock text-secondary me-2"></i>Bloq. Sistema</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('ver_ips_bloqueadas') }}"><i class="fas fa-shield-alt text-info me-2"></i>IPs bloqueadas</a></li>
+                                </ul>
+                            </div>
+                            {% endif %}
+
+                            <!-- ===== ADMINISTRADOR: REPORTES (desplegable) ===== -->
+                            {% if session.rol == 'administrador' %}
+                            <div class="dropdown position-relative">
+                                <a class="btn-card btn-card-orange dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="fas fa-chart-line"></i>
+                                    <span>Reportes</span>
+                                </a>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="/ver_ventas"><i class="fas fa-chart-bar text-primary me-2"></i>Ventas vendedores</a></li>
+                                    <li><a class="dropdown-item" href="/reportes/ventas_por_ubicacion"><i class="fas fa-map-marked-alt text-info me-2"></i>Por Ubicación</a></li>
+                                    <li><a class="dropdown-item" href="/auditoria"><i class="fas fa-clipboard-list text-secondary me-2"></i>Auditoría</a></li>
+                                </ul>
+                            </div>
+                            {% endif %}
+
+                            <!-- ===== ADMIN / INVENTARIO ===== -->
+                            {% if session.rol != 'vendedor' %}
+                            <a href="/productos/nuevo" class="btn-card btn-card-gold" title="Nuevo Producto">
+                                <i class="fas fa-box-open"></i>
+                                <span>Nuevo Producto</span>
+                            </a>
+                            <a href="/proveedores" class="btn-card btn-card-blue" title="Proveedores">
+                                <i class="fas fa-handshake"></i>
+                                <span>Proveedores</span>
+                            </a>
+                            <a href="/dashboard" class="btn-card btn-card-indigo" title="Dashboard">
+                                <i class="fas fa-chart-pie"></i>
+                                <span>Dashboard</span>
+                            </a>
+                            {% endif %}
+
+                            <!-- ===== TODOS (admin y vendedor) ===== -->
+                            <a href="/pedidos" class="btn-card btn-card-pink" title="Ver Pedidos">
+                                <i class="fas fa-truck"></i>
+                                <span>Pedidos</span>
+                            </a>
+                            <a href="/ventas/nueva" class="btn-card btn-card-emerald" title="Nueva Venta">
+                                <i class="fas fa-cash-register"></i>
+                                <span>Nueva Venta</span>
+                            </a>
+                            <a href="/pos" class="btn-card btn-card-teal" title="POS Rápido Táctil">
+                                <i class="fas fa-tablet-alt"></i>
+                                <span>POS Rápido</span>
+                            </a>
+
+                            <!-- ===== ADMIN: CAJA ===== -->
+                            {% if session.rol == 'administrador' %}
+                            <a href="/caja" class="btn-card btn-card-warning" title="Caja">
+                                <i class="fas fa-coins"></i>
+                                <span>Caja</span>
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ========================================================= -->
+    <!-- ===== CONTENIDO DE CADA PÁGINA ===== -->
+    <!-- ========================================================= -->
+    <div class="container fade-in">
+        {% block contenido %}
+        {% endblock %}
+    </div>
+
+    <!-- BOOTSTRAP JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- SCRIPTS LOCALES -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+    <!-- REGISTRO PWA -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/sw.js').catch(function () {});
+            });
+        }
+    </script>
+</body>
+
+</html>

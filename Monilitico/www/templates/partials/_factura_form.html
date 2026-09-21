@@ -1,0 +1,51 @@
+<!-- Datos del Cliente - FACTURA (Empresa) -->
+<div class="mb-4">
+    <div class="alert alert-success">
+        <i class="fas fa-building"></i> <strong>Factura Electrónica</strong> - Para personas jurídicas o naturales con RUC
+    </div>
+    
+    <label class="form-label fw-bolder fs-5 mb-3">
+        <i class="fas fa-building me-3 text-success"></i>Datos del Cliente - Factura
+    </label>
+
+    <div class="row g-3">
+        <div class="col-md-8">
+            <label class="form-label fw-semibold">Número de RUC</label>
+            <input type="text" id="numero_ruc_factura" name="numero_ruc_factura" 
+                class="form-control shadow-sm" placeholder="Ingrese RUC (11 dígitos)" maxlength="11">
+        </div>
+        <div class="col-md-4">
+            <label class="form-label fw-semibold">&nbsp;</label>
+            <button type="button" id="btnConsultarRucFactura" class="btn btn-info w-100">
+                <i class="fas fa-search"></i> Consultar RUC
+            </button>
+        </div>
+    </div>
+
+    <!-- Resultado de consulta RUC -->
+    <div id="resultadoRucFactura" class="mt-3"></div>
+
+    <!-- Datos de facturación -->
+    <div class="mt-4 p-3 bg-light rounded">
+        <h6><i class="fas fa-file-invoice"></i> Datos para Facturación</h6>
+        <div class="row g-3 mt-2">
+            <div class="col-md-12">
+                <label class="form-label small">Razón Social / Nombre</label>
+                <input type="text" name="factura_razon_social" id="factura_razon_social"
+                    class="form-control" placeholder="Razón Social o Nombre">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small">RUC / Documento</label>
+                <input type="text" name="cliente_documento_factura" id="factura_ruc"
+                    class="form-control" placeholder="N° RUC">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small">Dirección Fiscal</label>
+                <input type="text" name="cliente_direccion_factura" id="factura_direccion"
+                    class="form-control" placeholder="Dirección">
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/factura_form.js') }}"></script>

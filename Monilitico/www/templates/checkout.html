@@ -1,0 +1,211 @@
+{% extends "base_cliente.html" %}
+{% block titulito %}📋 Checkout - Librería Salesiana{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/checkout.css') }}">
+{% endblock %}
+
+{% block contenido %}
+<div class="container py-4">
+    <div class="row g-4">
+        <!-- ============================================ -->
+        <!-- COLUMNA IZQUIERDA - DATOS DEL CLIENTE -->
+        <!-- ============================================ -->
+        <div class="col-12 col-lg-7">
+            <div class="card checkout-card">
+                <div class="card-body p-3 p-md-4">
+                    <h5 class="section-title">
+                        <i class="fas fa-user-circle me-2 text-gold"></i>Datos de facturación
+                    </h5>
+
+                    <!-- ===== NOMBRES Y APELLIDOS (SOLO LECTURA) ===== -->
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="field-label">Nombres <span class="text-danger">*</span></label>
+                            <div class="field-value readonly">
+                                <i class="fas fa-user me-2 text-muted"></i>
+                                <span id="nombresDisplay">{{ cliente.nombres if cliente else '' }}</span>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <label class="field-label">Apellidos <span class="text-danger">*</span></label>
+                            <div class="field-value readonly">
+                                <i class="fas fa-user me-2 text-muted"></i>
+                                <span id="apellidosDisplay">{{ cliente.apellidos if cliente else '' }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ===== EMAIL Y TELÉFONO (EDITABLES) ===== -->
+                    <div class="row g-3 mt-2">
+                        <div class="col-12 col-md-6">
+                            <label class="field-label">Email <span class="text-danger">*</span></label>
+                            <input type="email" id="clienteEmail" class="field-value editable w-100" 
+                                   value="{{ cliente.correo if cliente else '' }}"
+                                   placeholder="correo@ejemplo.com">
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="field-label">Teléfono <span class="text-danger">*</span></label>
+                            <input type="tel" id="clienteTelefono" class="field-value editable w-100" 
+                                   value="{{ cliente.telefono if cliente else '' }}"
+                                   placeholder="987654321">
+                        </div>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <!-- ===== TIPO DE COMPROBANTE ===== -->
+                    <div class="mb-3">
+                        <label class="field-label">Tipo de comprobante <span class="text-danger">*</span></label>
+                        <div class="row g-2 mt-1">
+                            <div class="col-6">
+                                <div class="radio-card active" id="cardBoleta" onclick="seleccionarComprobante('boleta')">
+                                    <input type="radio" name="tipoComprobante" value="boleta" checked>
+                                    <div>
+                                        <div class="radio-label">📄 Boleta de venta</div>
+                                        <div class="radio-sub">Para personas naturales (DNI o Carnet de Extranjería)</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="radio-card" id="cardFactura" onclick="seleccionarComprobante('factura')">
+                                    <input type="radio" name="tipoComprobante" value="factura">
+                                    <div>
+                                        <div class="radio-label">📋 Factura</div>
+                                        <div class="radio-sub">Para empresas (RUC)</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ===== NÚMERO DE DOCUMENTO ===== -->
+                    <div class="mb-3" id="documentoSection">
+                        <div class="mb-2" id="tipoDocumentoRow">
+                            <label class="field-label">Tipo de documento</label>
+                            <select class="form-select documento-input" id="tipoDocumentoSelect" onchange="cambiarTipoDocumento()">
+                                <option value="DNI">DNI</option>
+                                <option value="CE">Carnet de Extranjería</option>
+                            </select>
+                        </div>
+                        <label class="field-label" id="documentoLabel">DNI <span class="text-muted small">(opcional)</span></label>
+                        <input type="text" id="documentoInput" class="form-control documento-input" 
+                               placeholder="8 dígitos numéricos" maxlength="8"
+                               oninput="validarDocumento(this)">
+                        <div class="documento-info" id="documentoInfo">Opcional: ingresa tu DNI para que la boleta salga con tu nombre real (RENIEC)</div>
+                        <div class="documento-error" id="documentoError">❌ El DNI debe tener exactamente 8 dígitos numéricos</div>
+                    </div>
+
+                    <!-- ===== BLOQUE DE CONFIRMACIÓN DE DATOS ===== -->
+                    <div class="confirmacion-block" id="confirmacionBlock">
+                        <div class="d-flex align-items-start">
+                            <div class="confirm-icon">
+                                <i class="fas fa-check-circle"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="confirm-title">
+                                        <i class="fas fa-shield-alt me-1"></i>Datos verificados
+                                    </span>
+                                    <span class="badge-verified" id="badgeEstado">✅ Confirmado</span>
+                                </div>
+                                
+                                <!-- Nombre Completo (para boleta) -->
+                                <div id="confirmNombreBlock">
+                                    <div class="confirm-label mt-2">Nombre completo</div>
+                                    <div class="confirm-data" id="confirmNombreCompleto">-</div>
+                                </div>
+                                
+                                <!-- Razón Social (para factura) -->
+                                <div id="confirmRazonBlock" style="display:none;">
+                                    <div class="confirm-label mt-2">Razón Social</div>
+                                    <div class="confirm-data" id="confirmRazonSocial">-</div>
+                                </div>
+                                
+                                <!-- Documento -->
+                                <div class="confirm-label mt-1">Documento</div>
+                                <div class="confirm-data" id="confirmDocumento">-</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ===== ENTREGA A DOMICILIO (DELIVERY) ===== -->
+                    <div class="mb-0 mt-3" id="direccionSection" style="display:none;"
+                         data-dep="{{ (cliente.departamento or '') if cliente else '' }}"
+                         data-prov="{{ (cliente.provincia or '') if cliente else '' }}"
+                         data-dist="{{ (cliente.distrito or '') if cliente else '' }}">
+                        <div class="alert alert-warning py-2 small d-none" id="ubicacionFaltante">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            Falta tu distrito de residencia. Actualízalo en
+                            <a href="/cliente/perfil" class="alert-link">Mi Perfil</a> para poder usar el delivery.
+                        </div>
+                        <label class="field-label">Dirección de entrega <span class="text-danger">*</span></label>
+                        <textarea id="direccionEntrega" class="form-control" rows="2" 
+                                  placeholder="Calle, número, urbanización, referencia...">{{ (cliente.direccion or '') if cliente else '' }}</textarea>
+                        <div class="mt-2" id="destinoEntrega" style="display:none;">
+                            <span class="badge bg-success">
+                                <i class="fas fa-map-marker-alt me-1"></i>Distrito de entrega: <span id="destinoDistrito">-</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- COLUMNA DERECHA - RESUMEN DEL PEDIDO -->
+        <!-- ============================================ -->
+        <div class="col-12 col-lg-5">
+            <div class="card checkout-card">
+                <div class="card-body p-3 p-md-4">
+                    <h5 class="section-title">
+                        <i class="fas fa-shopping-bag me-2 text-gold"></i>Tu pedido
+                    </h5>
+
+                    <!-- PRODUCTOS DEL CARRITO -->
+                    <div id="productosCarrito">
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-gold" style="width:2rem;height:2rem;"></div>
+                            <p class="mt-2 text-muted small">Cargando productos...</p>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <!-- RESUMEN DE TOTALES -->
+                    <div id="resumenTotales">
+                        <div class="total-line">
+                            <span>Subtotal</span>
+                            <span id="subtotal">S/. 0.00</span>
+                        </div>
+                        <div class="total-line">
+                            <span>Descuento</span>
+                            <span id="descuento">-S/. 0.00</span>
+                        </div>
+                        <div class="total-line">
+                            <span>Envío</span>
+                            <span id="envio">S/. 0.00</span>
+                        </div>
+                        <div class="total-line total-final">
+                            <span>Total</span>
+                            <span id="total">S/. 0.00</span>
+                        </div>
+                    </div>
+
+                    <!-- BOTÓN PAGAR -->
+                    <button class="btn-pagar mt-3" id="btnPagar" onclick="procesarPago()">
+                        <i class="fas fa-credit-card me-2"></i>Continuar con el pago
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="{{ url_for('static', filename='js/checkout_2.js') }}"></script>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/checkout_2.css') }}">
+
+{% block extra_js %}{% endblock %}
+{% endblock %}

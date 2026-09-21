@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block titulito %}🗺️ Ventas por Cliente y Ubicación{% endblock %}
+{% block contenido %}
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-12">
+      <div class="bg-primary p-5 mb-5 text-white position-relative overflow-hidden hover-lift rounded-4">
+        <div class="bg-overlay"></div>
+        <div class="position-relative z-3">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+              <h1 class="h2 fw-extrabold mb-2 text-shadow-primary">
+                <i class="fas fa-map-marked-alt me-3 text-warning"></i>
+                Ventas por Cliente y Ubicación
+              </h1>
+              <p class="h5 mb-0 opacity-90">
+                Departamento → Provincia → Distrito → Cliente
+              </p>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              <a href="/reportes/ventas_por_ubicacion/pdf" id="btnExportPdf" class="btn btn-danger btn-lg shadow-lg hover-lift">
+                <i class="fas fa-file-pdf me-2"></i>PDF
+              </a>
+              <a href="/reportes/ventas_por_ubicacion/excel" id="btnExportExcel" class="btn btn-success btn-lg shadow-lg hover-lift">
+                <i class="fas fa-file-excel me-2"></i>Excel
+              </a>
+              <a href="/dashboard" class="btn btn-warning btn-lg shadow-lg hover-lift">
+                <i class="fas fa-arrow-left me-2"></i>Volver
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="ubigeoEstado"
+        class="d-none"
+        data-periodo="{{ periodo }}"
+        data-dep="{{ departamento or '' }}"
+        data-prov="{{ provincia or '' }}"
+        data-dist="{{ distrito or '' }}">
+      </div>
+
+      <div class="card shadow-3xl p-4 mb-4 border-0">
+        <form id="filtroForm" class="row align-items-end g-3">
+          <div class="col-md-3" style="min-width: 180px;">
+            <label class="form-label fw-bold text-dark">
+              <i class="fas fa-calendar-alt me-1 text-warning"></i>Período
+            </label>
+            <select id="filtroPeriodo" class="form-select">
+              {% for opcion, etiqueta in [("todo","Todo"), ("hoy","Hoy"), ("semana","Esta semana"), ("mes","Este mes"), ("anio","Este año")] %}
+              <option value="{{ opcion }}" {% if periodo == opcion %}selected{% endif %}>{{ etiqueta }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3" style="min-width: 180px;">
+            <label class="form-label fw-bold text-dark">
+              <i class="fas fa-map-marker-alt me-1 text-warning"></i>Departamento
+            </label>
+            <select id="filtroDepartamento" class="form-select">
+              <option value="">Todos los departamentos</option>
+            </select>
+          </div>
+          <div class="col-md-3" style="min-width: 180px;">
+            <label class="form-label fw-bold text-dark">
+              <i class="fas fa-city me-1 text-warning"></i>Provincia
+            </label>
+            <select id="filtroProvincia" class="form-select" disabled>
+              <option value="">Todas las provincias</option>
+            </select>
+          </div>
+          <div class="col-md-3" style="min-width: 180px;">
+            <label class="form-label fw-bold text-dark">
+              <i class="fas fa-map-pin me-1 text-warning"></i>Distrito
+            </label>
+            <select id="filtroDistrito" class="form-select" disabled>
+              <option value="">Todos los distritos</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <button type="button" id="btnFiltrar" class="btn btn-primary btn-lg shadow-lg hover-lift">
+              <i class="fas fa-filter me-2"></i>Filtrar
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div id="ubicacionResultados">
+        {% include "partials/_ubicacion_tabla.html" %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/reporte_ubicacion.js') }}"></script>
+{% endblock %}

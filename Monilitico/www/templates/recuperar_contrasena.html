@@ -1,0 +1,94 @@
+{% extends 'base_cliente.html' %}
+{% block titulito %}🔐 Recuperar Contraseña - Librería Salesiana{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/recuperar_contrasena.css') }}">
+{% endblock %}
+
+{% block contenido %}
+<div class="container py-3 py-md-5">
+    <div class="row justify-content-center">
+        <div class="col-11 col-sm-10 col-md-8 col-lg-6 col-xl-5">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-primary text-white text-center py-3 py-md-4">
+                    <i class="fas fa-key fa-2x mb-2 d-block"></i>
+                    <h4 class="mb-0 fw-bold">¿Olvidaste tu contraseña?</h4>
+                    <p class="mb-0 mt-2 small opacity-75">Recupérala fácilmente</p>
+                </div>
+                
+                <div class="card-body p-4 p-md-5">
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                    {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show mb-4" role="alert">
+                        <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-triangle' }} me-2"></i>
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                    {% endwith %}
+                    
+                    <p class="text-muted text-center mb-4">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.
+                    </p>
+
+                    <form method="POST" id="resetForm" class="needs-validation" novalidate>
+                        <div class="mb-4">
+                            <label class="form-label fw-semibold mb-2">
+                                <i class="fas fa-envelope me-2 text-primary"></i>
+                                Correo Electrónico
+                            </label>
+                            <input type="email" name="email" id="emailInput" 
+                                   class="form-control form-control-lg"
+                                   style="-webkit-appearance: none; -moz-appearance: none; appearance: none;"
+                                   placeholder="tu@correo.com" 
+                                   required>
+                            <div class="invalid-feedback">
+                                Por favor ingresa un correo electrónico válido
+                            </div>
+                            <small class="text-muted d-block mt-1">
+                                <i class="fas fa-lock me-1"></i>
+                                Te enviaremos las instrucciones a este correo
+                            </small>
+                        </div>
+
+                        <div class="d-grid gap-3">
+                            <button type="submit" class="btn btn-primary btn-lg py-2 fw-semibold" id="submitBtn">
+                                <i class="fas fa-paper-plane me-2"></i> 
+                                Enviar Enlace de Recuperación
+                            </button>
+                            <a href="{{ url_for('login_cliente') }}" class="btn btn-outline-secondary btn-lg py-2 fw-semibold">
+                                <i class="fas fa-arrow-left me-2"></i> 
+                                Volver al Login
+                            </a>
+                        </div>
+                    </form>
+                    
+                    <hr class="my-4">
+                    
+                    <div class="text-center">
+                        <small class="text-muted">
+                            <i class="fas fa-question-circle me-1"></i>
+                            ¿Necesitas ayuda? 
+                            <a href="{{ url_for('contacto') }}" class="text-decoration-none">Contáctanos</a>
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/recuperar_contrasena.js') }}"></script>
+
+<!-- Fallback para navegadores sin JavaScript -->
+<noscript>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/recuperar_contrasena_2.css') }}">
+    <div class="alert alert-warning mt-3">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        Tu navegador tiene JavaScript desactivado. La validación del formulario será limitada.
+    </div>
+</noscript>
+{% endblock %}

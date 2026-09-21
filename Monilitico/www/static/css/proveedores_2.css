@@ -1,0 +1,36 @@
+
+  .bg-success.bg-opacity-10 {
+    background-color: rgba(25, 135, 84, 0.1) !important;
+  }
+  
+  .bg-secondary.bg-opacity-25 {
+    background-color: rgba(108, 117, 125, 0.25) !important;
+  }
+  
+  @media (max-width: 576px) {
+    .table .btn-group .btn-sm {
+      padding: 0.3rem 0.5rem;
+    }
+    
+    .table .badge {
+      font-size: 0.6rem;
+    }
+    
+    .table a {
+      word-break: break-all;
+    }
+  }
+  
+  /* Mejora para el email en móvil */
+  @media (max-width: 576px) {
+    .table td:nth-child(4) {
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    
+    .table td:nth-child(4) a {
+      font-size: 0.7rem;
+    }
+  }

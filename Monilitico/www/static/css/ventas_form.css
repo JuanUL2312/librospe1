@@ -1,0 +1,21 @@
+
+    .glow-icon { filter: drop-shadow(0 0 10px rgba(40, 167, 69, 0.3)); }
+    .shadow-3xl { box-shadow: 0 20px 40px -10px rgba(0,0,0,0.15); }
+    .text-purple { color: #6f42c1; }
+    
+    .contenedor-preview-caja {
+        min-height: 180px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    @media (min-width: 992px) {
+        .card-preview-sticky {
+            position: sticky;
+            top: 20px;
+        }
+        .contenedor-preview-caja {
+            min-height: 220px;
+        }
+    }
