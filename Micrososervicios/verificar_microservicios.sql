@@ -37,7 +37,31 @@ SELECT 'usuarios   ', 'usuarios_sistema', 'usuarios_sistema       ', (SELECT COU
 UNION ALL
 SELECT 'roles      ', 'roles', 'roles                  ', (SELECT COUNT(*) FROM librospe_db.roles), (SELECT COUNT(*) FROM librospe_ms_usuarios.roles), (SELECT COUNT(*) FROM librospe_db.roles)= (SELECT COUNT(*) FROM librospe_ms_usuarios.roles)
 UNION ALL
-SELECT 'clientes   ', 'clientes', 'clientes               ', (SELECT COUNT(*) FROM librospe_db.clientes), (SELECT COUNT(*) FROM librospe_ms_clientes.clientes), (SELECT COUNT(*) FROM librospe_db.clientes)= (SELECT COUNT(*) FROM librospe_ms_clientes.clientes);
+SELECT 'clientes   ', 'clientes', 'clientes               ', (SELECT COUNT(*) FROM librospe_db.clientes), (SELECT COUNT(*) FROM librospe_ms_clientes.clientes), (SELECT COUNT(*) FROM librospe_db.clientes)= (SELECT COUNT(*) FROM librospe_ms_clientes.clientes)
+UNION ALL
+SELECT 'cajas      ', 'cajas', 'cajas                  ', (SELECT COUNT(*) FROM librospe_db.cajas), (SELECT COUNT(*) FROM librospe_ms_ventas.cajas), (SELECT COUNT(*) FROM librospe_db.cajas)= (SELECT COUNT(*) FROM librospe_ms_ventas.cajas)
+UNION ALL
+SELECT 'cupones    ', 'cupones', 'cupones                ', (SELECT COUNT(*) FROM librospe_db.cupones), (SELECT COUNT(*) FROM librospe_ms_ventas.cupones), (SELECT COUNT(*) FROM librospe_db.cupones)= (SELECT COUNT(*) FROM librospe_ms_ventas.cupones)
+UNION ALL
+SELECT 'det_peds   ', 'detalle_pedidos', 'detalle_pedidos        ', (SELECT COUNT(*) FROM librospe_db.detalle_pedidos), (SELECT COUNT(*) FROM librospe_ms_ventas.detalle_pedidos), (SELECT COUNT(*) FROM librospe_db.detalle_pedidos)= (SELECT COUNT(*) FROM librospe_ms_ventas.detalle_pedidos)
+UNION ALL
+SELECT 'permisos   ', 'permisos', 'permisos               ', (SELECT COUNT(*) FROM librospe_db.permisos), (SELECT COUNT(*) FROM librospe_ms_usuarios.permisos), (SELECT COUNT(*) FROM librospe_db.permisos)= (SELECT COUNT(*) FROM librospe_ms_usuarios.permisos)
+UNION ALL
+SELECT 'rol_perm   ', 'rol_permisos', 'rol_permisos           ', (SELECT COUNT(*) FROM librospe_db.rol_permisos), (SELECT COUNT(*) FROM librospe_ms_usuarios.rol_permisos), (SELECT COUNT(*) FROM librospe_db.rol_permisos)= (SELECT COUNT(*) FROM librospe_ms_usuarios.rol_permisos)
+UNION ALL
+SELECT 'auditoria  ', 'auditoria', 'auditoria              ', (SELECT COUNT(*) FROM librospe_db.auditoria), (SELECT COUNT(*) FROM librospe_ms_usuarios.auditoria), (SELECT COUNT(*) FROM librospe_db.auditoria)= (SELECT COUNT(*) FROM librospe_ms_usuarios.auditoria)
+UNION ALL
+SELECT 'intentos   ', 'intentos_login', 'intentos_login         ', (SELECT COUNT(*) FROM librospe_db.intentos_login), (SELECT COUNT(*) FROM librospe_ms_usuarios.intentos_login), (SELECT COUNT(*) FROM librospe_db.intentos_login)= (SELECT COUNT(*) FROM librospe_ms_usuarios.intentos_login)
+UNION ALL
+SELECT 'bloqueos   ', 'bloqueos', 'bloqueos               ', (SELECT COUNT(*) FROM librospe_db.bloqueos), (SELECT COUNT(*) FROM librospe_ms_usuarios.bloqueos), (SELECT COUNT(*) FROM librospe_db.bloqueos)= (SELECT COUNT(*) FROM librospe_ms_usuarios.bloqueos)
+UNION ALL
+SELECT 'ruc_emp    ', 'ruc_empresas', 'ruc_empresas            ', (SELECT COUNT(*) FROM librospe_db.ruc_empresas), (SELECT COUNT(*) FROM librospe_ms_clientes.ruc_empresas), (SELECT COUNT(*) FROM librospe_db.ruc_empresas)= (SELECT COUNT(*) FROM librospe_ms_clientes.ruc_empresas)
+UNION ALL
+SELECT 'dptos      ', 'departamentos', 'departamentos          ', (SELECT COUNT(*) FROM librospe_db.departamentos), (SELECT COUNT(*) FROM librospe_ms_clientes.departamentos), (SELECT COUNT(*) FROM librospe_db.departamentos)= (SELECT COUNT(*) FROM librospe_ms_clientes.departamentos)
+UNION ALL
+SELECT 'prov       ', 'provincias', 'provincias             ', (SELECT COUNT(*) FROM librospe_db.provincias), (SELECT COUNT(*) FROM librospe_ms_clientes.provincias), (SELECT COUNT(*) FROM librospe_db.provincias)= (SELECT COUNT(*) FROM librospe_ms_clientes.provincias)
+UNION ALL
+SELECT 'distritos  ', 'distritos', 'distritos              ', (SELECT COUNT(*) FROM librospe_db.distritos), (SELECT COUNT(*) FROM librospe_ms_clientes.distritos), (SELECT COUNT(*) FROM librospe_db.distritos)= (SELECT COUNT(*) FROM librospe_ms_clientes.distritos);
 
 -- 3) Prueba por PK: el mismo pedido existe en la principal y en ventas
 SELECT '3) MISMO PEDIDO id=1 en ambas BDs:' AS prueba;
