@@ -1671,6 +1671,13 @@ def login_cliente():
             return render_template("login_cliente.html", **template_data)
         
         # ============================================
+        # VERIFICAR ESTADO ACTIVO (admin desactivó)
+        # ============================================
+        if getattr(cliente, "estado", 1) == 0 or str(getattr(cliente, "estado", "1")) == "0":
+            flash("❌ Cuenta desactivada por el administrador. Contacta soporte.", "danger")
+            return render_template("login_cliente.html", **template_data)
+
+        # ============================================
         # VERIFICAR CONTRASEÑA
         # ============================================
         if bcrypt.check_password_hash(cliente.clave, clave):
