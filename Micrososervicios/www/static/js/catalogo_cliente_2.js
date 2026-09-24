@@ -116,18 +116,19 @@ function renderPaginacion(total, actual, totalPaginas) {
     var cont = document.getElementById('paginacion');
     if (!cont) return;
     if (totalPaginas <= 1) { cont.innerHTML = ''; return; }
-    var html = '<nav aria-label="Paginación catálogo"><ul class="pagination justify-content-center mb-0 flex-wrap gap-1">';
-    // Anterior
-    html += '<li class="page-item ' + (actual === 1 ? 'disabled' : '') + '"><a class="page-link rounded-pill" href="#" onclick="cambiarPagina(' + (actual - 1) + '); return false;"><i class="fas fa-chevron-left"></i></a></li>';
+    // Dots a la izquierda, flechas a la derecha como en la imagen
+    var dots = '';
     for (var p = 1; p <= totalPaginas; p++) {
-        if (p === 1 || p === totalPaginas || (p >= actual - 1 && p <= actual + 1)) {
-            html += '<li class="page-item ' + (p === actual ? 'active' : '') + '"><a class="page-link rounded-pill" href="#" onclick="cambiarPagina(' + p + '); return false;">' + p + '</a></li>';
-        } else if (p === actual - 2 || p === actual + 2) {
-            html += '<li class="page-item disabled"><span class="page-link border-0 bg-transparent">…</span></li>';
-        }
+        var active = p === actual ? 'background:#0d6efd; width:12px; height:12px;' : 'background:#cbd5e1; width:8px; height:8px;';
+        dots += '<button onclick="cambiarPagina(' + p + '); return false;" style="' + active + ' border:none; border-radius:50%; display:inline-block; margin:0 4px; cursor:pointer; vertical-align:middle;" aria-label="Página ' + p + '"></button>';
     }
-    html += '<li class="page-item ' + (actual === totalPaginas ? 'disabled' : '') + '"><a class="page-link rounded-pill" href="#" onclick="cambiarPagina(' + (actual + 1) + '); return false;"><i class="fas fa-chevron-right"></i></a></li>';
-    html += '</ul><small class="text-muted d-block text-center mt-2">Página ' + actual + ' de ' + totalPaginas + ' — ' + total + ' productos</small></nav>';
+    var html = '<div class="d-flex justify-content-between align-items-center mt-4 flex-wrap gap-2">';
+    html += '<div>' + dots + '</div>';
+    html += '<div class="d-flex gap-2">';
+    html += '<button class="btn btn-outline-primary" style="width:42px; height:42px; border:1.5px solid #0d6efd; border-radius:6px; background:#fff; color:#0d6efd;" ' + (actual === 1 ? 'disabled' : '') + ' onclick="cambiarPagina(' + (actual - 1) + '); return false;"><i class="fas fa-arrow-left"></i></button>';
+    html += '<button class="btn btn-outline-primary" style="width:42px; height:42px; border:1.5px solid #0d6efd; border-radius:6px; background:#fff; color:#0d6efd;" ' + (actual === totalPaginas ? 'disabled' : '') + ' onclick="cambiarPagina(' + (actual + 1) + '); return false;"><i class="fas fa-arrow-right"></i></button>';
+    html += '</div></div>';
+    html += '<small class="text-muted d-block text-center mt-2">Página ' + actual + ' de ' + totalPaginas + ' — ' + total + ' productos</small>';
     cont.innerHTML = html;
 }
 
