@@ -393,7 +393,7 @@ def _obtener_cliente_por_correo(email):
             engine = db.engines.get("clientes") if hasattr(db, "engines") else None
         if engine is not None:
             row = db.session.execute(
-                text("SELECT id, correo, clave, nombres, apellidos, estado FROM clientes WHERE correo=:c"),
+                text("SELECT id, correo, clave, nombres, apellidos, estado, telefono, direccion, dni, ce, ruc, departamento, provincia, distrito FROM clientes WHERE correo=:c"),
                 {"c": email}, bind_arguments={"bind": engine}
             ).mappings().first()
             if row:
@@ -402,6 +402,9 @@ def _obtener_cliente_por_correo(email):
                 c = _Cli()
                 c.id = row["id"]; c.correo = row["correo"]; c.clave = row["clave"]
                 c.nombres = row["nombres"]; c.apellidos = row["apellidos"]; c.estado = row["estado"]
+                c.telefono = row["telefono"]; c.direccion = row["direccion"]; c.dni = row["dni"]
+                c.ce = row["ce"]; c.ruc = row["ruc"]; c.departamento = row["departamento"]
+                c.provincia = row["provincia"]; c.distrito = row["distrito"]
                 c._is_ms = True
                 return c
     except Exception:
