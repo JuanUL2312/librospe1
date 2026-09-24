@@ -113,7 +113,10 @@ app.config["SQLALCHEMY_BINDS"] = {
 SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", _ms_config.get("service_token", "librospe-interno-dev"))
 app.config["SERVICE_TOKEN"] = SERVICE_TOKEN
 app.config["MS_INVENTARIO_URL"] = os.environ.get(
-    "MS_INVENTARIO_URL", _ms_config.get("inventario_url", "http://127.0.0.1:8000"))
+    "MS_INVENTARIO_URL", _ms_config.get("inventario_url", "http://127.0.0.1:8001"))
+app.config["MS_VENTAS_URL"] = os.environ.get("MS_VENTAS_URL", _ms_config.get("ventas_url", "http://127.0.0.1:8002"))
+app.config["MS_USUARIOS_URL"] = os.environ.get("MS_USUARIOS_URL", _ms_config.get("usuarios_url", "http://127.0.0.1:8003"))
+app.config["MS_CLIENTES_URL"] = os.environ.get("MS_CLIENTES_URL", _ms_config.get("clientes_url", "http://127.0.0.1:8004"))
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "connect_args": {"ssl": {"ssl_mode": "REQUIRED"}},
@@ -3976,10 +3979,6 @@ def logout_cliente():
 def registro_cliente():
     if request.method == "POST":
         try:
-            existe = Cliente.query.filter_by(correo=request.form["email"]).first()
-            if existe:
-                flash("❌ El correo ya está registrado", "danger")
-                return redirect(url_for("registro_cliente"))
             def _nulo(valor):
                 """Convierte cadenas vacías en None (NULL) para columnas únicas/opcionales."""
                 return valor.strip() if valor and valor.strip() else None
@@ -3996,28 +3995,89 @@ def registro_cliente():
 
             tipo_documento = request.form.get("tipo_documento", "DNI")
             numero_documento = _nulo(request.form.get("numero_documento"))
-            dni_registro = numero_documento if tipo_documento == "DNI" else None
-            ce_registro = numero_documento if tipo_documento == "CE" else None
 
-            cliente = Cliente(
-                dni=dni_registro,
-                ce=ce_registro,
-                nombres=request.form["nombres"].strip(),
-                apellidos=request.form["apellidos"].strip(),
-                correo=request.form["email"].strip(),
-                telefono=_nulo(request.form.get("telefono")),
-                direccion=_nulo(request.form.get("direccion")),
-                departamento=ubigeo["departamento"],
-                provincia=ubigeo["provincia"],
-                distrito=ubigeo["distrito"],
-                clave=bcrypt.generate_password_hash(request.form["clave"]).decode("utf-8"),
-            )
-            db.session.add(cliente)
-            db.session.commit()
-            flash("✅ Registro exitoso", "success")
-            return redirect(url_for("login_cliente"))
+            # Delegación al microservicio dueño de datos (librospe_ms_clientes)
+            # Gateway NO escribe directo a librospe_db; el microservicio es la fuente de verdad.
+            payload = {
+                "email": request.form["email"].strip(),
+                "nombres": request.form["nombres"].strip(),
+                "apellidos": request.form["apellidos"].strip(),
+                "clave": request.form["clave"],
+                "telefono": _nulo(request.form.get("telefono")),
+                "direccion": _nulo(request.form.get("direccion")),
+                "departamento": ubigeo["departamento"],
+                "provincia": ubigeo["provincia"],
+                "distrito": ubigeo["distrito"],
+                "tipo_documento": tipo_documento,
+                "numero_documento": numero_documento,
+            }
+            data = json.dumps(payload).encode("utf-8")
+            url = app.config["MS_CLIENTES_URL"].rstrip("/") + "/"
+            req = Request(url, data=data, headers={
+                "Content-Type": "application/json",
+                "X-Service-Token": app.config["SERVICE_TOKEN"],
+            }, method="POST")
+            try:
+                with urlopen(req, timeout=10) as resp:
+                    body = resp.read().decode("utf-8")
+                    # 201 creado
+                    flash("✅ Registro exitoso", "success")
+                    return redirect(url_for("login_cliente"))
+            except HTTPError as he:
+                err_body = he.read().decode("utf-8", errors="replace")
+                try:
+                    err_json = json.loads(err_body)
+                    msg = err_json.get("error", err_body)
+                except Exception:
+                    msg = err_body or str(he)
+                if he.code == 409:
+                    flash(f"❌ {msg}", "danger")
+                    return redirect(url_for("registro_cliente"))
+                flash(f"❌ Error microservicio clientes ({he.code}): {msg}", "danger")
+                return redirect(url_for("registro_cliente"))
+            except URLError as ue:
+                # Fallback producción AlwaysData (gateway único sin 4 procesos): escribe directo al bind clientes
+                # No vuelve a librospe_db; escribe a librospe_ms_clientes (dueño de datos)
+                try:
+                    engine_clientes = None
+                    try:
+                        engine_clientes = db.get_engine(bind="clientes")
+                    except Exception:
+                        # Flask-SQLAlchemy 3.x: db.engines dict
+                        engine_clientes = db.engines.get("clientes") if hasattr(db, "engines") else None
+                    if engine_clientes is None:
+                        raise RuntimeError("Bind clientes no disponible")
+                    # Verifica duplicado en la BD del microservicio (no en librospe_db)
+                    existe_ms = db.session.execute(
+                        text("SELECT id FROM clientes WHERE correo=:c"),
+                        {"c": payload["email"]},
+                        bind_arguments={"bind": engine_clientes}
+                    ).scalar()
+                    if existe_ms:
+                        flash("❌ El correo ya está registrado (microservicio)", "danger")
+                        return redirect(url_for("registro_cliente"))
+                    hashed = bcrypt.generate_password_hash(payload["clave"]).decode("utf-8")
+                    dni_f = payload["numero_documento"] if payload["tipo_documento"] == "DNI" else None
+                    ce_f = payload["numero_documento"] if payload["tipo_documento"] == "CE" else None
+                    db.session.execute(text("""
+                        INSERT INTO clientes (dni, ce, nombres, apellidos, correo, telefono, direccion,
+                                              departamento, provincia, distrito, clave, estado)
+                        VALUES (:dni, :ce, :nombres, :apellidos, :correo, :telefono, :direccion,
+                                :departamento, :provincia, :distrito, :clave, 1)
+                    """), {
+                        "dni": dni_f, "ce": ce_f, "nombres": payload["nombres"], "apellidos": payload["apellidos"],
+                        "correo": payload["email"], "telefono": payload["telefono"], "direccion": payload["direccion"],
+                        "departamento": payload["departamento"], "provincia": payload["provincia"],
+                        "distrito": payload["distrito"], "clave": hashed
+                    }, bind_arguments={"bind": engine_clientes})
+                    db.session.commit()
+                    flash("✅ Registro exitoso (fallback directo a microservicio DB)", "success")
+                    return redirect(url_for("login_cliente"))
+                except Exception as e2:
+                    db.session.rollback()
+                    flash(f"❌ Microservicio clientes no disponible ({ue.reason}) y fallback falló: {e2}", "danger")
+                    return redirect(url_for("registro_cliente"))
         except Exception as e:
-            db.session.rollback()
             flash(f"❌ Error: {str(e)}", "danger")
     return render_template("registro_cliente.html")
 
