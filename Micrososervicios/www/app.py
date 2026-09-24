@@ -4054,7 +4054,7 @@ def registro_cliente():
                         bind_arguments={"bind": engine_clientes}
                     ).scalar()
                     if existe_ms:
-                        flash("❌ El correo ya está registrado (microservicio)", "danger")
+                        flash("❌ El correo ya está registrado", "danger")
                         return redirect(url_for("registro_cliente"))
                     hashed = bcrypt.generate_password_hash(payload["clave"]).decode("utf-8")
                     dni_f = payload["numero_documento"] if payload["tipo_documento"] == "DNI" else None
@@ -4071,11 +4071,11 @@ def registro_cliente():
                         "distrito": payload["distrito"], "clave": hashed
                     }, bind_arguments={"bind": engine_clientes})
                     db.session.commit()
-                    flash("✅ Registro exitoso (fallback directo a microservicio DB)", "success")
+                    flash("✅ Registro exitoso", "success")
                     return redirect(url_for("login_cliente"))
                 except Exception as e2:
                     db.session.rollback()
-                    flash(f"❌ Microservicio clientes no disponible ({ue.reason}) y fallback falló: {e2}", "danger")
+                    flash(f"❌ Error al registrar. Intenta nuevamente.", "danger")
                     return redirect(url_for("registro_cliente"))
         except Exception as e:
             flash(f"❌ Error: {str(e)}", "danger")
