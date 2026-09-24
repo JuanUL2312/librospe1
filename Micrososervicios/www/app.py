@@ -4337,7 +4337,10 @@ def cliente_cambiar_contrasena():
             flash("❌ La contraseña debe tener al menos 6 caracteres", "danger")
             return redirect(url_for("cliente_cambiar_contrasena"))
 
-        cliente = Cliente.query.get(session["cliente_id"])
+        cliente = _obtener_cliente_por_id(session["cliente_id"])
+        if not cliente:
+            flash("❌ Cliente no encontrado", "danger")
+            return redirect(url_for("cliente_cambiar_contrasena"))
 
         if not bcrypt.check_password_hash(cliente.clave, contrasena_actual):
             flash("❌ Contraseña actual incorrecta", "danger")
@@ -4345,7 +4348,16 @@ def cliente_cambiar_contrasena():
 
         try:
             nueva_clave_hash = bcrypt.generate_password_hash(nueva_contrasena).decode("utf-8")
-            cliente.clave = nueva_clave_hash
+            if getattr(cliente, "_is_ms", False):
+                try:
+                    engine = db.get_engine(bind="clientes")
+                except Exception:
+                    engine = db.engines.get("clientes") if hasattr(db, "engines") else None
+                db.session.execute(text("UPDATE clientes SET clave=:clave WHERE id=:id"),
+                    {"clave": nueva_clave_hash, "id": cliente.id}, bind_arguments={"bind": engine})
+            else:
+                orm = Cliente.query.get(cliente.id)
+                orm.clave = nueva_clave_hash
             db.session.commit()
             flash("✅ Contraseña actualizada", "success")
             return redirect("/catalogo")
