@@ -103,5 +103,65 @@ def validar(pid, cant):
                         "detalle": str(e)}), 503
 
 
+def _verifica_token():
+    return hmac.compare_digest(request.headers.get("X-Service-Token", ""), SERVICE_TOKEN)
+
+@app.route("/pedidos", methods=["POST"])
+def crear_pedido():
+    if not _verifica_token():
+        return jsonify({"error": "Token invalido"}), 401
+    data = request.get_json(silent=True) or {}
+    try:
+        if not data.get("cliente_id"):
+            return jsonify({"error": "cliente_id requerido"}), 400
+        res = db.session.execute(text("""
+            INSERT INTO comercial_pedidos (cliente_id, fecha_pedido, estado, total, direccion_entrega, tipo_entrega, nota)
+            VALUES (:cliente_id, NOW(), :estado, :total, :direccion_entrega, :tipo_entrega, :nota)
+        """), {
+            "cliente_id": data["cliente_id"], "estado": data.get("estado","pendiente"),
+            "total": data.get("total",0), "direccion_entrega": data.get("direccion_entrega"),
+            "tipo_entrega": data.get("tipo_entrega"), "nota": data.get("nota")
+        })
+        db.session.commit()
+        nid = db.session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        # Detalles si vienen
+        for det in data.get("detalles", []):
+            db.session.execute(text("""
+                INSERT INTO comercial_detalle_pedido (pedido_id, producto_id, cantidad, precio_unitario, subtotal)
+                VALUES (:pedido_id, :producto_id, :cantidad, :precio_unitario, :subtotal)
+            """), {
+                "pedido_id": nid, "producto_id": det["producto_id"], "cantidad": det["cantidad"],
+                "precio_unitario": det.get("precio_unitario",0), "subtotal": det.get("subtotal",0)
+            })
+        db.session.commit()
+        return jsonify({"ok": True, "id": nid}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/ventas", methods=["POST"])
+def crear_venta():
+    if not _verifica_token():
+        return jsonify({"error": "Token invalido"}), 401
+    data = request.get_json(silent=True) or {}
+    try:
+        if not data.get("producto_id") or not data.get("vendedor_id"):
+            return jsonify({"error": "producto_id y vendedor_id requeridos"}), 400
+        res = db.session.execute(text("""
+            INSERT INTO comercial_ventas (producto_id, fecha_venta, cantidad, vendedor_id, cliente_id, tipo_comprobante, numero_comprobante)
+            VALUES (:producto_id, NOW(), :cantidad, :vendedor_id, :cliente_id, :tipo_comprobante, :numero_comprobante)
+        """), {
+            "producto_id": data["producto_id"], "cantidad": data.get("cantidad",1),
+            "vendedor_id": data["vendedor_id"], "cliente_id": data.get("cliente_id"),
+            "tipo_comprobante": data.get("tipo_comprobante","boleta"), "numero_comprobante": data.get("numero_comprobante")
+        })
+        db.session.commit()
+        nid = db.session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        return jsonify({"ok": True, "id": nid}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8002)

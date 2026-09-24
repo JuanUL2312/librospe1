@@ -1927,8 +1927,26 @@ def nuevo_usuario():
             )
             db.session.add(nuevo)
             db.session.commit()
+            # Dual-write a microservicio usuarios (dueño) - asegura dato en librospe_ms_usuarios
+            try:
+                try:
+                    eng_u = db.get_engine(bind="usuarios")
+                except Exception:
+                    eng_u = db.engines.get("usuarios") if hasattr(db, "engines") else None
+                if eng_u is not None:
+                    db.session.execute(text("""
+                        INSERT INTO usuarios_sistema (id, correo, nombres, apellidos, clave, estado, rol_id, rol, documento)
+                        VALUES (:id, :correo, :nombres, :apellidos, :clave, 1, :rol_id, :rol, :documento)
+                        ON DUPLICATE KEY UPDATE nombres=VALUES(nombres), apellidos=VALUES(apellidos), correo=VALUES(correo)
+                    """), {
+                        "id": nuevo.id, "correo": nuevo.correo, "nombres": nuevo.nombres, "apellidos": nuevo.apellidos,
+                        "clave": clave_hash, "rol_id": nuevo.rol_id, "rol": nuevo.rol, "documento": nuevo.documento
+                    }, bind_arguments={"bind": eng_u})
+                    db.session.commit()
+            except Exception as e:
+                print(f"WARN dual-write usuarios: {e}")
             registrar_auditoria("CREAR", "usuarios_sistema", f"Se creó el usuario {request.form['nombres']} {request.form['apellidos']} (rol: {request.form['rol']})")
-            flash("✅ Usuario registrado. Contraseña: 123456 (debe cambiarla al primer ingreso)", "success")
+            flash("✅ Usuario registrado correctamente", "success")
             return redirect(url_for("proveedores"))
         except Exception:
             db.session.rollback()
