@@ -1,0 +1,31 @@
+# Raiz - sensibles (no subir a GitHub)
+.env
+
+# Entornos virtuales (ya movido a Micrososervicios/.venv-live)
+.venv-live/
+.venv/
+venv/
+env/
+
+# Python cache/logs (global, afecta a todos los subproyectos)
+__pycache__/
+*.py[cod]
+*.pyc
+*$py.class
+*.log
+*.sqlite3
+instance/
+.coverage
+.pytest_cache/
+.mypy_cache/
+
+# Duplicados de raiz ya eliminados (solo raiz, no afecta Micrososervicios/www ni Monilitico/www)
+/www/
+/static/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
