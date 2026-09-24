@@ -1892,6 +1892,19 @@ def nuevo_usuario():
                 flash("❌ Rol no válido", "danger")
                 return redirect(url_for("nuevo_usuario"))
 
+            doc_val = (request.form.get("documento") or "").strip()
+            if not doc_val:
+                flash("❌ El documento (DNI/CE) es obligatorio", "danger")
+                return redirect(url_for("nuevo_usuario"))
+            # Validación: DNI 8 dígitos, CE 9 caracteres
+            if doc_val.isdigit():
+                if len(doc_val) != 8:
+                    flash("❌ DNI debe tener exactamente 8 dígitos", "danger")
+                    return redirect(url_for("nuevo_usuario"))
+            else:
+                if len(doc_val) != 9:
+                    flash("❌ CE debe tener 9 caracteres", "danger")
+                    return redirect(url_for("nuevo_usuario"))
             clave_hash = bcrypt.generate_password_hash("123456").decode("utf-8")
             nuevo = UsuarioSistema(
                 correo=request.form["correo"],
@@ -1899,7 +1912,7 @@ def nuevo_usuario():
                 apellidos=request.form["apellidos"],
                 rol=request.form["rol"],
                 rol_id=rol_registro[0],
-                documento=(request.form.get("documento") or "").strip() or None,
+                documento=doc_val,
                 debe_cambiar_clave=1,
                 clave=clave_hash,
             )
