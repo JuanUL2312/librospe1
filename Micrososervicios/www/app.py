@@ -3901,7 +3901,7 @@ def venta_rapida():
         numero_pos = f"POS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         for item in items:
             producto = Producto.query.get(item["id"])
-            total = producto.precio * item["cantidad"]
+            total = float(producto.precio or 0) * int(item["cantidad"])
             nueva_venta = Venta(
                 producto_id=item["id"],
                 cantidad=item["cantidad"],
@@ -3911,7 +3911,7 @@ def venta_rapida():
                 numero_comprobante=numero_pos,
                 metodo_pago=metodo_pago,
                 monto_recibido=monto_recibido,
-                vuelto=round(monto_recibido - total, 2) if monto_recibido is not None else None,
+                vuelto=round(float(monto_recibido) - float(total), 2) if monto_recibido is not None else None,
                 cliente_nombres=data.get("cliente_nombre", ""),
                 cliente_apellidos=data.get("cliente_apellido", ""),
                 cliente_documento=data.get("cliente_dni", ""),
@@ -3931,8 +3931,8 @@ def venta_rapida():
         return jsonify({
             "success": True,
             "venta_id": venta_ids[0],
-            "total": total_general,
-            "vuelto": round(monto_recibido - total_general, 2) if monto_recibido is not None else None,
+            "total": float(total_general),
+            "vuelto": round(float(monto_recibido) - float(total_general), 2) if monto_recibido is not None else None,
             "metodo_pago": metodo_pago,
             "numero_comprobante": numero_pos,
         })
