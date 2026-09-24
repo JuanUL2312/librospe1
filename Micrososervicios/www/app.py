@@ -5585,35 +5585,38 @@ def cliente_detalle_pedido(pedido_id):
 @app.route("/microservicios/dashboard")
 @login_required
 def microservicios_dashboard():
-    """Dashboard para monitorear microservicios"""
+    """Dashboard para monitorear microservicios - producción real: lee directo de las BDs dueñas (binds),
+    no de los espejos librospe_db.comercial_*/inventario_* que serán eliminados."""
     if session.get("rol") != "administrador":
         flash("❌ Solo administradores pueden ver este panel", "danger")
         return redirect(url_for("dashboard"))
 
-    total_pedidos = db.session.execute(text(
-        "SELECT COUNT(*) FROM comercial_pedidos"
-    )).scalar() or 0
-    
-    pedidos_pendientes = db.session.execute(text(
-        "SELECT COUNT(*) FROM comercial_pedidos WHERE estado = 'pendiente'"
-    )).scalar() or 0
-    
-    pedidos_confirmados = db.session.execute(text(
-        "SELECT COUNT(*) FROM comercial_pedidos WHERE estado = 'confirmado'"
-    )).scalar() or 0
-    
-  
-    total_productos = db.session.execute(text(
-        "SELECT COUNT(*) FROM inventario_productos"
-    )).scalar() or 0
-    
-    productos_bajo_stock = db.session.execute(text(
-        "SELECT COUNT(*) FROM inventario_productos WHERE cantidad < 10"
-    )).scalar() or 0
-    
-    productos_agotados = db.session.execute(text(
-        "SELECT COUNT(*) FROM inventario_productos WHERE cantidad = 0"
-    )).scalar() or 0
+    # Motores de microservicios (dueños de datos) - no librospe_db
+    try:
+        engine_ventas = db.get_engine(bind="ventas")
+    except Exception:
+        engine_ventas = db.engines.get("ventas") if hasattr(db, "engines") else None
+    try:
+        engine_inventario = db.get_engine(bind="inventario")
+    except Exception:
+        engine_inventario = db.engines.get("inventario") if hasattr(db, "engines") else None
+
+    def _count(sql, engine):
+        try:
+            return db.session.execute(text(sql), bind_arguments={"bind": engine}).scalar() or 0
+        except Exception:
+            # Fallback temporal mientras se eliminan espejos: intenta librospe_db
+            try:
+                return db.session.execute(text(sql)).scalar() or 0
+            except Exception:
+                return 0
+
+    total_pedidos = _count("SELECT COUNT(*) FROM comercial_pedidos", engine_ventas)
+    pedidos_pendientes = _count("SELECT COUNT(*) FROM comercial_pedidos WHERE estado = 'pendiente'", engine_ventas)
+    pedidos_confirmados = _count("SELECT COUNT(*) FROM comercial_pedidos WHERE estado = 'confirmado'", engine_ventas)
+    total_productos = _count("SELECT COUNT(*) FROM inventario_productos", engine_inventario)
+    productos_bajo_stock = _count("SELECT COUNT(*) FROM inventario_productos WHERE cantidad < 10", engine_inventario)
+    productos_agotados = _count("SELECT COUNT(*) FROM inventario_productos WHERE cantidad = 0", engine_inventario)
     
     return render_template("microservicios_dashboard.html",
                           total_pedidos=total_pedidos,
