@@ -2281,6 +2281,27 @@ def guardar_producto():
                 nuevo.imagen = filename
         
         db.session.commit()
+        # Dual-write a microservicio inventario (dueño) - asegura dato en librospe_ms_inventario
+        try:
+            try:
+                eng_inv = db.get_engine(bind="inventario")
+            except Exception:
+                eng_inv = db.engines.get("inventario") if hasattr(db, "engines") else None
+            if eng_inv is not None:
+                db.session.execute(text("""
+                    INSERT INTO inventario_productos (id, nombre, descripcion, cantidad, proveedor_id, precio, imagen, id_categoria, precio_oferta, destacado, codigo_barras, estado, stock_minimo, stock_maximo, costo)
+                    VALUES (:id, :nombre, :descripcion, :cantidad, :proveedor_id, :precio, :imagen, :id_categoria, :precio_oferta, :destacado, :codigo_barras, 1, :stock_minimo, :stock_maximo, :costo)
+                    ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), descripcion=VALUES(descripcion), cantidad=VALUES(cantidad), precio=VALUES(precio)
+                """), {
+                    "id": nuevo.id, "nombre": nuevo.nombre, "descripcion": nuevo.descripcion, "cantidad": nuevo.cantidad,
+                    "proveedor_id": nuevo.proveedor_id, "precio": nuevo.precio, "imagen": nuevo.imagen, "id_categoria": nuevo.id_categoria,
+                    "precio_oferta": nuevo.precio_oferta, "destacado": nuevo.destacado, "codigo_barras": nuevo.codigo_barras,
+                    "stock_minimo": nuevo.stock_minimo, "stock_maximo": nuevo.stock_maximo, "costo": nuevo.costo
+                }, bind_arguments={"bind": eng_inv})
+                db.session.commit()
+        except Exception as e:
+            print(f"WARN dual-write inventario_productos: {e}")
+
         registrar_auditoria("CREAR", "productos", f"Se creó el producto: {nuevo.nombre}")
         flash("✅ Producto creado exitosamente", "success")
         return redirect(url_for("productos"))
