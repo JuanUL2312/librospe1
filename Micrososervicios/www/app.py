@@ -382,6 +382,36 @@ class RucEmpresa(db.Model):
     direccion = db.Column(db.Text, nullable=True)
 
 
+def _obtener_cliente_por_correo(email):
+    """Producción real: busca cliente en microservicio dueño (librospe_ms_clientes) via bind.
+    Fallback a librospe_db para compatibilidad con clientes antiguos antes de la migración."""
+    # Intenta microservicio primero
+    try:
+        try:
+            engine = db.get_engine(bind="clientes")
+        except Exception:
+            engine = db.engines.get("clientes") if hasattr(db, "engines") else None
+        if engine is not None:
+            row = db.session.execute(
+                text("SELECT id, correo, clave, nombres, apellidos, estado FROM clientes WHERE correo=:c"),
+                {"c": email}, bind_arguments={"bind": engine}
+            ).mappings().first()
+            if row:
+                # Objeto simple con mismos atributos que ORM Cliente para login
+                class _Cli: pass
+                c = _Cli()
+                c.id = row["id"]; c.correo = row["correo"]; c.clave = row["clave"]
+                c.nombres = row["nombres"]; c.apellidos = row["apellidos"]; c.estado = row["estado"]
+                c._is_ms = True
+                return c
+    except Exception:
+        pass
+    obj = Cliente.query.filter_by(correo=email).first()
+    if obj is not None:
+        try: obj._is_ms = False
+        except Exception: pass
+    return obj
+
 def obtener_ip_cliente():
     """Obtiene la IP real del cliente"""
     if request.headers.get('X-Forwarded-For'):
@@ -396,10 +426,10 @@ def registrar_intento_fallido(email, ip, es_cliente=False):
     """
     ahora = datetime.now()
     
-    # Verificar si el email existe
+    # Verificar si el email existe (clientes: busca en microservicio dueño primero)
     email_existe = False
     if es_cliente:
-        email_existe = Cliente.query.filter_by(correo=email).first() is not None
+        email_existe = _obtener_cliente_por_correo(email) is not None
     else:
         email_existe = UsuarioSistema.query.filter_by(correo=email).first() is not None
     
@@ -1526,7 +1556,7 @@ def login_cliente():
         # VERIFICAR BLOQUEO DE EMAIL (TEMPORAL O PERMANENTE)
         # ============================================
         if verificar_bloqueo_email(email):
-            cliente_tmp = Cliente.query.filter_by(correo=email).first()
+            cliente_tmp = _obtener_cliente_por_correo(email)
             if cliente_tmp:
                 bloqueo_permanente = db.session.execute(text("""
                     SELECT id, motivo, permanente 
@@ -1563,7 +1593,7 @@ def login_cliente():
             flash("⛔ ACCESO DENEGADO: Esta IP ha sido bloqueada. Espera 10 minutos.", "danger")
             return render_template("login_cliente.html", **template_data)
         
-        cliente = Cliente.query.filter_by(correo=email).first()
+        cliente = _obtener_cliente_por_correo(email)
         
         if not cliente:
             resultado = registrar_intento_fallido(email, ip_cliente, es_cliente=True)
