@@ -5762,7 +5762,22 @@ def admin_clientes_editar(cid):
         engine = db.get_engine(bind="clientes")
     except Exception:
         engine = db.engines.get("clientes") if hasattr(db, "engines") else None
-    data = {k: (request.form.get(k) or "").strip() or None for k in ["nombres","apellidos","correo","telefono","dni","ce"]}
+    # Soporta tanto modal nuevo (tipo_documento+numero_documento) como legacy (dni/ce)
+    tipo = (request.form.get("tipo_documento") or "").strip().upper()
+    numero = (request.form.get("numero_documento") or "").strip() or None
+    if tipo:
+        dni_val = numero if tipo == "DNI" else None
+        ce_val = numero if tipo == "CE" else None
+    else:
+        dni_val = (request.form.get("dni") or "").strip() or None
+        ce_val = (request.form.get("ce") or "").strip() or None
+    data = {
+        "nombres": (request.form.get("nombres") or "").strip() or None,
+        "apellidos": (request.form.get("apellidos") or "").strip() or None,
+        "correo": (request.form.get("correo") or "").strip() or None,
+        "telefono": (request.form.get("telefono") or "").strip() or None,
+        "dni": dni_val, "ce": ce_val
+    }
     # Verifica duplicado correo en microservicio
     if data.get("correo"):
         dup = db.session.execute(text("SELECT id FROM clientes WHERE correo=:c AND id!=:id"),

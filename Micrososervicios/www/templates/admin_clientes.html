@@ -65,8 +65,17 @@
                                             <div class="mb-2"><label class="form-label">Apellidos</label><input name="apellidos" class="form-control" value="{{ c.apellidos }}" required></div>
                                             <div class="mb-2"><label class="form-label">Correo</label><input name="correo" type="email" class="form-control" value="{{ c.correo }}" required></div>
                                             <div class="mb-2"><label class="form-label">Teléfono</label><input name="telefono" class="form-control" value="{{ c.telefono or '' }}"></div>
-                                            <div class="mb-2"><label class="form-label">DNI</label><input name="dni" class="form-control" value="{{ c.dni or '' }}" maxlength="8"></div>
-                                            <div class="mb-2"><label class="form-label">CE</label><input name="ce" class="form-control" value="{{ c.ce or '' }}" maxlength="9"></div>
+                                            <div class="mb-2">
+                                                <label class="form-label">Documento</label>
+                                                <div class="input-group">
+                                                    <select name="tipo_documento" class="form-select" style="max-width:110px;">
+                                                        <option value="DNI" {% if not c.ce %}selected{% endif %}>DNI</option>
+                                                        <option value="CE" {% if c.ce %}selected{% endif %}>CE</option>
+                                                    </select>
+                                                    <input name="numero_documento" class="form-control" value="{{ c.ce or c.dni or '' }}" placeholder="8 dígitos DNI / 9 CE" maxlength="9">
+                                                </div>
+                                                <small class="text-muted">Deja vacío si no aplica. DNI 8 dígitos, CE 9 caracteres.</small>
+                                            </div>
                                         </div>
                                         <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button><button type="submit" class="btn btn-primary">Guardar</button></div>
                                       </form>
