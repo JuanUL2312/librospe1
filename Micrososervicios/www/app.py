@@ -5098,6 +5098,24 @@ def consultar_ruc_sunat(ruc):
     return {"razon_social": razon_social, "direccion": direccion}
 
 
+@app.route("/api/admin/consultar-dni/<dni>")
+@login_required
+def api_consultar_dni_admin(dni):
+    """Para registro de usuarios sistema: consulta DNI primero en usuarios_sistema, luego ApiPeru RENIEC.
+    Tipo de documento primero -> autocompleta nombres y bloquea edición si encuentra."""
+    if session.get("rol") != "administrador":
+        return jsonify({"success": False, "error": "Solo administradores"}), 403
+    if not dni.isdigit() or len(dni) != 8:
+        return jsonify({"success": False, "error": "DNI inválido"}), 400
+    # Busca si ya existe como usuario sistema
+    existente = UsuarioSistema.query.filter_by(documento=dni).first()
+    if existente:
+        return jsonify({"success": True, "nombres": existente.nombres, "apellidos": existente.apellidos, "dni": dni, "origen": "bd"})
+    info = consultar_dni_reniec(dni)
+    if info:
+        return jsonify({"success": True, "nombres": info["nombres"], "apellidos": info["apellidos"], "dni": dni, "origen": "reniec"})
+    return jsonify({"success": False, "error": "DNI no encontrado en RENIEC"}), 404
+
 @app.route("/api/consultar-dni/<dni>")
 @login_required_cliente
 def api_consultar_dni_cliente(dni):

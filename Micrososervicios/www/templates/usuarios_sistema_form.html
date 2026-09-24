@@ -33,46 +33,16 @@
             <div class="card shadow-3xl p-3 p-sm-5 border-0">
                 <form method="POST">
 
-                    <!-- NOMBRES -->
+                    <!-- DOCUMENTO (DNI / CARNET DE EXTRANJERÍA) - PRIMERO para autocompletar nombre via ApiPeru -->
                     <div class="mb-4">
                         <label class="form-label fw-bold text-dark mb-3 fs-5">
-                            <i class="fas fa-user me-2 text-primary"></i>Nombres
-                        </label>
-                        <div class="input-group input-group-lg">
-                            <span class="input-group-text bg-transparent border-0 text-muted">
-                                <i class="fas fa-id-card"></i>
-                            </span>
-                            <input type="text" name="nombres"
-                                class="form-control form-control-lg border-0 shadow-sm ps-5" placeholder="Juan Carlos"
-                                required>
-                        </div>
-                    </div>
-
-                    <!-- APELLIDOS -->
-                    <div class="mb-4">
-                        <label class="form-label fw-bold text-dark mb-3 fs-5">
-                            <i class="fas fa-user-tag me-2 text-success"></i>Apellidos
-                        </label>
-                        <div class="input-group input-group-lg">
-                            <span class="input-group-text bg-transparent border-0 text-muted">
-                                <i class="fas fa-tags"></i>
-                            </span>
-                            <input type="text" name="apellidos"
-                                class="form-control form-control-lg border-0 shadow-sm ps-5" placeholder="Pérez García"
-                                required>
-                        </div>
-                    </div>
-
-                    <!-- DOCUMENTO (DNI / CARNET DE EXTRANJERÍA) -->
-                    <div class="mb-4">
-                        <label class="form-label fw-bold text-dark mb-3 fs-5">
-                            <i class="fas fa-id-card me-2 text-secondary"></i>Tipo de Documento
+                            <i class="fas fa-id-card me-2 text-secondary"></i>Tipo de Documento <span class="text-danger">*</span>
                         </label>
                         <div class="input-group input-group-lg mb-2">
                             <span class="input-group-text bg-transparent border-0 text-muted">
                                 <i class="fas fa-fingerprint"></i>
                             </span>
-                            <select id="tipoDocumentoUsuario" class="form-select form-control-lg border-0 shadow-sm bg-white">
+                            <select id="tipoDocumentoUsuario" class="form-select form-control-lg border-0 shadow-sm bg-white" required>
                                 <option value="DNI">DNI (8 dígitos)</option>
                                 <option value="CE">Carnet de Extranjería (9 caracteres)</option>
                             </select>
@@ -87,7 +57,40 @@
                         </div>
                         <div class="form-text mt-2" id="docUsuarioHint">
                             <i class="fas fa-info-circle me-1 text-info"></i>
-                            DNI: exactamente 8 dígitos numéricos.
+                            DNI: exactamente 8 dígitos numéricos. Se cargará el nombre automáticamente.
+                        </div>
+                        <div class="mt-2" id="docUsuarioLoading" style="display:none;"><small class="text-primary"><i class="fas fa-spinner fa-spin me-1"></i>Consultando ApiPeru...</small></div>
+                        <div class="mt-2" id="docUsuarioError" style="display:none;"><small class="text-warning"></small></div>
+                    </div>
+
+                    <!-- NOMBRES - se autocompleta y bloquea si ApiPeru encuentra datos -->
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-dark mb-3 fs-5">
+                            <i class="fas fa-user me-2 text-primary"></i>Nombres <span class="text-danger">*</span>
+                        </label>
+                        <div class="input-group input-group-lg">
+                            <span class="input-group-text bg-transparent border-0 text-muted">
+                                <i class="fas fa-id-card"></i>
+                            </span>
+                            <input type="text" name="nombres" id="nombresUsuario"
+                                class="form-control form-control-lg border-0 shadow-sm ps-5" placeholder="Juan Carlos"
+                                required readonly>
+                        </div>
+                        <small class="form-text text-muted" id="nombresHint">Se llenará automáticamente al ingresar DNI.</small>
+                    </div>
+
+                    <!-- APELLIDOS - se autocompleta y bloquea si ApiPeru encuentra datos -->
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-dark mb-3 fs-5">
+                            <i class="fas fa-user-tag me-2 text-success"></i>Apellidos <span class="text-danger">*</span>
+                        </label>
+                        <div class="input-group input-group-lg">
+                            <span class="input-group-text bg-transparent border-0 text-muted">
+                                <i class="fas fa-tags"></i>
+                            </span>
+                            <input type="text" name="apellidos" id="apellidosUsuario"
+                                class="form-control form-control-lg border-0 shadow-sm ps-5" placeholder="Pérez García"
+                                required readonly>
                         </div>
                     </div>
 
