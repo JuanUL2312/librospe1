@@ -130,7 +130,7 @@
                     </div>
 
                     <!-- CONTRASEÑA -->
-                    <div class="mb-5">
+                    <div class="mb-4">
                         <label class="form-label fw-bold text-dark mb-3 fs-5">
                             <i class="fas fa-lock me-2 text-danger"></i>Contraseña Segura
                         </label>
@@ -140,7 +140,7 @@
                             </span>
                             <input type="password" name="clave" id="claveInput"
                                 class="form-control form-control-lg border-0 shadow-sm ps-5"
-                                placeholder="Mínimo 8 caracteres" required>
+                                placeholder="Mínimo 8 caracteres" required minlength="8">
                             <button class="btn btn-outline-secondary border-0" type="button"
                                 onclick="togglePassword('claveInput')">
                                 <i class="fas fa-eye" id="toggleIcon"></i>
@@ -150,6 +150,26 @@
                             <i class="fas fa-info-circle me-1 text-info"></i>
                             La contraseña debe tener al menos 8 caracteres
                         </div>
+                    </div>
+
+                    <!-- CONFIRMAR CONTRASEÑA -->
+                    <div class="mb-5">
+                        <label class="form-label fw-bold text-dark mb-3 fs-5">
+                            <i class="fas fa-lock me-2 text-danger"></i>Confirmar Contraseña <span class="text-danger">*</span>
+                        </label>
+                        <div class="input-group input-group-lg">
+                            <span class="input-group-text bg-transparent border-0 text-muted">
+                                <i class="fas fa-key"></i>
+                            </span>
+                            <input type="password" name="confirmar_clave" id="confirmarClaveInput"
+                                class="form-control form-control-lg border-0 shadow-sm ps-5"
+                                placeholder="Repite la contraseña" required minlength="8">
+                            <button class="btn btn-outline-secondary border-0" type="button"
+                                onclick="togglePassword('confirmarClaveInput', 'toggleIcon2')">
+                                <i class="fas fa-eye" id="toggleIcon2"></i>
+                            </button>
+                        </div>
+                        <div class="form-text mt-2" id="confirmarHint" style="display:none;"></div>
                     </div>
 
                     <!-- BOTONES PREMIUM -->

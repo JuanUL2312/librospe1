@@ -1905,7 +1905,16 @@ def nuevo_usuario():
                 if len(doc_val) != 9:
                     flash("❌ CE debe tener 9 caracteres", "danger")
                     return redirect(url_for("nuevo_usuario"))
-            clave_hash = bcrypt.generate_password_hash("123456").decode("utf-8")
+            clave = (request.form.get("clave") or "").strip()
+            confirmar = (request.form.get("confirmar_clave") or "").strip()
+            if not clave or len(clave) < 8:
+                flash("❌ La contraseña debe tener al menos 8 caracteres", "danger")
+                return redirect(url_for("nuevo_usuario"))
+            if confirmar and clave != confirmar:
+                flash("❌ Las contraseñas no coinciden", "danger")
+                return redirect(url_for("nuevo_usuario"))
+            # Si no hay confirmar (compatibilidad), usa clave
+            clave_hash = bcrypt.generate_password_hash(clave).decode("utf-8")
             nuevo = UsuarioSistema(
                 correo=request.form["correo"],
                 nombres=request.form["nombres"],
@@ -1913,7 +1922,7 @@ def nuevo_usuario():
                 rol=request.form["rol"],
                 rol_id=rol_registro[0],
                 documento=doc_val,
-                debe_cambiar_clave=1,
+                debe_cambiar_clave=0,
                 clave=clave_hash,
             )
             db.session.add(nuevo)
@@ -5154,6 +5163,29 @@ def api_consultar_dni_cliente(dni):
         })
     
     return jsonify({"success": False, "error": "DNI no encontrado"}), 404
+
+@app.route("/api/public/consultar-dni/<dni>")
+def api_consultar_dni_public(dni):
+    """Público para registro cliente: consulta reniec sin login."""
+    if not dni.isdigit() or len(dni) != 8:
+        return jsonify({"success": False, "error": "DNI inválido"}), 400
+    # Busca en clientes existentes (para evitar duplicado, informativo)
+    existente = None
+    try:
+        try:
+            eng = db.get_engine(bind="clientes")
+        except Exception:
+            eng = db.engines.get("clientes") if hasattr(db, "engines") else None
+        if eng is not None:
+            existente = db.session.execute(text("SELECT nombres, apellidos FROM clientes WHERE dni=:d"), {"d": dni}, bind_arguments={"bind": eng}).mappings().first()
+    except Exception:
+        pass
+    if existente:
+        return jsonify({"success": True, "nombres": existente["nombres"], "apellidos": existente["apellidos"], "dni": dni, "origen": "bd"})
+    info = consultar_dni_reniec(dni)
+    if info:
+        return jsonify({"success": True, "nombres": info["nombres"], "apellidos": info["apellidos"], "dni": dni, "origen": "reniec"})
+    return jsonify({"success": False, "error": "DNI no encontrado en RENIEC"}), 404
 
 @app.route("/api/consultar-ruc/<ruc>")
 @login_required_cliente

@@ -1,17 +1,21 @@
-function togglePassword(idInput) {
+function togglePassword(idInput, iconId) {
         const input = document.getElementById(idInput);
-        const icon = document.getElementById('toggleIcon');
-
-        if (!input || !icon) return;
-
+        const icon = document.getElementById(iconId || 'toggleIcon');
+        // Fallback: busca el icono hermano del input
+        let targetIcon = icon;
+        if (!targetIcon && input) {
+            const btn = input.nextElementSibling;
+            if (btn) targetIcon = btn.querySelector('i');
+        }
+        if (!input || !targetIcon) return;
         if (input.type === "password") {
             input.type = "text";
-            icon.classList.remove('fa-eye');
-            icon.classList.add('fa-eye-slash');
+            targetIcon.classList.remove('fa-eye');
+            targetIcon.classList.add('fa-eye-slash');
         } else {
             input.type = "password";
-            icon.classList.remove('fa-eye-slash');
-            icon.classList.add('fa-eye');
+            targetIcon.classList.remove('fa-eye-slash');
+            targetIcon.classList.add('fa-eye');
         }
     }
 
@@ -136,4 +140,36 @@ function togglePassword(idInput) {
         const apellidosInput = document.getElementById('apellidosUsuario');
         if (nombresInput) nombresInput.readOnly = true;
         if (apellidosInput) apellidosInput.readOnly = true;
+
+        // Validación confirmar contraseña
+        const form = document.querySelector('form');
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                const clave = document.getElementById('claveInput');
+                const confirmar = document.getElementById('confirmarClaveInput');
+                if (clave && confirmar && clave.value !== confirmar.value) {
+                    e.preventDefault();
+                    const hint = document.getElementById('confirmarHint');
+                    if (hint) {
+                        hint.style.display = 'block';
+                        hint.innerHTML = '<span class=\"text-danger\"><i class=\"fas fa-exclamation-circle me-1\"></i>Las contraseñas no coinciden</span>';
+                    }
+                    confirmar.focus();
+                    // Usa SweetAlert si está disponible
+                    if (typeof Swal !== 'undefined') {
+                        Swal.fire({ icon: 'error', title: 'Error', text: 'Las contraseñas no coinciden' });
+                    } else {
+                        alert('Las contraseñas no coinciden');
+                    }
+                }
+            });
+            // Limpia hint al escribir
+            const confirmar = document.getElementById('confirmarClaveInput');
+            if (confirmar) {
+                confirmar.addEventListener('input', function() {
+                    const hint = document.getElementById('confirmarHint');
+                    if (hint) hint.style.display = 'none';
+                });
+            }
+        }
     });

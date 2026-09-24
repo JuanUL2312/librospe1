@@ -35,31 +35,35 @@
                         {% endwith %}
                         
                         <form method="POST">
+                            <!-- Tipo de Documento primero - autocompleta Nombres via ApiPeru -->
                             <div class="row g-2 g-md-3">
-                                <div class="col-12 col-md-6">
-                                    <label class="form-label fw-bold small">Nombres *</label>
-                                    <input type="text" name="nombres" class="form-control" required>
-                                </div>
-                                <div class="col-12 col-md-6">
-                                    <label class="form-label fw-bold small">Apellidos *</label>
-                                    <input type="text" name="apellidos" class="form-control" required>
-                                </div>
-                            </div>
-                            
-                            <div class="row g-2 g-md-3 mt-2 mt-md-3">
                                 <div class="col-12 col-md-5">
-                                    <label class="form-label fw-bold small">Tipo de Documento</label>
-                                    <select name="tipo_documento" id="tipo_documento" class="form-control" onchange="cambiarTipoDocumentoRegistro()">
-                                        <option value="DNI">DNI</option>
-                                        <option value="CE">Carnet de Extranjería</option>
+                                    <label class="form-label fw-bold small">Tipo de Documento *</label>
+                                    <select name="tipo_documento" id="tipo_documento" class="form-control" onchange="cambiarTipoDocumentoRegistro()" required>
+                                        <option value="DNI">DNI (8 dígitos)</option>
+                                        <option value="CE">Carnet de Extranjería (9)</option>
                                     </select>
                                 </div>
                                 <div class="col-12 col-md-7">
-                                    <label class="form-label fw-bold small" id="numeroDocLabel">DNI (opcional)</label>
+                                    <label class="form-label fw-bold small" id="numeroDocLabel">DNI *</label>
                                     <input type="text" name="numero_documento" id="numero_documento" class="form-control"
-                                           maxlength="8" placeholder="12345678">
+                                           maxlength="8" placeholder="12345678" required>
                                 </div>
                             </div>
+                            <div id="docLoading" style="display:none;" class="small text-primary mt-1"><i class="fas fa-spinner fa-spin me-1"></i>Consultando ApiPeru...</div>
+                            <div id="docError" style="display:none;" class="small text-warning mt-1"></div>
+
+                            <div class="row g-2 g-md-3 mt-2 mt-md-3">
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label fw-bold small">Nombres *</label>
+                                    <input type="text" name="nombres" id="nombresInput" class="form-control" required readonly placeholder="Se autocompletará con DNI">
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label fw-bold small">Apellidos *</label>
+                                    <input type="text" name="apellidos" id="apellidosInput" class="form-control" required readonly placeholder="Se autocompletará con DNI">
+                                </div>
+                            </div>
+                            <small class="form-text text-muted d-block mt-1" id="nombresHint">Ingresa DNI para cargar nombres automáticamente.</small>
                             
                             <div class="mt-2 mt-md-3">
                                 <label class="form-label fw-bold small">Correo Electrónico *</label>
@@ -99,12 +103,18 @@
                             
                             <div class="mt-2 mt-md-3">
                                 <label class="form-label fw-bold small">Contraseña *</label>
-                                <input type="password" name="clave" class="form-control" required minlength="6">
+                                <div class="input-group">
+                                    <input type="password" name="clave" id="claveInput" class="form-control" required minlength="6" placeholder="Mínimo 6 caracteres">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="togglePassword('claveInput', 'toggleIcon1')"><i class="fas fa-eye" id="toggleIcon1"></i></button>
+                                </div>
                             </div>
                             
                             <div class="mt-2 mt-md-3">
                                 <label class="form-label fw-bold small">Confirmar Contraseña *</label>
-                                <input type="password" id="confirmar_clave" class="form-control" required>
+                                <div class="input-group">
+                                    <input type="password" id="confirmar_clave" class="form-control" required placeholder="Repite la contraseña">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="togglePassword('confirmar_clave', 'toggleIcon2')"><i class="fas fa-eye" id="toggleIcon2"></i></button>
+                                </div>
                             </div>
                             
                             <button type="submit" class="btn btn-primary w-100 py-2 fw-bold mt-3 mt-md-4">
