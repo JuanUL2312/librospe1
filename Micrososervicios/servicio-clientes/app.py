@@ -122,12 +122,62 @@ def crear():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/<int:cid>")
+@app.route("/<int:cid>", methods=["GET"])
 def detalle(cid):
     r = db.session.execute(
-        text("SELECT id,nombres,apellidos,correo,telefono,dni,departamento,provincia,distrito,estado "
+        text("SELECT id,nombres,apellidos,correo,telefono,dni,ce,ruc,departamento,provincia,distrito,estado,direccion "
              "FROM clientes WHERE id=:id"), {"id": cid}).mappings().first()
     return (jsonify(dict(r)), 200) if r else (jsonify({"error": "No encontrado"}), 404)
+
+
+@app.route("/<int:cid>", methods=["PUT"])
+def actualizar(cid):
+    if not _verifica_token():
+        return jsonify({"error": "Token invalido"}), 401
+    data = request.get_json(silent=True) or {}
+    # Permite actualización parcial (admin)
+    campos = {}
+    for k in ["nombres","apellidos","correo","telefono","direccion","departamento","provincia","distrito","dni","ce","ruc","estado"]:
+        if k in data:
+            v = data[k]
+            if isinstance(v, str): v = v.strip() or None
+            campos[k] = v
+    if not campos:
+        return jsonify({"error": "Sin campos para actualizar"}), 400
+    # Verifica duplicado correo
+    if "correo" in campos:
+        ex = db.session.execute(text("SELECT id FROM clientes WHERE correo=:c AND id!=:id"), {"c": campos["correo"], "id": cid}).scalar()
+        if ex:
+            return jsonify({"error": "Correo ya registrado"}), 409
+    # Hash si mandan clave nueva
+    if "clave" in data and data["clave"]:
+        campos["clave"] = bcrypt.generate_password_hash(data["clave"]).decode("utf-8")
+    set_clause = ", ".join([f"{k}=:{k}" for k in campos.keys()])
+    try:
+        res = db.session.execute(text(f"UPDATE clientes SET {set_clause} WHERE id=:cid"), {**campos, "cid": cid})
+        db.session.commit()
+        if res.rowcount == 0:
+            return jsonify({"error": "No encontrado"}), 404
+        return jsonify({"ok": True}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/<int:cid>", methods=["DELETE"])
+def eliminar(cid):
+    if not _verifica_token():
+        return jsonify({"error": "Token invalido"}), 401
+    try:
+        # Borrado suave: estado=0 (no físico para auditoría)
+        res = db.session.execute(text("UPDATE clientes SET estado=0 WHERE id=:id"), {"id": cid})
+        db.session.commit()
+        if res.rowcount == 0:
+            return jsonify({"error": "No encontrado"}), 404
+        return jsonify({"ok": True}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/ubicacion")

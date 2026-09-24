@@ -415,6 +415,36 @@ def _obtener_cliente_por_correo(email):
         except Exception: pass
     return obj
 
+def _obtener_cliente_por_id(cid):
+    """Busca cliente por ID en microservicio primero, fallback librospe_db."""
+    try:
+        try:
+            engine = db.get_engine(bind="clientes")
+        except Exception:
+            engine = db.engines.get("clientes") if hasattr(db, "engines") else None
+        if engine is not None:
+            row = db.session.execute(
+                text("SELECT id, correo, clave, nombres, apellidos, estado, telefono, direccion, dni, ce, ruc, departamento, provincia, distrito FROM clientes WHERE id=:id"),
+                {"id": cid}, bind_arguments={"bind": engine}
+            ).mappings().first()
+            if row:
+                class _Cli: pass
+                c = _Cli()
+                c.id = row["id"]; c.correo = row["correo"]; c.clave = row["clave"]
+                c.nombres = row["nombres"]; c.apellidos = row["apellidos"]; c.estado = row["estado"]
+                c.telefono = row["telefono"]; c.direccion = row["direccion"]; c.dni = row["dni"]
+                c.ce = row["ce"]; c.ruc = row["ruc"]; c.departamento = row["departamento"]
+                c.provincia = row["provincia"]; c.distrito = row["distrito"]
+                c._is_ms = True
+                return c
+    except Exception:
+        pass
+    obj = Cliente.query.get(cid)
+    if obj is not None:
+        try: obj._is_ms = False
+        except Exception: pass
+    return obj
+
 def obtener_ip_cliente():
     """Obtiene la IP real del cliente"""
     if request.headers.get('X-Forwarded-For'):
@@ -4135,7 +4165,7 @@ def api_distritos(provincia_id):
 @app.route("/cliente/perfil")
 @login_required_cliente
 def cliente_perfil():
-    cliente = Cliente.query.get(session["cliente_id"])
+    cliente = _obtener_cliente_por_id(session["cliente_id"])
     if not cliente:
         flash("❌ Cliente no encontrado", "danger")
         return redirect(url_for("logout_cliente"))
@@ -4145,7 +4175,10 @@ def cliente_perfil():
 @login_required_cliente
 def cliente_actualizar_perfil():
     try:
-        cliente = Cliente.query.get(session["cliente_id"])
+        cliente = _obtener_cliente_por_id(session["cliente_id"])
+        if not cliente:
+            flash("❌ Cliente no encontrado", "danger")
+            return redirect(url_for("cliente_perfil"))
 
         # Ubigeo de residencia OBLIGATORIO (departamento -> provincia -> distrito)
         nuevo_departamento = (request.form.get("departamento") or "").strip()
@@ -4155,42 +4188,59 @@ def cliente_actualizar_perfil():
             flash("❌ Debes indicar tu lugar de residencia: departamento, provincia y distrito", "danger")
             return redirect(url_for("cliente_perfil"))
 
-        cliente.nombres = request.form.get("nombres")
-        cliente.apellidos = request.form.get("apellidos")
-        cliente.telefono = request.form.get("telefono")
-        cliente.direccion = request.form.get("direccion")
-        cliente.departamento = nuevo_departamento
-        cliente.provincia = nueva_provincia
-        cliente.distrito = nuevo_distrito
-        
-        nuevo_email = request.form.get("email")
+        nuevos_nombres = request.form.get("nombres", "").strip()
+        nuevos_apellidos = request.form.get("apellidos", "").strip()
+        nuevo_telefono = (request.form.get("telefono") or "").strip() or None
+        nueva_direccion = (request.form.get("direccion") or "").strip() or None
+        nuevo_email = (request.form.get("email") or "").strip()
+        tipo_documento = request.form.get("tipo_documento", "DNI")
+        numero_documento = (request.form.get("numero_documento") or "").strip() or None
+        nuevo_dni = numero_documento if tipo_documento != "CE" else None
+        nuevo_ce = numero_documento if tipo_documento == "CE" else None
+
         if nuevo_email != cliente.correo:
-            existe = Cliente.query.filter_by(correo=nuevo_email).first()
+            existe = _obtener_cliente_por_correo(nuevo_email)
             if existe:
                 flash("❌ El correo ya está registrado", "danger")
                 return redirect(url_for("cliente_perfil"))
-            cliente.correo = nuevo_email
-            session["cliente_correo"] = nuevo_email
-        
-        tipo_documento = request.form.get("tipo_documento", "DNI")
-        numero_documento = (request.form.get("numero_documento") or "").strip() or None
-        if tipo_documento == "CE":
-            cliente.dni = None
-            cliente.ce = numero_documento
+
+        # Producción real: actualiza en microservicio si es MS, sino en librospe_db
+        is_ms = getattr(cliente, "_is_ms", False)
+        if is_ms:
+            try:
+                engine = db.get_engine(bind="clientes")
+            except Exception:
+                engine = db.engines.get("clientes") if hasattr(db, "engines") else None
+            db.session.execute(text("""
+                UPDATE clientes SET nombres=:nombres, apellidos=:apellidos, telefono=:telefono,
+                    direccion=:direccion, departamento=:departamento, provincia=:provincia,
+                    distrito=:distrito, correo=:correo, dni=:dni, ce=:ce
+                WHERE id=:id
+            """), {
+                "nombres": nuevos_nombres, "apellidos": nuevos_apellidos, "telefono": nuevo_telefono,
+                "direccion": nueva_direccion, "departamento": nuevo_departamento, "provincia": nueva_provincia,
+                "distrito": nuevo_distrito, "correo": nuevo_email, "dni": nuevo_dni, "ce": nuevo_ce, "id": cliente.id
+            }, bind_arguments={"bind": engine})
+            db.session.commit()
         else:
-            cliente.dni = numero_documento
-            cliente.ce = None
+            # Fallback cliente antiguo en librospe_db (ORM)
+            orm = Cliente.query.get(cliente.id)
+            orm.nombres = nuevos_nombres; orm.apellidos = nuevos_apellidos
+            orm.telefono = nuevo_telefono; orm.direccion = nueva_direccion
+            orm.departamento = nuevo_departamento; orm.provincia = nueva_provincia; orm.distrito = nuevo_distrito
+            orm.correo = nuevo_email; orm.dni = nuevo_dni; orm.ce = nuevo_ce
+            db.session.commit()
+
+        session["cliente_correo"] = nuevo_email
         if numero_documento:
             session["cliente_dni"] = numero_documento
         else:
             session.pop("cliente_dni", None)
         
-        db.session.commit()
-        
-        session["cliente_nombres"] = cliente.nombres
-        session["cliente_apellidos"] = cliente.apellidos
-        session["cliente_telefono"] = cliente.telefono
-        session["cliente_direccion"] = cliente.direccion
+        session["cliente_nombres"] = nuevos_nombres
+        session["cliente_apellidos"] = nuevos_apellidos
+        session["cliente_telefono"] = nuevo_telefono
+        session["cliente_direccion"] = nueva_direccion
         
         flash("✅ Perfil actualizado", "success")
     except Exception as e:
@@ -5658,6 +5708,96 @@ def microservicios_dashboard():
                           total_productos=total_productos,
                           productos_bajo_stock=productos_bajo_stock,
                           productos_agotados=productos_agotados)
+
+# =============================================
+# ADMIN CLIENTES - Gestión real desde microservicio (dueño librospe_ms_clientes)
+# =============================================
+@app.route("/admin/clientes")
+@login_required
+def admin_clientes():
+    if session.get("rol") != "administrador":
+        flash("❌ Solo administradores", "danger")
+        return redirect(url_for("dashboard"))
+    try:
+        engine = db.get_engine(bind="clientes")
+    except Exception:
+        engine = db.engines.get("clientes") if hasattr(db, "engines") else None
+    try:
+        clientes = db.session.execute(text(
+            "SELECT id, nombres, apellidos, correo, telefono, dni, ce, departamento, provincia, distrito, estado FROM clientes ORDER BY id DESC"
+        ), bind_arguments={"bind": engine}).mappings().all()
+    except Exception as e:
+        flash(f"❌ Error al listar clientes del microservicio: {e}", "danger")
+        clientes = []
+    return render_template("admin_clientes.html", clientes=clientes)
+
+@app.route("/admin/clientes/<int:cid>/editar", methods=["POST"])
+@login_required
+def admin_clientes_editar(cid):
+    if session.get("rol") != "administrador":
+        flash("❌ Solo administradores", "danger")
+        return redirect(url_for("dashboard"))
+    try:
+        engine = db.get_engine(bind="clientes")
+    except Exception:
+        engine = db.engines.get("clientes") if hasattr(db, "engines") else None
+    data = {k: (request.form.get(k) or "").strip() or None for k in ["nombres","apellidos","correo","telefono","dni","ce"]}
+    # Verifica duplicado correo en microservicio
+    if data.get("correo"):
+        dup = db.session.execute(text("SELECT id FROM clientes WHERE correo=:c AND id!=:id"),
+            {"c": data["correo"], "id": cid}, bind_arguments={"bind": engine}).scalar()
+        if dup:
+            flash("❌ Correo ya registrado por otro cliente", "danger")
+            return redirect(url_for("admin_clientes"))
+    try:
+        db.session.execute(text("""
+            UPDATE clientes SET nombres=:nombres, apellidos=:apellidos, correo=:correo,
+                telefono=:telefono, dni=:dni, ce=:ce WHERE id=:id
+        """), {**data, "id": cid}, bind_arguments={"bind": engine})
+        db.session.commit()
+        flash("✅ Cliente actualizado (microservicio)", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"❌ Error: {e}", "danger")
+    return redirect(url_for("admin_clientes"))
+
+@app.route("/admin/clientes/<int:cid>/eliminar", methods=["POST"])
+@login_required
+def admin_clientes_eliminar(cid):
+    if session.get("rol") != "administrador":
+        flash("❌ Solo administradores", "danger")
+        return redirect(url_for("dashboard"))
+    try:
+        engine = db.get_engine(bind="clientes")
+    except Exception:
+        engine = db.engines.get("clientes") if hasattr(db, "engines") else None
+    try:
+        db.session.execute(text("UPDATE clientes SET estado=0 WHERE id=:id"), {"id": cid}, bind_arguments={"bind": engine})
+        db.session.commit()
+        flash("✅ Cliente desactivado (estado=0)", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"❌ Error: {e}", "danger")
+    return redirect(url_for("admin_clientes"))
+
+@app.route("/admin/clientes/<int:cid>/activar", methods=["POST"])
+@login_required
+def admin_clientes_activar(cid):
+    if session.get("rol") != "administrador":
+        flash("❌ Solo administradores", "danger")
+        return redirect(url_for("dashboard"))
+    try:
+        engine = db.get_engine(bind="clientes")
+    except Exception:
+        engine = db.engines.get("clientes") if hasattr(db, "engines") else None
+    try:
+        db.session.execute(text("UPDATE clientes SET estado=1 WHERE id=:id"), {"id": cid}, bind_arguments={"bind": engine})
+        db.session.commit()
+        flash("✅ Cliente activado", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"❌ Error: {e}", "danger")
+    return redirect(url_for("admin_clientes"))
 
 
 # =============================================

@@ -4,6 +4,8 @@
 // ===============================
 var productosOriginal = [];
 var productosFiltrados = [];
+var paginaActual = 1;
+var productosPorPagina = 6;
 
 // ===============================
 // CARGAR PRODUCTOS
@@ -22,7 +24,7 @@ function cargarProductos() {
 }
 
 // ===============================
-// MOSTRAR PRODUCTOS
+// MOSTRAR PRODUCTOS (con paginación 6 por página)
 // ===============================
 function mostrarProductos(productos) {
     var grid = document.getElementById('productosGrid');
@@ -31,14 +33,23 @@ function mostrarProductos(productos) {
     if (!productos || productos.length === 0) {
         grid.innerHTML = '<div class="col-12 text-center py-5"><i class="fas fa-box-open fa-5x text-muted mb-4 opacity-50"></i><h5 class="text-muted">No hay productos que coincidan</h5><p class="text-muted small">Prueba con otros filtros</p></div>';
         contador.innerHTML = '<i class="fas fa-box me-1"></i> 0 productos';
+        var pag = document.getElementById('paginacion');
+        if (pag) pag.innerHTML = '';
         return;
     }
     
     contador.innerHTML = '<i class="fas fa-box me-1"></i> ' + productos.length + ' producto' + (productos.length !== 1 ? 's' : '');
+    // Paginación: calcula slice de 6
+    var totalPaginas = Math.ceil(productos.length / productosPorPagina);
+    if (paginaActual > totalPaginas) paginaActual = totalPaginas;
+    if (paginaActual < 1) paginaActual = 1;
+    var inicio = (paginaActual - 1) * productosPorPagina;
+    var fin = inicio + productosPorPagina;
+    var paginaProductos = productos.slice(inicio, fin);
     
     var html = '';
-    for (var i = 0; i < productos.length; i++) {
-        var p = productos[i];
+    for (var i = 0; i < paginaProductos.length; i++) {
+        var p = paginaProductos[i];
         var precioOferta = p.precio_oferta ? parseFloat(p.precio_oferta) : null;
         var tieneOferta = precioOferta && precioOferta < p.precio;
         var precioMostrar = tieneOferta ? precioOferta : p.precio;
@@ -98,6 +109,34 @@ function mostrarProductos(productos) {
         `;
     }
     grid.innerHTML = html;
+    renderPaginacion(productos.length, paginaActual, totalPaginas);
+}
+
+function renderPaginacion(total, actual, totalPaginas) {
+    var cont = document.getElementById('paginacion');
+    if (!cont) return;
+    if (totalPaginas <= 1) { cont.innerHTML = ''; return; }
+    var html = '<nav aria-label="Paginación catálogo"><ul class="pagination justify-content-center mb-0 flex-wrap gap-1">';
+    // Anterior
+    html += '<li class="page-item ' + (actual === 1 ? 'disabled' : '') + '"><a class="page-link rounded-pill" href="#" onclick="cambiarPagina(' + (actual - 1) + '); return false;"><i class="fas fa-chevron-left"></i></a></li>';
+    for (var p = 1; p <= totalPaginas; p++) {
+        if (p === 1 || p === totalPaginas || (p >= actual - 1 && p <= actual + 1)) {
+            html += '<li class="page-item ' + (p === actual ? 'active' : '') + '"><a class="page-link rounded-pill" href="#" onclick="cambiarPagina(' + p + '); return false;">' + p + '</a></li>';
+        } else if (p === actual - 2 || p === actual + 2) {
+            html += '<li class="page-item disabled"><span class="page-link border-0 bg-transparent">…</span></li>';
+        }
+    }
+    html += '<li class="page-item ' + (actual === totalPaginas ? 'disabled' : '') + '"><a class="page-link rounded-pill" href="#" onclick="cambiarPagina(' + (actual + 1) + '); return false;"><i class="fas fa-chevron-right"></i></a></li>';
+    html += '</ul><small class="text-muted d-block text-center mt-2">Página ' + actual + ' de ' + totalPaginas + ' — ' + total + ' productos</small></nav>';
+    cont.innerHTML = html;
+}
+
+function cambiarPagina(n) {
+    var totalPaginas = Math.ceil(productosFiltrados.length / productosPorPagina);
+    if (n < 1 || n > totalPaginas) return;
+    paginaActual = n;
+    mostrarProductos(productosFiltrados);
+    document.getElementById('productosGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function escapeHtml(texto) {
@@ -350,6 +389,7 @@ function aplicarFiltros() {
         return 0;
     });
     
+    paginaActual = 1;
     mostrarProductos(productosFiltrados);
 }
 

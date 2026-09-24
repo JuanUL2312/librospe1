@@ -12,7 +12,7 @@
 
       <div class="card-body p-4">
         <form method="POST">
-          {% csrf_token %}
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
 
           <div class="mb-3">
             <label for="nueva" class="form-label">Nueva Contraseña</label>
