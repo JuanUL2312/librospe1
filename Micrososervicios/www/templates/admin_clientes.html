@@ -72,7 +72,7 @@
                                                         <option value="DNI" {% if not c.ce %}selected{% endif %}>DNI</option>
                                                         <option value="CE" {% if c.ce %}selected{% endif %}>CE</option>
                                                     </select>
-                                                    <input name="numero_documento" class="form-control" value="{{ c.ce or c.dni or '' }}" placeholder="8 dígitos DNI / 9 CE" maxlength="9">
+                                                    <input name="numero_documento" class="form-control" value="{{ c.ce or c.dni or '' }}" placeholder="8 dígitos DNI / 9 CE" maxlength="9" required>
                                                 </div>
                                                 <small class="text-muted">Deja vacío si no aplica. DNI 8 dígitos, CE 9 caracteres.</small>
                                             </div>

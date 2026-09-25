@@ -1134,6 +1134,11 @@ def generar_comprobante_html(venta, producto, precio, cantidad, total, vendedor_
         documento_label = "RUC"
         documento_valor = venta.cliente_documento or "—"
         direccion_html = f"<p><strong>📍 Dirección:</strong> {venta.cliente_direccion or '—'}</p>"
+    elif venta.tipo_comprobante == "nota":
+        subtitulo = "NOTA DE VENTA"
+        documento_label = "Documento"
+        documento_valor = venta.cliente_documento or "—"
+        direccion_html = ""
     else:
         subtitulo = "BOLETA DE VENTA ELECTRÓNICA"
         documento_label = "Documento"
@@ -1216,16 +1221,20 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
             return False
 
         es_factura = tipo_comprobante == "factura"
+        es_nota = tipo_comprobante == "nota"
         if es_factura:
             titulo = "FACTURA DE VENTA ELECTRÓNICA"
             asunto = f"🧾 FACTURA ELECTRÓNICA N° {numero_comprobante}"
+        elif es_nota:
+            titulo = "NOTA DE VENTA"
+            asunto = f"📝 NOTA DE VENTA N° {numero_comprobante}"
         else:
             titulo = "BOLETA DE VENTA ELECTRÓNICA"
             asunto = f"📄 BOLETA DE VENTA ELECTRÓNICA N° {numero_comprobante}"
 
         e = html.escape
         cliente_mostrar = (cliente_nombre or "").strip() or "Consumidor Final"
-        tipo_doc = tipo_documento or ("RUC" if es_factura else ("DNI" if documento else ""))
+        tipo_doc = tipo_documento or ("RUC" if es_factura else ("DNI" if documento else ("Sin documento" if es_nota else "")))
         doc_val = documento if documento else "—"
 
         # --- Panel de información (izq: fechas/tipo, der: cliente/documento) ---
@@ -3745,7 +3754,12 @@ def comprobante_pdf(venta_id):
     elementos = []
 
     elementos.append(Paragraph("LIBRERÍA SALESIANA DON BOSCO", estilos['Title']))
-    elementos.append(Paragraph(f"<b>{v.tipo_comprobante.upper()} ELECTRÓNICA</b> N° {serie_numero}", estilos['Heading2']))
+    titulo_comp = {
+        "boleta": "BOLETA DE VENTA ELECTRÓNICA",
+        "factura": "FACTURA ELECTRÓNICA",
+        "nota": "NOTA DE VENTA",
+    }.get(v.tipo_comprobante, "COMPROBANTE DE VENTA")
+    elementos.append(Paragraph(f"<b>{titulo_comp}</b> N° {serie_numero}", estilos['Heading2']))
     elementos.append(Spacer(1, 8))
 
     datos = [
@@ -4705,9 +4719,11 @@ def crear_pedido():
         # ============================================
         # 4. CREAR DETALLES Y VENTAS
         # ============================================
-        # Número de comprobante correlativo (B001-000123 / F001-000045)
-        tipo_comp = data.get("comprobante", {}).get("tipo", "boleta")
-        serie = "B001" if tipo_comp == "boleta" else "F001"
+        # Número de comprobante correlativo (B001-000123 / F001-000045 / NV001-000123)
+        tipo_comp = data.get("comprobante", {}).get("tipo", "boleta") or "boleta"
+        if tipo_comp not in ("boleta", "factura", "nota"):
+            tipo_comp = "boleta"
+        serie = {"boleta": "B001", "factura": "F001", "nota": "NV001"}.get(tipo_comp, "NV001")
         contador = Venta.query.filter_by(tipo_comprobante=tipo_comp).count()
         numero_comprobante = f"{serie}-{contador + 1:06d}"
         

@@ -19,6 +19,8 @@ function seleccionarComprobante(tipo) {
     // Actualizar clases activas
     document.getElementById('cardBoleta').classList.toggle('active', tipo === 'boleta');
     document.getElementById('cardFactura').classList.toggle('active', tipo === 'factura');
+    var cardNota = document.getElementById('cardNota');
+    if (cardNota) cardNota.classList.toggle('active', tipo === 'nota');
     
     // Actualizar radios
     document.querySelectorAll('input[name="tipoComprobante"]').forEach(el => {
@@ -58,7 +60,7 @@ function seleccionarComprobante(tipo) {
         input.classList.remove('is-invalid');
         document.getElementById('documentoSection').style.display = 'block';
         datosDni = null;
-    } else {
+    } else if (tipo === 'factura') {
         if (tipoDocRow) tipoDocRow.style.display = 'none';
         label.innerHTML = 'RUC <span class="text-danger">*</span>';
         input.placeholder = '11 dígitos numéricos';
@@ -72,6 +74,26 @@ function seleccionarComprobante(tipo) {
         input.classList.remove('is-invalid');
         document.getElementById('documentoSection').style.display = 'block';
         datosDni = null;
+    } else {
+        // NOTA DE VENTA: se compra solo con el nombre, sin documento ni verificación
+        if (tipoDocRow) tipoDocRow.style.display = 'none';
+        input.value = '';
+        input.disabled = true;
+        input.classList.remove('is-invalid');
+        error.style.display = 'none';
+        document.getElementById('documentoSection').style.display = 'none';
+        datosDni = null;
+
+        var nombreReg = ((document.getElementById('nombresDisplay') || {}).textContent || '') + ' ' +
+                        ((document.getElementById('apellidosDisplay') || {}).textContent || '');
+        confirmBlock.classList.add('show');
+        confirmNombre.style.display = 'block';
+        confirmRazon.style.display = 'none';
+        document.getElementById('confirmNombreCompleto').textContent = nombreReg.trim() || 'Cliente registrado';
+        document.getElementById('confirmDocumento').textContent = 'Sin documento';
+        var badgeNota = document.getElementById('badgeEstado');
+        badgeNota.textContent = '✅ Nota de venta';
+        badgeNota.className = 'badge-verified';
     }
 }
 
@@ -131,6 +153,7 @@ function cambiarTipoDocumento() {
 // VALIDAR DOCUMENTO Y MOSTRAR CONFIRMACIÓN
 // ============================================
 function validarDocumento(input) {
+    if (tipoComprobante === 'nota') return;
     if (tipoComprobante === 'boleta' && tipoDocumento === 'NINGUNO') return;
     var esCE = tipoComprobante === 'boleta' && tipoDocumento === 'CE';
     var maxLength = tipoComprobante === 'boleta' ? (esCE ? 9 : 8) : 11;
@@ -466,7 +489,9 @@ function procesarPago() {
     
     // Documento: obligatorio SOLO en factura (RUC). En boleta es opcional.
     // Con "Sin documento" se compra solo con el nombre (documento queda vacio).
+    // Nota de venta: siempre sin documento, sin verificación RENIEC/SUNAT.
     var sinDocumento = (tipoComprobante === 'boleta' && tipoDocumento === 'NINGUNO');
+    if (tipoComprobante === 'nota') documento = '';
     if (sinDocumento) documento = '';
     if (tipoComprobante === 'boleta' && documento && !sinDocumento) {
         var docValido = (tipoDocumento === 'CE')

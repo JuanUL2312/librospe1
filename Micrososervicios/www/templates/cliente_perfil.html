@@ -46,8 +46,8 @@
                             <input type="text" name="numero_documento" id="numero_documento" class="form-control"
                                    value="{{ (cliente.ce or '') if cliente.ce else (cliente.dni or '') }}"
                                    maxlength="{% if cliente.ce %}9{% else %}8{% endif %}"
-                                   placeholder="{% if cliente.ce %}9 caracteres (letras y números){% else %}Máximo 8 dígitos{% endif %}">
-                            <small class="text-muted d-block" id="numeroDocHint">{% if cliente.ce %}Opcional{% else %}Opcional, máximo 8 dígitos{% endif %}</small>
+                                   placeholder="{% if cliente.ce %}9 caracteres (letras y números){% else %}Máximo 8 dígitos{% endif %}" required>
+                            <small class="text-muted d-block" id="numeroDocHint">{% if cliente.ce %}Obligatorio{% else %}Obligatorio, 8 dígitos{% endif %}</small>
                         </div>
                         <div class="col-12 col-md-6">
                             <label class="form-label">Teléfono</label>

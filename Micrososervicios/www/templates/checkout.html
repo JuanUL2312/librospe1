@@ -58,21 +58,30 @@
                     <div class="mb-3">
                         <label class="field-label">Tipo de comprobante <span class="text-danger">*</span></label>
                         <div class="row g-2 mt-1">
-                            <div class="col-6">
+                            <div class="col-4">
                                 <div class="radio-card active" id="cardBoleta" onclick="seleccionarComprobante('boleta')">
                                     <input type="radio" name="tipoComprobante" value="boleta" checked>
                                     <div>
                                         <div class="radio-label">📄 Boleta de venta</div>
-                                        <div class="radio-sub">Para personas naturales (DNI o Carnet de Extranjería)</div>
+                                        <div class="radio-sub">Personas naturales (DNI o CE)</div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-6">
+                            <div class="col-4">
                                 <div class="radio-card" id="cardFactura" onclick="seleccionarComprobante('factura')">
                                     <input type="radio" name="tipoComprobante" value="factura">
                                     <div>
-                                        <div class="radio-label">📋 Factura</div>
-                                        <div class="radio-sub">Para empresas (RUC)</div>
+                                        <div class="radio-label">🧾 Factura</div>
+                                        <div class="radio-sub">Empresas (RUC)</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="radio-card" id="cardNota" onclick="seleccionarComprobante('nota')">
+                                    <input type="radio" name="tipoComprobante" value="nota">
+                                    <div>
+                                        <div class="radio-label">📝 Nota de venta</div>
+                                        <div class="radio-sub">Compra solo con tu nombre</div>
                                     </div>
                                 </div>
                             </div>
