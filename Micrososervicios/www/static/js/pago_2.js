@@ -309,12 +309,26 @@ async function confirmarPedido(){
             localStorage.removeItem('tipoEntrega');
             localStorage.removeItem('direccionEntrega');
             
+            let aviso='';
+            if(data.correo_enviado){
+                aviso='<br><br>📧 El comprobante ha sido enviado a tu correo';
+            }else if(data.whatsapp_url){
+                aviso='<br><br>💬 No tienes correo: envía el comprobante a tu celular por WhatsApp';
+            }else{
+                aviso=data.numero_comprobante ? '<br><br>📄 Comprobante: <b>'+escapeHtml(data.numero_comprobante)+'</b>' : '';
+            }
+            const waUrl=data.whatsapp_url||'';
+
             Swal.fire({
                 icon:'success',
                 title:'¡Pedido realizado!',
-                html:`✅ ¡Pedido realizado!<br>Total: S/. ${total.toFixed(2)}<br><br>📧 El comprobante ha sido enviado a tu correo`,
-                confirmButtonText:'Ver mis pedidos'
-            }).then(()=>{
+                html:`✅ ¡Pedido realizado!<br>Total: S/. ${total.toFixed(2)}${aviso}`,
+                showDenyButton:!!waUrl,
+                denyButtonText:'<i class="fab fa-whatsapp me-1"></i>Enviar por WhatsApp',
+                confirmButtonText:'Ver mis pedidos',
+                confirmButtonColor:'#D4AF37'
+            }).then((r)=>{
+                if(r.isDenied && waUrl){ window.open(waUrl,'_blank'); }
                 window.location.href='/mis-pedidos';
             });
         }else{

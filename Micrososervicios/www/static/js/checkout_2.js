@@ -449,11 +449,14 @@ function procesarPago() {
     var documento = document.getElementById('documentoInput').value.trim();
     var direccion = document.getElementById('direccionEntrega').value.trim();
     
-    if (!email || !telefono) {
+    // Teléfono obligatorio. El correo es opcional: si no hay correo
+    // (o no es válido), el comprobante se entrega por WhatsApp al celular.
+    var emailValido = !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (!telefono || !emailValido) {
         Swal.fire({
             icon: 'warning',
             title: 'Campos incompletos',
-            text: 'Por favor completa todos los campos obligatorios.',
+            text: 'Ingresa tu teléfono celular' + (email ? ' y un correo electrónico válido' : '') + ' (si no tienes correo, te enviamos el comprobante por WhatsApp).',
             confirmButtonColor: '#D4AF37'
         });
         btn.disabled = false;

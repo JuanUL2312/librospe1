@@ -1203,6 +1203,26 @@ def numero_a_letras(numero):
         partes.append(tres(numero))
     return " ".join(partes)
 
+def enlace_whatsapp(telefono, texto):
+    """Enlace wa.me/<numero> con el mensaje precargado.
+    Normaliza celulares peruanos: 9XXXXXXXX / 09XXXXXXXX -> 519XXXXXXXX.
+    Devuelve None si no hay teléfono utilizable."""
+    if not telefono:
+        return None
+    solo = "".join(ch for ch in str(telefono) if ch.isdigit())
+    if not solo:
+        return None
+    if solo.startswith("51") and len(solo) >= 11:
+        numero = solo
+    elif solo.startswith("0") and len(solo) >= 9:
+        numero = "51" + solo[1:]
+    elif len(solo) == 9:
+        numero = "51" + solo
+    else:
+        numero = solo
+    return f"https://wa.me/{numero}?text={quote_plus(texto)}"
+
+
 def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta, documento="", tipo_documento="", razon_social="", direccion_fiscal=""):
     """Envía el comprobante (factura/boleta) por correo con estructura profesional de documento SUNAT."""
     try:
@@ -4804,27 +4824,52 @@ def crear_pedido():
             print(f"   Dirección Fiscal: '{cliente_direccion_fiscal}'")
         
         # ============================================
-        # 5. ENVIAR CORREO
+        # 5. ENTREGA DEL COMPROBANTE: correo o WhatsApp
         # ============================================
-        try:
-            enviar_comprobante_email(
-                destinatario=cliente_email,
-                cliente_nombre=f"{cliente_nombres} {cliente_apellidos}".strip(),
-                tipo_comprobante=tipo_comp,
-                numero_comprobante=numero_comprobante,
-                fecha=datetime.now(),
-                productos=productos_para_correo,
-                total_venta=float(data["total"]),
-                documento=cliente_documento,
-                tipo_documento="RUC" if tipo_comp == "factura" else (cliente_tipo_documento or ("DNI" if cliente_documento else "")),
-                razon_social=cliente_razon_social,
-                direccion_fiscal=cliente_direccion_fiscal,
-            )
-            print(f"📧 Correo enviado a {cliente_email}")
-        except Exception as e:
-            print(f"⚠️ Error al enviar correo: {e}")
-        
-        return jsonify({"success": True, "pedido_id": pedido.id})
+        # Si el cliente no tiene correo (o no es válido), el comprobante
+        # se ofrece por WhatsApp al celular registrado.
+        etiq_comp = {"boleta": "Boleta de venta", "factura": "Factura", "nota": "Nota de venta"}.get(tipo_comp, "Comprobante")
+        texto_wa = (
+            f"📚 Librería Salesiana Don Bosco\n"
+            f"{etiq_comp} N° {numero_comprobante}\n"
+            f"Cliente: {(cliente_nombres + ' ' + cliente_apellidos).strip() or 'Cliente'}\n"
+            f"Total: S/ {float(data['total']):.2f}\n"
+            f"Gracias por tu compra."
+        )
+        correo_enviado = False
+        if cliente_email and "@" in cliente_email:
+            try:
+                correo_enviado = bool(enviar_comprobante_email(
+                    destinatario=cliente_email,
+                    cliente_nombre=f"{cliente_nombres} {cliente_apellidos}".strip(),
+                    tipo_comprobante=tipo_comp,
+                    numero_comprobante=numero_comprobante,
+                    fecha=datetime.now(),
+                    productos=productos_para_correo,
+                    total_venta=float(data["total"]),
+                    documento=cliente_documento,
+                    tipo_documento="RUC" if tipo_comp == "factura" else (cliente_tipo_documento or ("DNI" if cliente_documento else "")),
+                    razon_social=cliente_razon_social,
+                    direccion_fiscal=cliente_direccion_fiscal,
+                ))
+                print(f"📧 Correo enviado a {cliente_email}")
+            except Exception as e:
+                print(f"⚠️ Error al enviar correo: {e}")
+
+        whatsapp_url = None
+        if not correo_enviado:
+            whatsapp_url = enlace_whatsapp(cliente_telefono, texto_wa)
+            if whatsapp_url:
+                print(f"💬 Comprobante disponible por WhatsApp a {cliente_telefono}")
+
+        return jsonify({
+            "success": True,
+            "pedido_id": pedido.id,
+            "numero_comprobante": numero_comprobante,
+            "tipo_comprobante": tipo_comp,
+            "correo_enviado": correo_enviado,
+            "whatsapp_url": whatsapp_url,
+        })
         
     except Exception as e:
         db.session.rollback()
