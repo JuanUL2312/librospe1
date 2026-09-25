@@ -2313,7 +2313,7 @@ def guardar_proveedor():
     nuevo = Proveedor(
         nombre=request.form["nombre"],
         email=request.form["email"],
-        contacto=request.form["contacto"],
+        contacto=armar_telefono(request.form.get("prefijo"), request.form["contacto"]) or request.form["contacto"].strip(),
     )
     db.session.add(nuevo)
     db.session.commit()
@@ -2341,7 +2341,7 @@ def actualizar_proveedor(id):
         return redirect(url_for("proveedores"))
     proveedor.nombre = request.form["nombre"]
     proveedor.email = request.form["email"]
-    proveedor.contacto = request.form["contacto"]
+    proveedor.contacto = armar_telefono(request.form.get("prefijo"), request.form["contacto"]) or request.form["contacto"].strip()
     db.session.commit()
     flash("✅ Proveedor actualizado", "success")
     return redirect(url_for("proveedores"))
@@ -4371,7 +4371,7 @@ def cliente_actualizar_perfil():
 
         nuevos_nombres = request.form.get("nombres", "").strip()
         nuevos_apellidos = request.form.get("apellidos", "").strip()
-        nuevo_telefono = (request.form.get("telefono") or "").strip() or None
+        nuevo_telefono = armar_telefono(request.form.get("prefijo"), request.form.get("telefono"))
         nueva_direccion = (request.form.get("direccion") or "").strip() or None
         nuevo_email = (request.form.get("email") or "").strip()
         tipo_documento = request.form.get("tipo_documento", "DNI")
@@ -6032,7 +6032,7 @@ def admin_clientes_editar(cid):
         "nombres": (request.form.get("nombres") or "").strip() or None,
         "apellidos": (request.form.get("apellidos") or "").strip() or None,
         "correo": (request.form.get("correo") or "").strip() or None,
-        "telefono": (request.form.get("telefono") or "").strip() or None,
+        "telefono": armar_telefono(request.form.get("prefijo"), request.form.get("telefono")),
         "dni": dni_val, "ce": ce_val
     }
     # Verifica duplicado correo en microservicio

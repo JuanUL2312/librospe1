@@ -11,7 +11,7 @@
                 </h4>
             </div>
             <div class="card-body p-3 p-md-4">
-                <form method="POST" action="{{ url_for('cliente_actualizar_perfil') }}">
+                <form method="POST" action="{{ url_for('cliente_actualizar_perfil') }}" data-telefono-pais>
                     <div class="row g-3">
                         <div class="col-12 col-md-6">
                             <label class="form-label">Nombres</label>
@@ -51,7 +51,23 @@
                         </div>
                         <div class="col-12 col-md-6">
                             <label class="form-label">Teléfono</label>
-                            <input type="text" name="telefono" class="form-control" value="{{ cliente.telefono or '' }}">
+                            <div class="input-group">
+                                <select name="prefijo" class="form-select flex-shrink-0" style="max-width:120px;"
+                                        data-tel-prefijo data-tel-input="telefonoPerfil" aria-label="Código de país">
+                                    <option value="" hidden></option>
+                                    <option value="+51">🇵🇪 +51</option>
+                                    <option value="+54">🇦🇷 +54</option>
+                                    <option value="+56">🇨🇱 +56</option>
+                                    <option value="+57">🇨🇴 +57</option>
+                                    <option value="+52">🇲🇽 +52</option>
+                                    <option value="+591">🇧🇴 +591</option>
+                                    <option value="+593">🇪🇨 +593</option>
+                                    <option value="+34">🇪🇸 +34</option>
+                                    <option value="+1">🇺🇸 +1</option>
+                                </select>
+                                <input type="tel" name="telefono" id="telefonoPerfil" class="form-control"
+                                       value="{{ cliente.telefono or '' }}" placeholder="987654321">
+                            </div>
                         </div>
                     </div>
 

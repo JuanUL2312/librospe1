@@ -58,13 +58,31 @@
                                 <div class="modal fade" id="editModal{{ c.id }}" tabindex="-1">
                                   <div class="modal-dialog">
                                     <div class="modal-content">
-                                      <form method="POST" action="{{ url_for('admin_clientes_editar', cid=c.id) }}">
+                                      <form method="POST" action="{{ url_for('admin_clientes_editar', cid=c.id) }}" data-telefono-pais>
                                         <div class="modal-header"><h5 class="modal-title">Editar {{ c.correo }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                                         <div class="modal-body">
                                             <div class="mb-2"><label class="form-label">Nombres</label><input name="nombres" class="form-control" value="{{ c.nombres }}" required></div>
                                             <div class="mb-2"><label class="form-label">Apellidos</label><input name="apellidos" class="form-control" value="{{ c.apellidos }}" required></div>
                                             <div class="mb-2"><label class="form-label">Correo</label><input name="correo" type="email" class="form-control" value="{{ c.correo }}" required></div>
-                                            <div class="mb-2"><label class="form-label">Teléfono</label><input name="telefono" class="form-control" value="{{ c.telefono or '' }}"></div>
+                                            <div class="mb-2">
+                                                <label class="form-label">Teléfono</label>
+                                                <div class="input-group">
+                                                    <select name="prefijo" class="form-select flex-shrink-0" style="max-width:120px;"
+                                                            data-tel-prefijo data-tel-input="telAdmin{{ c.id }}" aria-label="Código de país">
+                                                        <option value="" hidden></option>
+                                                        <option value="+51">🇵🇪 +51</option>
+                                                        <option value="+54">🇦🇷 +54</option>
+                                                        <option value="+56">🇨🇱 +56</option>
+                                                        <option value="+57">🇨🇴 +57</option>
+                                                        <option value="+52">🇲🇽 +52</option>
+                                                        <option value="+591">🇧🇴 +591</option>
+                                                        <option value="+593">🇪🇨 +593</option>
+                                                        <option value="+34">🇪🇸 +34</option>
+                                                        <option value="+1">🇺🇸 +1</option>
+                                                    </select>
+                                                    <input name="telefono" id="telAdmin{{ c.id }}" type="tel" class="form-control" value="{{ c.telefono or '' }}" placeholder="987654321">
+                                                </div>
+                                            </div>
                                             <div class="mb-2">
                                                 <label class="form-label">Documento</label>
                                                 <div class="input-group">

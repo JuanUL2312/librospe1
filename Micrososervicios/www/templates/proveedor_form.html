@@ -29,7 +29,7 @@
 
       <!-- FORM PREMIUM -->
       <div class="card shadow-3xl p-3 p-md-5 border-0 rounded-3">
-        <form method="POST"
+        <form method="POST" data-telefono-pais
           action="{% if proveedor %}/proveedores/actualizar/{{ proveedor.id }}{% else %}/proveedores/guardar{% endif %}">
 
           <!-- CONSULTAR DNI/RUC -->
@@ -111,8 +111,21 @@
               <span class="input-group-text bg-transparent border-0 text-muted">
                 <i class="fas fa-mobile-alt"></i>
               </span>
+              <select name="prefijo" class="form-select flex-shrink-0 border-0 shadow-sm" style="max-width:120px;"
+                      data-tel-prefijo data-tel-input="contacto" aria-label="Código de país">
+                <option value="" hidden></option>
+                <option value="+51">🇵🇪 +51</option>
+                <option value="+54">🇦🇷 +54</option>
+                <option value="+56">🇨🇱 +56</option>
+                <option value="+57">🇨🇴 +57</option>
+                <option value="+52">🇲🇽 +52</option>
+                <option value="+591">🇧🇴 +591</option>
+                <option value="+593">🇪🇨 +593</option>
+                <option value="+34">🇪🇸 +34</option>
+                <option value="+1">🇺🇸 +1</option>
+              </select>
               <input type="tel" name="contacto" id="contacto" class="form-control border-0 shadow-sm"
-                placeholder="+51 999 888 777" required value="{% if proveedor %}{{ proveedor.contacto }}{% endif %}">
+                placeholder="999 888 777" required value="{% if proveedor %}{{ proveedor.contacto }}{% endif %}">
             </div>
           </div>
 
