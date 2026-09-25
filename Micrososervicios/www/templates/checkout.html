@@ -46,9 +46,23 @@
                         </div>
                         <div class="col-12 col-md-6">
                             <label class="field-label">Teléfono <span class="text-danger">*</span></label>
-                            <input type="tel" id="clienteTelefono" class="field-value editable w-100" 
-                                   value="{{ cliente.telefono if cliente else '' }}"
-                                   placeholder="987654321">
+                            <div class="d-flex gap-2">
+                                <select id="clientePrefijo" class="field-value editable flex-shrink-0 text-center"
+                                        style="width:118px;" aria-label="Código de país">
+                                    <option value="+51" selected>🇵🇪 +51</option>
+                                    <option value="+54">🇦🇷 +54</option>
+                                    <option value="+56">🇨🇱 +56</option>
+                                    <option value="+57">🇨🇴 +57</option>
+                                    <option value="+52">🇲🇽 +52</option>
+                                    <option value="+591">🇧🇴 +591</option>
+                                    <option value="+593">🇪🇨 +593</option>
+                                    <option value="+34">🇪🇸 +34</option>
+                                    <option value="+1">🇺🇸 +1</option>
+                                </select>
+                                <input type="tel" id="clienteTelefono" class="field-value editable flex-grow-1"
+                                       value="{{ cliente.telefono if cliente else '' }}"
+                                       placeholder="987654321">
+                            </div>
                         </div>
                     </div>
 
