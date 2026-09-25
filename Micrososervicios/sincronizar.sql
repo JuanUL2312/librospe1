@@ -520,7 +520,7 @@ WHERE NOT (
 -- 6.4 CLIENTES: registrados, ruc_empresas y ubigeo
 -- =============================================
 
--- Clientes nuevos (aqui entra cada registro de /registro-cliente)
+-- Clientes nuevos en la principal (registro legacy que no llego al microservicio)
 INSERT IGNORE INTO librospe_ms_clientes.clientes
     (id, dni, nombres, apellidos, correo, telefono, direccion, clave,
      fecha_registro, token_recuperacion, token_expiracion, puntos, estado,
@@ -532,45 +532,64 @@ FROM librospe_db.clientes c
 LEFT JOIN librospe_ms_clientes.clientes mc ON mc.id = c.id
 WHERE mc.id IS NULL;
 
--- Clientes existentes (perfil, clave, puntos, ubigeo; el correo es
--- identidad unica y no se actualiza para no abortar el cron)
-UPDATE librospe_ms_clientes.clientes mc
-JOIN librospe_db.clientes c ON mc.id = c.id
-SET mc.dni = c.dni,
-    mc.nombres = c.nombres,
-    mc.apellidos = c.apellidos,
-    mc.telefono = c.telefono,
-    mc.direccion = c.direccion,
-    mc.clave = c.clave,
-    mc.fecha_registro = c.fecha_registro,
-    mc.token_recuperacion = c.token_recuperacion,
-    mc.token_expiracion = c.token_expiracion,
-    mc.puntos = c.puntos,
-    mc.estado = c.estado,
-    mc.ruc = c.ruc,
-    mc.departamento = c.departamento,
-    mc.provincia = c.provincia,
-    mc.distrito = c.distrito,
-    mc.ce = c.ce,
-    mc.referencia = c.referencia
+-- Clientes del microservicio que aun no existen en la principal.
+-- El registro (/registro-cliente) y el perfil se escriben solo en
+-- librospe_ms_clientes (dueno de datos); la principal necesita la fila por la
+-- FK pedidos.cliente_id -> clientes.id. INSERT IGNORE no aborta el cron si el
+-- correo ya esta usado por otra fila.
+INSERT IGNORE INTO librospe_db.clientes
+    (id, dni, nombres, apellidos, correo, telefono, direccion, clave,
+     fecha_registro, token_recuperacion, token_expiracion, puntos, estado,
+     ruc, departamento, provincia, distrito, ce, referencia)
+SELECT mc.id, mc.dni, mc.nombres, mc.apellidos, mc.correo, mc.telefono, mc.direccion, mc.clave,
+       mc.fecha_registro, mc.token_recuperacion, mc.token_expiracion, mc.puntos, mc.estado,
+       mc.ruc, mc.departamento, mc.provincia, mc.distrito, mc.ce, mc.referencia
+FROM librospe_ms_clientes.clientes mc
+LEFT JOIN librospe_db.clientes c ON c.id = mc.id
+WHERE c.id IS NULL;
+
+-- Clientes existentes: el microservicio es el DUENO, asi que refresca la
+-- principal. Sin esta direccion el cron revertia cada hora el telefono, la
+-- direccion o la clave que el cliente acaba de guardar en Mi Perfil.
+-- El correo no se sincroniza: es identidad unica en la principal y puede
+-- abortar el cron con duplicado.
+UPDATE librospe_db.clientes c
+JOIN librospe_ms_clientes.clientes mc ON mc.id = c.id
+SET c.dni = mc.dni,
+    c.nombres = mc.nombres,
+    c.apellidos = mc.apellidos,
+    c.telefono = mc.telefono,
+    c.direccion = mc.direccion,
+    c.clave = mc.clave,
+    c.fecha_registro = mc.fecha_registro,
+    c.token_recuperacion = mc.token_recuperacion,
+    c.token_expiracion = mc.token_expiracion,
+    c.puntos = mc.puntos,
+    c.estado = mc.estado,
+    c.ruc = mc.ruc,
+    c.departamento = mc.departamento,
+    c.provincia = mc.provincia,
+    c.distrito = mc.distrito,
+    c.ce = mc.ce,
+    c.referencia = mc.referencia
 WHERE NOT (
-    mc.dni <=> c.dni AND
-    mc.nombres <=> c.nombres AND
-    mc.apellidos <=> c.apellidos AND
-    mc.telefono <=> c.telefono AND
-    mc.direccion <=> c.direccion AND
-    mc.clave <=> c.clave AND
-    mc.fecha_registro <=> c.fecha_registro AND
-    mc.token_recuperacion <=> c.token_recuperacion AND
-    mc.token_expiracion <=> c.token_expiracion AND
-    mc.puntos <=> c.puntos AND
-    mc.estado <=> c.estado AND
-    mc.ruc <=> c.ruc AND
-    mc.departamento <=> c.departamento AND
-    mc.provincia <=> c.provincia AND
-    mc.distrito <=> c.distrito AND
-    mc.ce <=> c.ce AND
-    mc.referencia <=> c.referencia
+    c.dni <=> mc.dni AND
+    c.nombres <=> mc.nombres AND
+    c.apellidos <=> mc.apellidos AND
+    c.telefono <=> mc.telefono AND
+    c.direccion <=> mc.direccion AND
+    c.clave <=> mc.clave AND
+    c.fecha_registro <=> mc.fecha_registro AND
+    c.token_recuperacion <=> mc.token_recuperacion AND
+    c.token_expiracion <=> mc.token_expiracion AND
+    c.puntos <=> mc.puntos AND
+    c.estado <=> mc.estado AND
+    c.ruc <=> mc.ruc AND
+    c.departamento <=> mc.departamento AND
+    c.provincia <=> mc.provincia AND
+    c.distrito <=> mc.distrito AND
+    c.ce <=> mc.ce AND
+    c.referencia <=> mc.referencia
 );
 
 -- ruc_empresas nuevas
