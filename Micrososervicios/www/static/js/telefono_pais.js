@@ -45,7 +45,9 @@
     window.telPaisCompleto = function (sel, inp) {
         if (inp.dataset.telCrudo === '1') return inp.value.trim(); // código fuera de la lista
         var cod = digitos(sel.value);
-        return cod ? '+' + limpiar(inp, sel.value) : limpiar(inp, sel.value);
+        var base = limpiar(inp, sel.value);
+        if (!base) return '';
+        return cod ? '+' + cod + base : base;
     };
 
     function init(sel) {
@@ -61,12 +63,14 @@
                 return;
             }
         }
-        // Sin código reconocible: se conserva tal cual y no se concatena al enviar
-        if (d.length > 9) {
+        // Sin código: 9 dígitos o 0987... (local peruano) se dejan bajo el prefijo actual
+        var local = (d.length === 9) || (d.length === 10 && d.charAt(0) === '0');
+        if (local) {
+            inp.value = limpiar(inp, sel.value);
+        } else {
+            // Código no listado: se conserva tal cual y no se concatena al enviar
             inp.dataset.telCrudo = '1';
             inp.value = inp.value.trim();
-        } else {
-            inp.value = limpiar(inp, sel.value);
         }
     }
 

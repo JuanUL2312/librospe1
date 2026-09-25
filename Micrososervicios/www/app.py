@@ -1283,7 +1283,8 @@ def armar_telefono(prefijo, numero):
         if cod == "51" and len(dig) == 10 and dig.startswith("0"):
             dig = dig[1:]
         return f"+{cod}{dig}"[:15]
-    return dig[:15]
+    # Sin prefijo: si el número ya trae código (más de 9 dígitos), se conserva
+    return (f"+{dig}" if len(dig) > 9 else dig)[:15]
 
 
 def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta, documento="", tipo_documento="", razon_social="", direccion_fiscal=""):
