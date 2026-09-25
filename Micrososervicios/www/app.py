@@ -1223,6 +1223,22 @@ def enlace_whatsapp(telefono, texto):
     return f"https://wa.me/{numero}?text={quote(texto, safe='')}"
 
 
+def armar_telefono(prefijo, numero):
+    """Une el código de país con el número sin duplicar el código ni dejar el 0 inicial.
+    Ej.: (+51, '987654321') -> '+51987654321'; (+51, '0987654321') -> '+51987654321'."""
+    cod = "".join(ch for ch in str(prefijo or "") if ch.isdigit())
+    dig = "".join(ch for ch in str(numero or "") if ch.isdigit())
+    if not dig:
+        return None
+    if cod:
+        if dig.startswith(cod) and len(dig) > len(cod) + 5:
+            dig = dig[len(cod):]
+        if cod == "51" and len(dig) == 10 and dig.startswith("0"):
+            dig = dig[1:]
+        return f"+{cod}{dig}"[:15]
+    return dig[:15]
+
+
 def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta, documento="", tipo_documento="", razon_social="", direccion_fiscal=""):
     """Envía el comprobante (factura/boleta) por correo con estructura profesional de documento SUNAT."""
     try:
@@ -4231,7 +4247,7 @@ def registro_cliente():
                 "nombres": request.form["nombres"].strip(),
                 "apellidos": request.form["apellidos"].strip(),
                 "clave": request.form["clave"],
-                "telefono": _nulo(request.form.get("telefono")),
+                "telefono": armar_telefono(request.form.get("prefijo"), request.form.get("telefono")),
                 "direccion": _nulo(request.form.get("direccion")),
                 "departamento": ubigeo["departamento"],
                 "provincia": ubigeo["provincia"],
