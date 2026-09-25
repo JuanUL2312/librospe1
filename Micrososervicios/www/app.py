@@ -445,6 +445,69 @@ def _obtener_cliente_por_id(cid):
         except Exception: pass
     return obj
 
+def _asegurar_cliente_en_principal(cid):
+    """Los clientes nuevos se crean solo en el microservicio dueño
+    (librospe_ms_clientes); la principal necesita la fila por la FK
+    pedidos.cliente_id -> clientes.id. Inserta la fila si falta."""
+    if cid is None:
+        return
+    try:
+        if Cliente.query.get(cid) is not None:
+            return
+        try:
+            engine = db.get_engine(bind="clientes")
+        except Exception:
+            engine = db.engines.get("clientes") if hasattr(db, "engines") else None
+        if engine is None:
+            return
+        row = db.session.execute(
+            text("""SELECT id, dni, ruc, ce, nombres, apellidos, correo, telefono, direccion,
+                            departamento, provincia, distrito, clave, puntos, estado, fecha_registro
+                     FROM clientes WHERE id=:id"""),
+            {"id": cid}, bind_arguments={"bind": engine}
+        ).mappings().first()
+        if row is None:
+            return
+        db.session.add(Cliente(
+            id=row["id"], dni=row["dni"], ruc=row["ruc"], ce=row["ce"],
+            nombres=row["nombres"], apellidos=row["apellidos"], correo=row["correo"],
+            telefono=row["telefono"], direccion=row["direccion"],
+            departamento=row["departamento"], provincia=row["provincia"],
+            distrito=row["distrito"], clave=row["clave"],
+            puntos=row["puntos"] or 0,
+            estado=row["estado"] if row["estado"] is not None else 1,
+            fecha_registro=row["fecha_registro"],
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+def _guardar_datos_cliente(cid, campos):
+    """Persiste cambios de perfil del cliente en su DUEÑO de datos:
+    microservicio clientes (bind) si es MS, o librospe_db si es legacy."""
+    if cid is None or not campos:
+        return
+    try:
+        cli = _obtener_cliente_por_id(cid)
+        if cli is None:
+            return
+        if getattr(cli, "_is_ms", False):
+            sets = ", ".join(f"{c}=:{c}" for c in campos)
+            engine = db.get_engine(bind="clientes") if hasattr(db, "get_engine") else None
+            db.session.execute(
+                text(f"UPDATE clientes SET {sets} WHERE id=:id"),
+                {**campos, "id": cid}, bind_arguments={"bind": engine}
+            )
+        else:
+            orm = Cliente.query.get(cid)
+            if orm is None:
+                return
+            for c, v in campos.items():
+                setattr(orm, c, v)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
 def obtener_ip_cliente():
     """Obtiene la IP real del cliente"""
     if request.headers.get('X-Forwarded-For'):
@@ -4451,8 +4514,10 @@ def ver_carrito():
 @app.route("/checkout")
 @login_required_cliente
 def checkout():
-    # Obtener el cliente actual
-    cliente = Cliente.query.get(session.get("cliente_id"))
+    # Cliente: microservicio dueño primero (bind clientes), fallback librospe_db
+    cid = session.get("cliente_id")
+    _asegurar_cliente_en_principal(cid)
+    cliente = _obtener_cliente_por_id(cid)
     
     # Pasar datos del cliente al template
     return render_template("checkout.html", 
@@ -4613,7 +4678,7 @@ def crear_pedido():
         if data.get("tipo_entrega") == "delivery":
             if not cliente_direccion:
                 return jsonify({"success": False, "error": "Ingresa tu dirección de entrega."})
-            cliente_residencia = Cliente.query.get(session["cliente_id"])
+            cliente_residencia = _obtener_cliente_por_id(session["cliente_id"])
             if not cliente_residencia or not all(
                 [cliente_residencia.departamento, cliente_residencia.provincia, cliente_residencia.distrito]
             ):
@@ -4625,6 +4690,9 @@ def crear_pedido():
         # ============================================
         # 3. CREAR PEDIDO
         # ============================================
+        # FK pedidos.cliente_id -> librospe_db.clientes: el cliente pudo
+        # registrarse solo en el microservicio, asegura la fila en la principal.
+        _asegurar_cliente_en_principal(session["cliente_id"])
         pedido = Pedido(
             cliente_id=session["cliente_id"],
             total=float(data["total"]),
@@ -4645,7 +4713,7 @@ def crear_pedido():
         
         productos_para_correo = []
         
-        cliente_obj = Cliente.query.get(session["cliente_id"])
+        cliente_obj = _obtener_cliente_por_id(session["cliente_id"])
         
         for item in data["items"]:
             producto = Producto.query.get(item["id"])
@@ -4697,14 +4765,17 @@ def crear_pedido():
         # Guarda el DNI/RUC y completa nombres si están vacíos
         # ============================================
         if cliente_obj:
+            campos = {}
             if not cliente_obj.dni and cliente_documento and len(cliente_documento) == 8 and cliente_documento.isdigit():
-                cliente_obj.dni = cliente_documento
+                campos["dni"] = cliente_documento
             elif not cliente_obj.ce and cliente_documento and len(cliente_documento) == 9 and not cliente_documento.isdigit():
-                cliente_obj.ce = cliente_documento
+                campos["ce"] = cliente_documento
             if not cliente_obj.nombres and cliente_nombres:
-                cliente_obj.nombres = cliente_nombres
+                campos["nombres"] = cliente_nombres
             if not cliente_obj.apellidos and cliente_apellidos:
-                cliente_obj.apellidos = cliente_apellidos
+                campos["apellidos"] = cliente_apellidos
+            if campos:
+                _guardar_datos_cliente(session["cliente_id"], campos)
         
         db.session.commit()
         
@@ -5072,7 +5143,7 @@ def api_cliente_direccion():
         if not cliente_id:
             return jsonify({"success": False, "direccion": "", "error": "No session"})
 
-        cliente = Cliente.query.get(cliente_id)
+        cliente = _obtener_cliente_por_id(cliente_id)
         if not cliente:
             return jsonify({"success": False, "direccion": "", "error": "Cliente no encontrado"})
 
@@ -5161,30 +5232,42 @@ def api_consultar_dni_cliente(dni):
     if not dni.isdigit() or len(dni) != 8:
         return jsonify({"success": False, "error": "DNI inválido"}), 400
     
-    cliente = Cliente.query.filter_by(dni=dni).first()
+    cliente = None
+    try:
+        engine = db.get_engine(bind="clientes")
+        cliente = db.session.execute(
+            text("SELECT dni, nombres, apellidos FROM clientes WHERE dni=:d"),
+            {"d": dni}, bind_arguments={"bind": engine}
+        ).mappings().first()
+    except Exception:
+        cliente = None
+    if not cliente:
+        cli = Cliente.query.filter_by(dni=dni).first()
+        if cli:
+            cliente = {"dni": cli.dni, "nombres": cli.nombres, "apellidos": cli.apellidos}
     if cliente:
         return jsonify({
             "success": True,
-            "nombres": cliente.nombres,
-            "apellidos": cliente.apellidos,
-            "dni": cliente.dni,
+            "nombres": cliente["nombres"],
+            "apellidos": cliente["apellidos"],
+            "dni": cliente["dni"],
         })
     
     # Si no está en la base interna, consultar RENIEC (si hay token configurado)
     info = consultar_dni_reniec(dni)
     if info:
         # Guardar el DNI en el perfil del cliente logueado (recomendación)
-        try:
-            cliente_actual = Cliente.query.get(session.get("cliente_id"))
-            if cliente_actual and not cliente_actual.dni:
-                cliente_actual.dni = dni
-                if not cliente_actual.nombres and info["nombres"]:
-                    cliente_actual.nombres = info["nombres"]
-                if not cliente_actual.apellidos and info["apellidos"]:
-                    cliente_actual.apellidos = info["apellidos"]
-                db.session.commit()
-        except Exception:
-            db.session.rollback()
+        cid = session.get("cliente_id")
+        act = _obtener_cliente_por_id(cid)
+        campos = {}
+        if act is not None and not act.dni:
+            campos["dni"] = dni
+            if not act.nombres and info["nombres"]:
+                campos["nombres"] = info["nombres"]
+            if not act.apellidos and info["apellidos"]:
+                campos["apellidos"] = info["apellidos"]
+        if campos:
+            _guardar_datos_cliente(cid, campos)
         return jsonify({
             "success": True,
             "nombres": info["nombres"],
@@ -5237,13 +5320,10 @@ def api_consultar_ruc_cliente(ruc):
     info = consultar_ruc_sunat(ruc)
     if info:
         # Guardar el RUC en el perfil del cliente logueado (recomendación)
-        try:
-            cliente_actual = Cliente.query.get(session.get("cliente_id"))
-            if cliente_actual and not cliente_actual.ruc:
-                cliente_actual.ruc = ruc
-                db.session.commit()
-        except Exception:
-            db.session.rollback()
+        cid = session.get("cliente_id")
+        act = _obtener_cliente_por_id(cid)
+        if act is not None and not getattr(act, "ruc", None):
+            _guardar_datos_cliente(cid, {"ruc": ruc})
         return jsonify({
             "success": True,
             "razon_social": info["razon_social"],
