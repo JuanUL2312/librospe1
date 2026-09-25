@@ -14,6 +14,7 @@ from flask_sqlalchemy import SQLAlchemy
 from functools import wraps
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, text, or_
+from sqlalchemy.exc import IntegrityError
 
 # Paquete de microservicios (blueprints independientes: comercial, inventario, monitor)
 from microservicios import register_microservicios
@@ -444,7 +445,6 @@ def _obtener_cliente_por_id(cid):
         try: obj._is_ms = False
         except Exception: pass
     return obj
-
 def _asegurar_cliente_en_principal(cid):
     """Los clientes nuevos se crean solo en el microservicio dueño
     (librospe_ms_clientes); la principal necesita la fila por la FK
@@ -461,13 +461,25 @@ def _asegurar_cliente_en_principal(cid):
         if engine is None:
             return
         row = db.session.execute(
-            text("""SELECT id, dni, ruc, ce, nombres, apellidos, correo, telefono, direccion,
+            text("""SELECT id, dni, ruc, ce, nombres, apellidos, correo, telefono, 
+direccion,
                             departamento, provincia, distrito, clave, puntos, estado, fecha_registro
                      FROM clientes WHERE id=:id"""),
             {"id": cid}, bind_arguments={"bind": engine}
         ).mappings().first()
         if row is None:
             return
+        _insertar_cliente_principal(row)
+    except Exception:
+        db.session.rollback()
+
+
+def _insertar_cliente_principal(row):
+    """Inserta en librospe_db la fila leída del microservicio.
+    Si ya existe otra fila con el mismo correo y distinto id (dato desalineado),
+    se reemplaza únicamente cuando esa fila no tiene ventas/pedidos; si los tiene,
+    no se toca y el pedido fallará con un error claro en su lugar."""
+    def insertar():
         db.session.add(Cliente(
             id=row["id"], dni=row["dni"], ruc=row["ruc"], ce=row["ce"],
             nombres=row["nombres"], apellidos=row["apellidos"], correo=row["correo"],
@@ -479,8 +491,43 @@ def _asegurar_cliente_en_principal(cid):
             fecha_registro=row["fecha_registro"],
         ))
         db.session.commit()
+
+    try:
+        insertar()
+        return True
+    except IntegrityError:
+        db.session.rollback()
     except Exception:
         db.session.rollback()
+        return False
+
+    # Correo ya registrado en la principal con otro id
+    dup = db.session.execute(
+        text("SELECT id FROM clientes WHERE correo=:c AND id!=:id"),
+        {"c": row["correo"], "id": row["id"]}
+    ).scalar()
+    if dup is None:
+        return False
+    n_doc = db.session.execute(
+        text("""SELECT (SELECT COUNT(*) FROM pedidos WHERE cliente_id=:i)
+                   + (SELECT COUNT(*) FROM ventas WHERE cliente_id=:i)
+                   + (SELECT COUNT(*) FROM intentos_login WHERE cliente_id=:i)"""),
+        {"i": dup}
+    ).scalar() or 0
+    if n_doc:
+        print(f"⚠️ Cliente {row['id']}: el correo {row['correo']} ya existe en "
+              f"librospe_db con id {dup} y {n_doc} documento(s); no se reemplaza.")
+        return False
+    try:
+        db.session.execute(text("DELETE FROM clientes WHERE id=:i"), {"i": dup})
+        db.session.commit()
+        insertar()
+        print(f"🔄 Cliente {row['id']}: fila desalineada (id {dup}) reemplazada en librospe_db")
+        return True
+    except Exception as e:
+        db.session.rollback()
+        print(f"⚠️ No se pudo reemplazar la fila desalineada (id {dup}): {e}")
+        return False
 
 def _guardar_datos_cliente(cid, campos):
     """Persiste cambios de perfil del cliente en su DUEÑO de datos:
