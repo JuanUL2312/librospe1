@@ -4,7 +4,7 @@ import time
 import hmac
 import json
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from flask import Flask, abort, render_template, request, redirect, url_for, session, flash, jsonify, send_file
@@ -1220,7 +1220,7 @@ def enlace_whatsapp(telefono, texto):
         numero = "51" + solo
     else:
         numero = solo
-    return f"https://wa.me/{numero}?text={quote_plus(texto)}"
+    return f"https://wa.me/{numero}?text={quote(texto, safe='')}"
 
 
 def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta, documento="", tipo_documento="", razon_social="", direccion_fiscal=""):
