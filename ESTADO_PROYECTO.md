@@ -6,13 +6,13 @@ Actualizado: 2026-10-12. Rama `main`. Último commit: `fed88f3`.
 
 | Tarea | Estado |
 |---|---|
-| Paso 1 — Categorías CRUD | ✅ cerrado y probado (`fa0416f`), **desplegado en producción** |
-| Logo `LogoSalesiano.png` | ✅ en navbar admin/cliente + landing, commiteado, **sin desplegar** |
-| Paso 2 — Inventario con valuación | ⚠️ código commiteado, **sin deploy ni pruebas E2E** |
-| Limpieza de datos demo | ✅ script listo (`Micrososervicios/limpiar_datos_demo.sql`), **sin ejecutar** |
-| Delivery con mapa para dirección | ❌ sin empezar |
-| Paso 3 — `/stock-bajo` | ❌ sin empezar |
-| Paso 4 — `/perfil` staff | ❌ sin empezar |
+| Paso 1 — Categorías CRUD | ✅ cerrado y probado (`fa0416f`), desplegado en producción |
+| Logo `LogoSalesiano.png` | ✅ comprimido a 181 KB y **visible en producción** |
+| Paso 2 — Inventario con valuación | ⚠️ código subido al servidor, **falta reiniciar la app** (panel alwaysdata) |
+| Paso 3 — `/stock-bajo` | ⚠️ implementado y probado en local, subido al servidor, **falta reiniciar** y probar E2E |
+| Limpieza de datos demo | ✅ script listo (`Micrososervicios/limpiar_datos_demo.sql`), sin ejecutar |
+| Delivery con mapa para dirección | ❌ sin empezar (decidido: Leaflet + OpenStreetMap) |
+| Paso 4 — `/perfil` staff | ❌ sin empezar (la ruta no existe; el personal solo tiene `/cambiar_clave`) |
 
 Al retomar, en este orden:
 
@@ -22,20 +22,30 @@ Al retomar, en este orden:
 3. Pruebas E2E.
 4. Commit.
 
-## Estado de producción (verificado 2026-10-12)
+## Estado de producción (verificado 2026-10-12 22:33)
 
 Servidor alwaysdata — `https://librospe.alwaysdata.net`
 
 - `/api/health` → HTTP 200, version 3.0, los 4 microservicios `active`.
-- `fa0416f` (categorías) **sí está desplegado**: `/categorias` responde 302 al login.
-- `fed88f3` **no está desplegado**:
+- Deploy ejecutado a las 22:32: código subido con SFTP + rsync a `~/www/`.
+- `fa0416f` (categorías) desplegado: `/categorias` responde 302 al login.
+- El **logo ya está vivo**: `/static/img/LogoSalesiano.png` → HTTP 200,
+  185560 bytes. Los estáticos los sirve Apache directo, sin depender del
+  reinicio del proceso Python.
 
-  | Ruta | Respuesta |
-  |---|---|
-  | `/static/img/LogoSalesiano.png` | 404 |
-  | `/inventario` | 404 |
-  | `/stock-bajo` | 404 |
-  | `/perfil` | 404 |
+### PENDIENTE: reiniciar la app (bloquea a `/inventario` y `/stock-bajo`)
+
+| Ruta | Estado |
+|---|---|
+| `/inventario` | 404 — el proceso sigue con el código viejo |
+| `/stock-bajo` | 404 — ídem |
+
+`touch ~/www/tmp/restart.txt` **no reinicia** el uWSGI en alwaysdata
+(comprobado: se recreó el archivo a las 22:33 y las rutas siguen en 404).
+Desde SSH tampoco: `ps aux` no muestra los procesos de Apache/Passenger
+porque corren fuera del namespace del usuario.
+
+Única vía: **panel de alwaysdata → Web > Sites > librospe > Restart**.
 
 ## Logo — comprimir antes de desplegar
 
