@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block titulito %}Mi Perfil{% endblock %}
+
+{% block contenido %}
+<div class="container mt-3 mt-md-4 mb-4">
+  <div class="row justify-content-center g-4">
+
+    <!-- ===== DATOS EDITABLES ===== -->
+    <div class="col-11 col-sm-10 col-md-7 col-lg-6">
+      <div class="card shadow-lg border-0" style="border-radius: 15px;">
+        <div class="card-header text-white text-center py-3 py-md-4"
+          style="border-radius: 15px 15px 0 0; background: linear-gradient(135deg, #0f766e 0%, #0d9488 45%, #14b8a6 100%);">
+          <h4 class="mb-1"><i class="fas fa-user-circle me-2"></i> Mi Perfil</h4>
+          <p class="mb-0 small">Actualiza tus datos personales</p>
+        </div>
+
+        <div class="card-body p-4 p-md-5">
+          {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+          {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show mb-3" role="alert"
+            style="border-radius: 12px;">
+            <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-triangle' if category in ['danger','error'] else 'info-circle' }} me-2"></i>
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+          {% endfor %}
+          {% endif %}
+          {% endwith %}
+
+          <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div class="row g-3">
+              <div class="col-12 col-sm-6">
+                <label class="form-label fw-semibold" for="nombres">
+                  <i class="fas fa-user me-1"></i> Nombres
+                </label>
+                <input type="text" name="nombres" id="nombres" class="form-control" required
+                  maxlength="100" value="{{ usuario.nombres }}">
+              </div>
+
+              <div class="col-12 col-sm-6">
+                <label class="form-label fw-semibold" for="apellidos">
+                  <i class="fas fa-user me-1"></i> Apellidos
+                </label>
+                <input type="text" name="apellidos" id="apellidos" class="form-control" required
+                  maxlength="100" value="{{ usuario.apellidos }}">
+              </div>
+
+              <div class="col-12">
+                <label class="form-label fw-semibold" for="correo">
+                  <i class="fas fa-envelope me-1"></i> Correo
+                </label>
+                <input type="email" name="correo" id="correo" class="form-control" required
+                  maxlength="150" value="{{ usuario.correo }}">
+                <small class="text-muted d-block mt-1">
+                  <i class="fas fa-info-circle me-1"></i>
+                  Es tu usuario de acceso. Si lo cambias, entrarás con el nuevo.
+                </small>
+              </div>
+
+              <div class="col-12">
+                <label class="form-label fw-semibold" for="documento">
+                  <i class="fas fa-id-card me-1"></i> Documento
+                </label>
+                <input type="text" name="documento" id="documento" class="form-control"
+                  maxlength="20" value="{{ usuario.documento or '' }}"
+                  placeholder="DNI (8 dígitos) o Carnet de Extranjería (9)">
+                <small class="text-muted d-block mt-1">Opcional, pero debe ser válido si lo completas.</small>
+              </div>
+            </div>
+
+            <div class="d-grid gap-2 mt-4">
+              <button type="submit" class="btn btn-success btn-lg">
+                <i class="fas fa-save me-2"></i> Guardar cambios
+              </button>
+              <a href="{{ url_for('cambiar_clave') }}" class="btn btn-outline-primary">
+                <i class="fas fa-key me-2"></i> Cambiar contraseña
+              </a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== RESUMEN SOLO LECTURA ===== -->
+    <div class="col-11 col-sm-10 col-md-5 col-lg-4">
+      <div class="card shadow-lg border-0 mb-3" style="border-radius: 15px;">
+        <div class="card-header bg-white border-0 pt-4 px-4">
+          <h5 class="fw-bold text-dark mb-0">
+            <i class="fas fa-circle-info me-2 text-primary"></i> Datos del sistema
+          </h5>
+        </div>
+        <div class="card-body px-4">
+          <ul class="list-unstyled mb-0 small">
+            <li class="d-flex justify-content-between py-2 border-bottom">
+              <span class="text-muted">ID</span>
+              <span class="fw-bold">{{ usuario.id }}</span>
+            </li>
+            <li class="d-flex justify-content-between py-2 border-bottom">
+              <span class="text-muted">Rol</span>
+              <span class="badge bg-primary">{{ usuario.rol }}</span>
+            </li>
+            <li class="d-flex justify-content-between py-2 border-bottom">
+              <span class="text-muted">Estado</span>
+              {% if usuario.estado == 1 %}
+              <span class="badge bg-success">Activo</span>
+              {% else %}
+              <span class="badge bg-secondary">Inactivo</span>
+              {% endif %}
+            </li>
+            <li class="d-flex justify-content-between py-2">
+              <span class="text-muted">Productos activos</span>
+              <span class="fw-bold">{{ productos }}</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card shadow-lg border-0" style="border-radius: 15px;">
+        <div class="card-body p-4">
+          <h6 class="fw-bold text-dark mb-2">
+            <i class="fas fa-shield-halved me-2 text-success"></i> Permisos
+          </h6>
+          <p class="text-muted small mb-3">
+            Tu rol y tu estado los cambia el administrador desde
+            <strong>Usuarios Sistema</strong>. No se editan desde aquí.
+          </p>
+          {% if session.rol == 'administrador' %}
+          <a href="{{ url_for('usuarios_sistema') }}" class="btn btn-outline-secondary btn-sm w-100">
+            <i class="fas fa-users-cog me-1"></i> Ver usuarios del sistema
+          </a>
+          {% else %}
+          <p class="text-muted small mb-0">
+            <i class="fas fa-info-circle me-1"></i>
+            Si necesitas cambiar tu rol, solicítalo al administrador.
+          </p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

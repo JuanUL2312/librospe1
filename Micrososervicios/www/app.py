@@ -2346,6 +2346,88 @@ def cambiar_clave():
     return render_template("cambiar_clave.html")
 
 
+@app.route("/perfil", methods=["GET", "POST"])
+@login_required
+@csrf_protect
+def perfil():
+    """Perfil del usuario de sistema: ve y edita sus propios datos.
+
+    El rol y el estado NO son editables aquí: los cambia el administrador
+    desde /usuarios-sistema. La contraseña se cambia en /cambiar_clave.
+    """
+    usuario = db.session.get(UsuarioSistema, session["usuario_id"])
+    if not usuario:
+        flash("❌ Tu usuario ya no existe en el sistema", "danger")
+        return redirect(url_for("logout"))
+
+    if request.method == "POST":
+        nombres = (request.form.get("nombres") or "").strip()
+        apellidos = (request.form.get("apellidos") or "").strip()
+        correo = (request.form.get("correo") or "").strip().lower()
+        documento = (request.form.get("documento") or "").strip()
+
+        if not nombres or not apellidos:
+            flash("❌ Nombres y apellidos son obligatorios", "danger")
+            return render_template("perfil.html", usuario=usuario)
+
+        if not correo or "@" not in correo:
+            flash("❌ Ingresa un correo válido", "danger")
+            return render_template("perfil.html", usuario=usuario)
+
+        # El correo es la identidad de acceso y es UNIQUE en la tabla
+        if correo != (usuario.correo or "").lower():
+            existe = UsuarioSistema.query.filter(
+                UsuarioSistema.correo == correo,
+                UsuarioSistema.id != usuario.id
+            ).first()
+            if existe:
+                flash("❌ Ese correo ya está registrado por otro usuario", "danger")
+                return render_template("perfil.html", usuario=usuario)
+
+        # Documento opcional, pero si viene debe ser DNI (8) o CE (9)
+        if documento:
+            if documento.isdigit():
+                if len(documento) != 8:
+                    flash("❌ El DNI debe tener exactamente 8 dígitos", "danger")
+                    return render_template("perfil.html", usuario=usuario)
+            elif len(documento) != 9:
+                flash("❌ El CE debe tener 9 caracteres", "danger")
+                return render_template("perfil.html", usuario=usuario)
+
+        cambios = []
+        if nombres != usuario.nombres:
+            cambios.append("nombres")
+        if apellidos != usuario.apellidos:
+            cambios.append("apellidos")
+        if correo != (usuario.correo or "").lower():
+            cambios.append("correo")
+        if documento != (usuario.documento or ""):
+            cambios.append("documento")
+
+        if not cambios:
+            flash("ℹ️ No cambiaste ningún dato", "info")
+            return redirect(url_for("perfil"))
+
+        anterior = f"{usuario.nombres} {usuario.apellidos} <{usuario.correo}>"
+        usuario.nombres = nombres
+        usuario.apellidos = apellidos
+        usuario.correo = correo
+        usuario.documento = documento or None
+        db.session.commit()
+
+        # el navbar muestra el nombre cacheado en la sesión
+        session["nombre"] = usuario.nombres
+
+        registrar_auditoria("EDITAR_PERFIL", "usuarios_sistema",
+                            f"{anterior} -> {nombres} {apellidos} <{correo}> "
+                            f"(campos: {', '.join(cambios)})")
+        flash("✅ Perfil actualizado", "success")
+        return redirect(url_for("perfil"))
+
+    productos = Producto.query.filter_by(estado=1).count()
+    return render_template("perfil.html", usuario=usuario, productos=productos)
+
+
 @app.route("/proveedores")
 @login_required
 def proveedores():
