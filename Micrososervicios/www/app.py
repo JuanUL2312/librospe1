@@ -2539,6 +2539,75 @@ def eliminar_categoria(id_categoria):
     return redirect(url_for("categorias"))
 
 
+@app.route("/inventario")
+@login_required
+def inventario():
+    """Inventario con valuación. El vendedor ve el stock pero sin costos ni totales a costo."""
+    es_admin = session.get("rol") == "administrador"
+    categoria_id = request.args.get("categoria", type=int)
+    estado_filtro = request.args.get("estado") or ""
+    busqueda = (request.args.get("q") or "").strip()
+
+    query = Producto.query.filter(Producto.estado == 1)
+    if categoria_id:
+        query = query.filter(Producto.id_categoria == categoria_id)
+    if busqueda:
+        like = f"%{busqueda}%"
+        query = query.filter(or_(Producto.nombre.like(like),
+                                 Producto.codigo_barras.like(like)))
+
+    productos_lista = query.order_by(Producto.nombre.asc()).all()
+
+    filas = []
+    for p in productos_lista:
+        cantidad = p.cantidad or 0
+        smin = p.stock_minimo if p.stock_minimo is not None else 5
+        smax = p.stock_maximo if p.stock_maximo is not None else 100
+        if cantidad == 0:
+            estado_stock = "agotado"
+        elif cantidad <= smin:
+            estado_stock = "bajo"
+        elif cantidad >= smax:
+            estado_stock = "exceso"
+        else:
+            estado_stock = "normal"
+        costo = float(p.costo or 0)
+        precio = float(p.precio or 0)
+        filas.append({
+            "producto": p,
+            "cantidad": cantidad,
+            "stock_minimo": smin,
+            "stock_maximo": smax,
+            "estado_stock": estado_stock,
+            "valor_costo": cantidad * costo,
+            "valor_precio": cantidad * precio,
+            "tiene_costo": p.costo is not None,
+        })
+
+    if estado_filtro in ("agotado", "bajo", "normal", "exceso"):
+        filas = [f for f in filas if f["estado_stock"] == estado_filtro]
+
+    totales = {
+        "productos": len(filas),
+        "unidades": sum(f["cantidad"] for f in filas),
+        "valor_costo": sum(f["valor_costo"] for f in filas),
+        "valor_precio": sum(f["valor_precio"] for f in filas),
+        "con_costo": sum(1 for f in filas if f["tiene_costo"]),
+    }
+
+    categorias_lista = Categoria.query.filter_by(activo=True)\
+        .order_by(Categoria.nombre.asc()).all()
+
+    return render_template("inventario.html",
+                          filas=filas,
+                          totales=totales,
+                          categorias_lista=categorias_lista,
+                          es_admin=es_admin,
+                          categoria_seleccionada=categoria_id,
+                          estado_seleccionado=estado_filtro,
+                          busqueda=busqueda)
+
+
 @app.route("/productos")
 @login_required
 def productos():

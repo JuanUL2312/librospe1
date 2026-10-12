@@ -25,7 +25,11 @@
     <!-- NAVBAR -->
     <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
         <div class="container-fluid">
-            <a class="navbar-brand fw-bold" href="/">Librería Salesiana</a>
+            <a class="navbar-brand d-flex align-items-center" href="/">
+                <img src="{{ url_for('static', filename='img/LogoSalesiano.png') }}" alt="Librería Salesiana"
+                    style="height: 44px; width: auto;" class="me-2">
+                <span class="fw-bold d-none d-sm-inline">Librería Salesiana</span>
+            </a>
             {% if session.usuario_id %}
             <div class="d-flex align-items-center text-white gap-2 gap-sm-3">
                 <div class="d-none d-md-block">
