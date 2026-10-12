@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block titulito %}🗂️ {% if categoria %}✏️ Editar {% else %}➕ Nueva {% endif %}Categoría{% endblock %}
+
+{% block contenido %}
+<div class="container-fluid px-2 px-md-3">
+  <div class="row justify-content-center">
+    <div class="col-12 col-lg-10 col-xl-8">
+
+      <!-- MENSAJES FLASH -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      {% for category, message in messages %}
+      <div class="alert alert-{{ category if category in ['success','danger','warning','info'] else 'danger' }} alert-dismissible fade show shadow-sm">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endfor %}
+      {% endif %}
+      {% endwith %}
+
+      <!-- HEADER FORM -->
+      <div class="text-center mb-4 mb-md-5 pb-3 pb-md-5">
+        <div class="bg-primary rounded-circle mx-auto mb-3 mb-md-4 p-3 p-md-4 shadow-lg d-inline-flex align-items-center justify-content-center"
+          style="width: 80px; height: 80px;">
+          {% if categoria %}
+          <i class="fas fa-tag fa-1x fa-md-2x text-white"></i>
+          {% else %}
+          <i class="fas fa-tags fa-1x fa-md-2x text-white"></i>
+          {% endif %}
+        </div>
+        <h1 class="h3 h2-md fw-extrabold mb-2 text-warning">
+          {% if categoria %}✏️ Editar Categoría{% else %}➕ Nueva Categoría{% endif %}
+        </h1>
+        <p class="lead text-muted small">
+          {% if categoria %}
+          Actualiza la información de la categoría
+          {% else %}
+          Registra una nueva categoría para organizar tus productos
+          {% endif %}
+        </p>
+      </div>
+
+      <!-- FORM -->
+      <div class="card shadow-3xl p-3 p-md-5 border-0 rounded-3">
+        <form method="POST"
+          action="{% if categoria %}/categorias/actualizar/{{ categoria.id_categoria }}{% else %}/categorias/guardar{% endif %}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+          <!-- NOMBRE -->
+          <div class="mb-4 mb-md-5">
+            <label class="form-label fw-bold text-dark mb-2 mb-md-3 fs-6 fs-md-5">
+              <i class="fas fa-tag me-2 text-primary"></i>Nombre de la categoría
+            </label>
+            <div class="input-group">
+              <span class="input-group-text bg-transparent border-0 text-muted">
+                <i class="fas fa-font"></i>
+              </span>
+              <input type="text" name="nombre" id="nombre" class="form-control border-0 shadow-sm"
+                placeholder="Ej. Libros de texto" maxlength="50" required
+                value="{% if categoria %}{{ categoria.nombre }}{% endif %}">
+            </div>
+            <div class="form-text">
+              <i class="fas fa-info-circle me-1"></i>Máximo 50 caracteres. Debe ser único.
+            </div>
+          </div>
+
+          <!-- DESCRIPCIÓN -->
+          <div class="mb-4 mb-md-5">
+            <label class="form-label fw-bold text-dark mb-2 mb-md-3 fs-6 fs-md-5">
+              <i class="fas fa-align-left me-2 text-success"></i>Descripción
+            </label>
+            <textarea name="descripcion" id="descripcion" class="form-control border-0 shadow-sm" rows="3"
+              placeholder="Descripción opcional de la categoría">{% if categoria and categoria.descripcion %}{{ categoria.descripcion }}{% endif %}</textarea>
+          </div>
+
+          {% if categoria %}
+          <!-- ESTADO (solo edición) -->
+          <div class="mb-4 mb-md-5">
+            <label class="form-label fw-bold text-dark mb-2 mb-md-3 fs-6 fs-md-5">
+              <i class="fas fa-toggle-on me-2 text-info"></i>Estado
+            </label>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="activo" id="activo" value="1"
+                {% if categoria.activo %}checked{% endif %}>
+              <label class="form-check-label text-muted" for="activo">
+                Categoría activa (visible en el formulario de productos)
+              </label>
+            </div>
+          </div>
+          {% endif %}
+
+          <!-- BOTONES -->
+          <div class="d-grid gap-2 gap-md-3 mt-4 mt-md-5">
+            <button type="submit" class="btn btn-success btn-md btn-lg-md py-2 py-md-3 shadow-lg hover-lift">
+              <i class="fas fa-save me-2"></i>
+              {% if categoria %}Actualizar Categoría{% else %}Guardar Categoría{% endif %}
+            </button>
+
+            <a href="/categorias" class="btn btn-outline-secondary btn-md btn-lg-md py-2 py-md-3 shadow-sm hover-lift text-decoration-none">
+              <i class="fas fa-times me-2"></i>Cancelar
+            </a>
+          </div>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

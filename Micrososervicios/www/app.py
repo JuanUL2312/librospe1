@@ -2409,6 +2409,136 @@ def eliminar_proveedor(id):
     return redirect(url_for("proveedores"))
 
 
+# ============================================
+# CATEGORIAS (CRUD)
+# ============================================
+
+@app.route("/categorias")
+@login_required
+def categorias():
+    categoriaslocal = Categoria.query.order_by(Categoria.activo.desc(), Categoria.nombre).all()
+    conteos = dict(
+        db.session.query(Producto.id_categoria, func.count(Producto.id))
+        .group_by(Producto.id_categoria).all()
+    )
+    return render_template("categorias.html", categorias_lista=categoriaslocal, conteos=conteos)
+
+
+@app.route("/categorias/nueva")
+@login_required
+@permiso_requerido("gestionar_productos")
+def nueva_categoria():
+    return render_template("categoria_form.html", categoria=None)
+
+
+@app.route("/categorias/guardar", methods=["POST"])
+@login_required
+@permiso_requerido("gestionar_productos")
+@csrf_protect
+def guardar_categoria():
+    nombre = (request.form.get("nombre") or "").strip()
+    descripcion = (request.form.get("descripcion") or "").strip()
+
+    if not nombre:
+        flash("❌ El nombre de la categoría es obligatorio", "error")
+        return redirect(url_for("nueva_categoria"))
+    if len(nombre) > 50:
+        flash("❌ El nombre no puede superar los 50 caracteres", "error")
+        return redirect(url_for("nueva_categoria"))
+
+    duplicada = Categoria.query.filter(func.lower(Categoria.nombre) == nombre.lower()).first()
+    if duplicada:
+        flash("❌ Ya existe una categoría con ese nombre", "error")
+        return redirect(url_for("nueva_categoria"))
+
+    nueva = Categoria(nombre=nombre, descripcion=descripcion or None, activo=True)
+    db.session.add(nueva)
+    db.session.commit()
+    registrar_auditoria("CREAR", "categorias", f"Se creó la categoría: {nombre}")
+    flash("✅ Categoría registrada", "success")
+    return redirect(url_for("categorias"))
+
+
+@app.route("/categorias/editar/<int:id_categoria>")
+@login_required
+@permiso_requerido("gestionar_productos")
+def editar_categoria(id_categoria):
+    categoria = db.session.get(Categoria, id_categoria)
+    if not categoria:
+        flash("❌ Categoría no encontrada", "error")
+        return redirect(url_for("categorias"))
+    return render_template("categoria_form.html", categoria=categoria)
+
+
+@app.route("/categorias/actualizar/<int:id_categoria>", methods=["POST"])
+@login_required
+@permiso_requerido("gestionar_productos")
+@csrf_protect
+def actualizar_categoria(id_categoria):
+    categoria = db.session.get(Categoria, id_categoria)
+    if not categoria:
+        flash("❌ Categoría no encontrada", "error")
+        return redirect(url_for("categorias"))
+
+    nombre = (request.form.get("nombre") or "").strip()
+    descripcion = (request.form.get("descripcion") or "").strip()
+    activo_form = request.form.get("activo")
+
+    if not nombre:
+        flash("❌ El nombre de la categoría es obligatorio", "error")
+        return redirect(url_for("editar_categoria", id_categoria=id_categoria))
+    if len(nombre) > 50:
+        flash("❌ El nombre no puede superar los 50 caracteres", "error")
+        return redirect(url_for("editar_categoria", id_categoria=id_categoria))
+
+    duplicada = Categoria.query.filter(
+        func.lower(Categoria.nombre) == nombre.lower(),
+        Categoria.id_categoria != id_categoria
+    ).first()
+    if duplicada:
+        flash("❌ Ya existe otra categoría con ese nombre", "error")
+        return redirect(url_for("editar_categoria", id_categoria=id_categoria))
+
+    categoria.nombre = nombre
+    categoria.descripcion = descripcion or None
+    categoria.activo = True if activo_form == "1" else False
+    db.session.commit()
+    registrar_auditoria("EDITAR", "categorias", f"Se actualizó la categoría: {nombre}")
+    flash("✅ Categoría actualizada", "success")
+    return redirect(url_for("categorias"))
+
+
+@app.route("/categorias/eliminar/<int:id_categoria>", methods=["POST"])
+@login_required
+@permiso_requerido("gestionar_productos")
+@csrf_protect
+def eliminar_categoria(id_categoria):
+    categoria = db.session.get(Categoria, id_categoria)
+    if not categoria:
+        flash("❌ Categoría no encontrada", "error")
+        return redirect(url_for("categorias"))
+
+    en_uso = Producto.query.filter_by(id_categoria=categoria.id_categoria).count()
+
+    if en_uso:
+        if categoria.activo:
+            categoria.activo = False
+            db.session.commit()
+            registrar_auditoria("DESACTIVAR", "categorias",
+                                f"Se desactivó la categoría: {categoria.nombre} ({en_uso} producto(s) asociado(s))")
+            flash(f"⚠️ La categoría tiene {en_uso} producto(s): se desactivó en lugar de eliminarse", "warning")
+        else:
+            flash("ℹ️ La categoría ya estaba desactivada y tiene productos asociados", "info")
+    else:
+        nombre = categoria.nombre
+        db.session.delete(categoria)
+        db.session.commit()
+        registrar_auditoria("ELIMINAR", "categorias", f"Se eliminó la categoría: {nombre}")
+        flash("✅ Categoría eliminada", "success")
+
+    return redirect(url_for("categorias"))
+
+
 @app.route("/productos")
 @login_required
 def productos():
