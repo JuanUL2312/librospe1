@@ -1082,9 +1082,25 @@ def obtener_token_csrf():
         session["csrf_token"] = secrets.token_urlsafe(32)
     return session["csrf_token"]
 
+# Etiqueta legible de cada tipo de comprobante. Centralizada para que todas
+# las vistas muestren lo mismo: antes cada plantilla hacia su if/else y una
+# venta tipo 'nota' salia como "BOLETA DE VENTA" en el detalle del cliente.
+ETIQUETAS_COMPROBANTE = {
+    "boleta": "📄 BOLETA DE VENTA",
+    "factura": "🏢 FACTURA ELECTRÓNICA",
+    "nota": "📝 NOTA DE VENTA",
+    "ninguno": "🚫 SIN COMPROBANTE",
+}
+
+
+def _etiqueta_comprobante(tipo):
+    return ETIQUETAS_COMPROBANTE.get(tipo, str(tipo or "").upper() or "NO ESPECIFICADO")
+
+
 @app.context_processor
 def inject_security_context():
-    return {"csrf_token": obtener_token_csrf()}
+    return {"csrf_token": obtener_token_csrf(),
+            "ventas_etiqueta_comprobante": ETIQUETAS_COMPROBANTE}
 
 def csrf_protect(f):
     @wraps(f)
@@ -5228,18 +5244,21 @@ def crear_pedido():
         # 4. CREAR DETALLES Y VENTAS
         # ============================================
         # Número de comprobante correlativo (B001-000123 / F001-000045 / NV001-000123)
+        # Se calcula POR ITEM: si se calcula una sola vez antes del bucle,
+        # todos los productos de un pedido se guardan con el MISMO numero.
         tipo_comp = data.get("comprobante", {}).get("tipo", "boleta") or "boleta"
         if tipo_comp not in ("boleta", "factura", "nota"):
             tipo_comp = "boleta"
         serie = {"boleta": "B001", "factura": "F001", "nota": "NV001"}.get(tipo_comp, "NV001")
-        contador = Venta.query.filter_by(tipo_comprobante=tipo_comp).count()
-        numero_comprobante = f"{serie}-{contador + 1:06d}"
+        contador_base = Venta.query.filter_by(tipo_comprobante=tipo_comp).count()
         
         productos_para_correo = []
         
         cliente_obj = _obtener_cliente_por_id(session["cliente_id"])
         
         for item in data["items"]:
+            numero_comprobante = f"{serie}-{contador_base + 1:06d}"
+            contador_base += 1
             producto = Producto.query.get(item["id"])
             subtotal = float(item["precio"]) * int(item["cantidad"])
             

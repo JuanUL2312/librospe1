@@ -132,12 +132,12 @@
                                 <p class="mb-0 mt-2">
                                     <strong><i class="fas fa-file-invoice me-1"></i> Tipo Comprobante:</strong><br>
                                     {% if venta and venta.tipo_comprobante %}
-                                        <span class="badge bg-secondary">
-                                            {% if venta.tipo_comprobante == 'factura' %}
-                                                🏢 FACTURA ELECTRÓNICA
-                                            {% else %}
-                                                📄 BOLETA DE VENTA
-                                            {% endif %}
+                                        <span class="badge
+                                            {% if venta.tipo_comprobante == 'factura' %}bg-danger text-white
+                                            {% elif venta.tipo_comprobante == 'nota' %}bg-info text-dark
+                                            {% elif venta.tipo_comprobante == 'ninguno' %}bg-secondary
+                                            {% else %}bg-secondary{% endif %}">
+                                            {{ ventas_etiqueta_comprobante.get(venta.tipo_comprobante, venta.tipo_comprobante|upper) }}
                                         </span>
                                     {% else %}
                                         <span class="text-muted">No especificado</span>
