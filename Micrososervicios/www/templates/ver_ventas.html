@@ -84,7 +84,7 @@
                 <th>Vendedor</th>
                 <th>Producto</th>
                 <th class="text-center">Cantidad</th>
-                <th class="text-center">Precio</th>
+                <th class="text-center">Subtotal</th>
                 <th class="text-center">Hora</th>
               </tr>
             </thead>
@@ -105,8 +105,11 @@
                     {{ v.cantidad }}
                   </span>
                 </td>
-                <td class="text-center fw-bold fs-5 text-success">
-                  S/. {{ "%.2f"|format(v.precio) }}
+                <td class="text-center">
+                  <div class="fw-bold fs-5 text-success">S/. {{ "%.2f"|format(v.subtotal) }}</div>
+                  {% if v.cantidad and v.cantidad > 1 %}
+                  <small class="text-muted d-block">S/. {{ "%.2f"|format(v.precio) }} c/u</small>
+                  {% endif %}
                 </td>
                 <td class="text-center fw-semibold text-muted">
                   {{ v.fecha_venta.strftime('%H:%M') if v.fecha_venta else '—' }}
