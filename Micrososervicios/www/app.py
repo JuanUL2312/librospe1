@@ -190,6 +190,10 @@ class Producto(db.Model):
     destacado = db.Column(db.Integer, default=0)
     precio_oferta = db.Column(db.Numeric(10,2), nullable=True) 
     codigo_barras = db.Column(db.String(50), nullable=True)
+    # La columna existe en la tabla productos (BD_Libros.sql) pero faltaba en el
+    # modelo: /inventario y /stock-bajo filtran por ella y reventaban con
+    # AttributeError. Sin esto ninguna de las dos rutas carga.
+    estado = db.Column(db.Integer, default=1)
     id_categoria = db.Column(db.Integer, db.ForeignKey("categorias.id_categoria"), nullable=True)
     
     ventas = db.relationship("Venta", back_populates="producto")
