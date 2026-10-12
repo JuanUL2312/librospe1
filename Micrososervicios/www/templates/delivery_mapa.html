@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block titulito %}🗺️ Mapa de Delivery{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  #mapaDelivery { height: 560px; border-radius: 15px; z-index: 1; }
+  .leaflet-popup-content { margin: 10px 12px; font-size: 0.9rem; }
+  .lista-pedido { cursor: pointer; border-left: 4px solid transparent; transition: all .15s; }
+  .lista-pedido:hover { background-color: #f8f9fa; }
+  .lista-pedido.activo { background-color: #e0f2fe; border-left-color: #0ea5e9; }
+</style>
+{% endblock %}
+
+{% block contenido %}
+<div class="container-fluid py-3 py-md-4">
+  <div class="row">
+
+    <!-- HEADER -->
+    <div class="col-12">
+      <div class="p-4 mb-4 text-white position-relative overflow-hidden hover-lift rounded-4"
+        style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 45%, #0ea5e9 100%);">
+        <div class="position-relative z-3 d-flex justify-content-between align-items-center flex-wrap gap-3">
+          <div>
+            <h1 class="h2 fw-extrabold mb-2">
+              <i class="fas fa-map-marked-alt me-3"></i> Mapa de Delivery
+            </h1>
+            <p class="h5 mb-0 opacity-90">
+              <i class="fas fa-truck me-2"></i>
+              {{ puntos|length }} pedidos de delivery
+              {% if sin_ubicar %}
+              · <span class="badge bg-warning text-dark">{{ sin_ubicar }} sin ubicar</span>
+              {% endif %}
+            </p>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <a href="/pedidos" class="btn btn-light btn-lg shadow-lg hover-lift">
+              <i class="fas fa-list me-2"></i>Ver pedidos
+            </a>
+            <button type="button" class="btn btn-warning btn-lg shadow-lg hover-lift" id="btnUbicar">
+              <i class="fas fa-crosshairs me-2"></i>Ubicar seleccionado
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if sin_ubicar %}
+    <div class="col-12">
+      <div class="alert alert-warning d-flex align-items-center mb-3" style="border-radius: 12px;">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        <div>
+          <strong>{{ sin_ubicar }} pedido(s) sin coordenadas.</strong>
+          El geocodificado no los encontró. Elige uno de la lista y pulsa
+          <em>Ubicar seleccionado</em>, luego haz clic en el mapa.
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- LISTA -->
+    <div class="col-12 col-lg-4 col-xl-3 mb-3">
+      <div class="card shadow-3xl border-0">
+        <div class="card-header bg-white border-0 pt-3 px-3">
+          <h5 class="fw-bold text-dark mb-0">
+            <i class="fas fa-list me-2 text-primary"></i>Pedidos
+          </h5>
+        </div>
+        <div class="card-body p-2" style="max-height: 560px; overflow-y: auto;" id="listaPedidos">
+          {% if puntos %}
+          {% for p in puntos %}
+          <div class="lista-pedido p-2 rounded border-bottom" data-id="{{ p.id }}"
+            data-lat="{{ p.lat if p.lat is not none else '' }}"
+            data-lng="{{ p.lng if p.lng is not none else '' }}"
+            data-ubicado="{{ '1' if p.ubicado else '0' }}">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+              <div class="flex-grow-1">
+                <div class="fw-bold small">
+                  #{{ p.id }} · {{ p.cliente }}
+                </div>
+                <div class="text-muted" style="font-size:0.78rem;">
+                  {{ p.direccion[:70] if p.direccion else 'Sin direccion' }}
+                </div>
+                <div class="mt-1">
+                  {% if p.estado == 'entregado' %}
+                  <span class="badge bg-success" style="font-size:0.6rem;">Entregado</span>
+                  {% elif p.estado == 'cancelado' %}
+                  <span class="badge bg-secondary" style="font-size:0.6rem;">Cancelado</span>
+                  {% elif p.estado == 'proceso' %}
+                  <span class="badge bg-info" style="font-size:0.6rem;">En proceso</span>
+                  {% else %}
+                  <span class="badge bg-warning text-dark" style="font-size:0.6rem;">Pendiente</span>
+                  {% endif %}
+                  {% if not p.ubicado %}
+                  <span class="badge bg-danger" style="font-size:0.6rem;">Sin ubicar</span>
+                  {% elif p.precision == 'aproximada' %}
+                  <span class="badge bg-warning text-dark" style="font-size:0.6rem;">Aprox.</span>
+                  {% elif p.precision == 'manual' %}
+                  <span class="badge bg-secondary" style="font-size:0.6rem;">Manual</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="text-end">
+                <div class="fw-bold small">S/ {{ "%.2f"|format(p.total) }}</div>
+                {% if p.telefono %}
+                <small class="text-muted" style="font-size:0.7rem;">{{ p.telefono }}</small>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+          {% else %}
+          <div class="text-center py-5 px-3">
+            <i class="fas fa-truck fa-3x text-muted mb-3"></i>
+            <p class="text-muted mb-0">No hay pedidos de delivery todavia.</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- MAPA -->
+    <div class="col-12 col-lg-8 col-xl-9">
+      <div class="card shadow-3xl border-0">
+        <div class="card-body p-2">
+          <div id="mapaDelivery"></div>
+          <p class="text-muted small mt-2 mb-0 px-2">
+            <i class="fas fa-circle-info me-1"></i>
+            Mapa por OpenStreetMap / Leaflet. Los marcadores usan los datos de
+            OpenStreetMap, licencia ODbL.
+            {% if not tienda %}
+            <span class="text-warning">
+              Configura <code>MAPA_TIENDA_LAT</code> y <code>MAPA_TIENDA_LNG</code>
+              en el <code>.env</code> para marcar la libreria.
+            </span>
+            {% endif %}
+          </p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+  const PUNTOS = {{ puntos | tojson }};
+  const TIENDA = {{ tienda | tojson }};
+  const CSRF = "{{ csrf_token }}";
+
+  // Si no hay ningun pedido ubicado, mostrar Peru entero
+  const CON_UBICAR = PUNTOS.filter(p => p.ubicado);
+  const centro = CON_UBICAR.length
+    ? [CON_UBICAR[0].lat, CON_UBICAR[0].lng]
+    : [-12.05, -77.04];
+
+  const mapa = L.map('mapaDelivery').setView(centro, CON_UBICAR.length ? 13 : 6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(mapa);
+
+  const marcadores = {};
+  const colorEstado = {
+    'entregado': '#16a34a', 'cancelado': '#94a3b8',
+    'proceso': '#0ea5e9', 'pendiente': '#f59e0b'
+  };
+  // Un punto 'aproximada' es el centroide del distrito, no la calle exacta:
+  // se dibuja con borde punteado para que no se confunda.
+  const colorPrecison = { 'exacta': '#ffffff', 'aproximada': '#f59e0b', 'manual': '#a855f7' };
+
+  PUNTOS.forEach(p => {
+    if (!p.ubicado) return;
+    const icono = L.circleMarker([p.lat, p.lng], {
+      radius: 9,
+      color: colorPrecison[p.precision] || '#ffffff',
+      weight: p.precision === 'aproximada' ? 3 : 2,
+      dashArray: p.precision === 'aproximada' ? '4,3' : null,
+      fillColor: colorEstado[p.estado] || '#f59e0b',
+      fillOpacity: 0.95
+    }).addTo(mapa);
+    const notaPrec = p.precision === 'aproximada'
+      ? '<br><span style="color:#b45309"><b>Punto aproximado:</b> centro del distrito, '
+        + 'la calle no esta geocodificada. Refinar con "Ubicar seleccionado".</span>'
+      : '';
+    icono.bindPopup(
+      `<b>Pedido #${p.id}</b><br>` +
+      `${p.cliente}<br>` +
+      `<span style="color:#555">${p.direccion || ''}</span><br>` +
+      `<b>S/ ${Number(p.total).toFixed(2)}</b> · ${p.estado}` +
+      notaPrec
+    );
+    marcadores[p.id] = icono;
+  });
+
+  if (TIENDA) {
+    L.marker([TIENDA.lat, TIENDA.lng], {
+      icon: L.icon({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon.png',
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon-2x.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-shadow.png',
+        iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+      })
+    }).addTo(mapa).bindPopup(`<b>${TIENDA.nombre}</b>`).openPopup();
+  }
+
+  if (CON_UBICAR.length > 1) {
+    const grupo = L.featureGroup(Object.values(marcadores));
+    mapa.fitBounds(grupo.getBounds().pad(0.2));
+  }
+
+  // ---- seleccion en la lista ----
+  let seleccionado = null;
+  const items = document.querySelectorAll('.lista-pedido');
+  items.forEach(item => {
+    item.addEventListener('click', () => {
+      items.forEach(i => i.classList.remove('activo'));
+      item.classList.add('activo');
+      seleccionado = item;
+      const lat = item.dataset.lat, lng = item.dataset.lng;
+      if (lat !== '' && lng !== '') {
+        mapa.setView([parseFloat(lat), parseFloat(lng)], 16);
+        const m = marcadores[item.dataset.id];
+        if (m) m.openPopup();
+      }
+    });
+  });
+
+  // ---- ubicar a mano el pedido seleccionado ----
+  document.getElementById('btnUbicar').addEventListener('click', () => {
+    if (!seleccionado) { alert('Primero selecciona un pedido de la lista'); return; }
+    if (seleccionado.dataset.ubicado === '1') {
+      if (!confirm('Este pedido ya tiene coordenadas. ¿Quieres cambiar el punto?')) return;
+    }
+    const id = seleccionado.dataset.id;
+    const aviso = document.createElement('div');
+    aviso.className = 'alert alert-info py-1 px-2 mt-2 mb-0 small';
+    aviso.textContent = 'Haz clic en el mapa para fijar el punto de entrega.';
+    document.querySelector('#mapaDelivery').parentNode.prepend(aviso);
+
+    const clic = async (e) => {
+      mapa.off('click', clic);
+      aviso.remove();
+      const cuerpo = new URLSearchParams({ lat: e.latlng.lat, lng: e.latlng.lng, csrf_token: CSRF });
+      const r = await fetch(`/delivery/mapa/${id}/ubicar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: cuerpo
+      });
+      if (r.ok) { alert('Punto guardado. Recargando...'); location.reload(); }
+      else { alert('No se pudo guardar. Revisa que tengas permiso de administrador.'); }
+    };
+    mapa.on('click', clic);
+  });
+</script>
+{% endblock %}

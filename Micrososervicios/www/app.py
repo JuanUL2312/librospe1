@@ -357,6 +357,11 @@ class Pedido(db.Model):
     total = db.Column(db.Float)
     direccion_entrega = db.Column(db.Text)
     tipo_entrega = db.Column(db.String(20), default="recojo")
+    # Punto de entrega en el mapa (migracion_delivery_mapa.sql).
+    # NULL cuando el geocodificado falla: el admin lo coloca a mano.
+    lat = db.Column(db.Numeric(10, 7), nullable=True)
+    lng = db.Column(db.Numeric(10, 7), nullable=True)
+    geo_precision = db.Column(db.String(10), nullable=True)  # exacta|aproximada|manual
     nota = db.Column(db.Text)
     # Confirmación de entrega (delivery)
     nombre_recibe = db.Column(db.String(200), nullable=True)
@@ -5170,6 +5175,7 @@ def crear_pedido():
         # ============================================
         # 2.5 VALIDAR DELIVERY (dirección + distrito de residencia)
         # ============================================
+        cliente_residencia = None
         if data.get("tipo_entrega") == "delivery":
             if not cliente_direccion:
                 return jsonify({"success": False, "error": "Ingresa tu dirección de entrega."})
@@ -5188,11 +5194,26 @@ def crear_pedido():
         # FK pedidos.cliente_id -> librospe_db.clientes: el cliente pudo
         # registrarse solo en el microservicio, asegura la fila en la principal.
         _asegurar_cliente_en_principal(session["cliente_id"])
+
+        # Punto en el mapa: el geocodificado es opcional y nunca debe
+        # tumbar el pedido. Si falla, el admin lo ubica a mano.
+        lat_entrega = lng_entrega = precision_entrega = None
+        if data["tipo_entrega"] == "delivery" and cliente_direccion:
+            lat_entrega, lng_entrega, precision_entrega = geocodificar_direccion(
+                cliente_direccion,
+                getattr(cliente_residencia, "departamento", None),
+                getattr(cliente_residencia, "provincia", None),
+                getattr(cliente_residencia, "distrito", None),
+            )
+
         pedido = Pedido(
             cliente_id=session["cliente_id"],
             total=float(data["total"]),
             tipo_entrega=data["tipo_entrega"],
             direccion_entrega=cliente_direccion if data["tipo_entrega"] == "delivery" else "",
+            lat=lat_entrega,
+            lng=lng_entrega,
+            geo_precision=precision_entrega,
         )
         db.session.add(pedido)
         db.session.flush()
@@ -5458,6 +5479,155 @@ def ver_pedidos():
                           fecha_hasta=fecha_hasta,
                           estados=estados_lista,
                           datetime=datetime)
+
+
+# ========================================================================
+# DELIVERY: MAPA DE PUNTOS DE ENTREGA
+# Geocodifica con Nominatim (OpenStreetMap), sin clave ni costo.
+# ========================================================================
+
+# Fallback: centro del Perú si no se configuró la tienda en el entorno.
+LAT_LIMITE = (-18.40, -0.05)
+LNG_LIMITE = (-81.35, -68.65)
+URL_NOMINATIM = "https://nominatim.openstreetmap.org/search"
+
+
+def _coordenadas_validas(lat, lng):
+    """True si el punto cae dentro de un rango razonable para el Perú."""
+    try:
+        lat = float(lat)
+        lng = float(lng)
+    except (TypeError, ValueError):
+        return False
+    return (LAT_LIMITE[0] <= lat <= LAT_LIMITE[1]
+            and LNG_LIMITE[0] <= lng <= LNG_LIMITE[1])
+
+
+def _consultar_nominatim(consulta):
+    """Una consulta a Nominatim. Devuelve (lat, lng) o (None, None)."""
+    url = (f"{URL_NOMINATIM}?format=jsonv2&limit=1&countrycodes=pe"
+           f"&q={quote_plus(consulta)}")
+    try:
+        peticion = Request(url, headers={
+            # Nominatim exige identificar el cliente en su User-Agent.
+            "User-Agent": os.environ.get(
+                "MAPA_USER_AGENT", "LibreriaSalesiana/1.0 (proyecto academico)"),
+            "Accept-Language": "es",
+        })
+        with urlopen(peticion, timeout=4) as resp:
+            datos = json.loads(resp.read().decode("utf-8"))
+        if datos:
+            lat, lng = datos[0].get("lat"), datos[0].get("lon")
+            if _coordenadas_validas(lat, lng):
+                return float(lat), float(lng)
+    except Exception as e:
+        # Incluye timeouts: el checkout no puede depender de un tercero.
+        print(f"[mapa] Nominatim fallo en '{consulta[:60]}': {e}")
+    return None, None
+
+
+def geocodificar_direccion(direccion, departamento=None, provincia=None, distrito=None):
+    """Ubica una dirección. Devuelve (lat, lng, precision).
+
+    precision: 'exacta'     -> se resolvió la dirección completa
+               'aproximada' -> cayó al centroide del distrito
+               None         -> no se pudo ubicar
+
+    Hace dos intentos porque en Perú OpenStreetMap tiene muchas calles sin
+    geocodificar: medido sobre 7 lugares reales, la dirección completa
+    acierta 3/7 y el distrito 7/7. El punto aproximado se marca como tal en
+    el mapa para que el administrador sepa que debe refinarlo.
+    """
+    # 1) Dirección completa, la más precisa si responde.
+    if direccion:
+        partes = [p for p in [direccion, distrito, provincia, departamento] if p]
+        consulta = ", ".join(dict.fromkeys(partes))
+        if consulta.strip():
+            lat, lng = _consultar_nominatim(consulta)
+            if lat is not None:
+                return lat, lng, "exacta"
+
+    # 2) Fallback al centroide del distrito.
+    partes = [p for p in [distrito, provincia, departamento] if p]
+    consulta = ", ".join(dict.fromkeys(partes))
+    if consulta.strip():
+        lat, lng = _consultar_nominatim(consulta)
+        if lat is not None:
+            return lat, lng, "aproximada"
+
+    return None, None, None
+
+
+@app.route("/delivery/mapa")
+@login_required
+def delivery_mapa():
+    """Mapa con los pedidos de delivery y sus puntos de entrega."""
+    estado_filter = request.args.get("estado") or ""
+    query = Pedido.query.filter(Pedido.tipo_entrega == "delivery")
+    if estado_filter:
+        query = query.filter(Pedido.estado == estado_filter)
+    pedidos = query.order_by(Pedido.fecha_pedido.desc()).all()
+
+    puntos = []
+    sin_ubicar = 0
+    for p in pedidos:
+        cliente = Cliente.query.get(p.cliente_id) if p.cliente_id else None
+        ubicado = p.lat is not None and p.lng is not None
+        if not ubicado:
+            sin_ubicar += 1
+        puntos.append({
+            "id": p.id,
+            "estado": p.estado,
+            "fecha": p.fecha_pedido,
+            "total": float(p.total) if p.total else 0,
+            "direccion": p.direccion_entrega or "",
+            "cliente": f"{cliente.nombres or ''} {cliente.apellidos or ''}".strip()
+                       if cliente else "Cliente eliminado",
+            "telefono": cliente.telefono if cliente else None,
+            "lat": float(p.lat) if p.lat is not None else None,
+            "lng": float(p.lng) if p.lng is not None else None,
+            "ubicado": ubicado,
+            "precision": p.geo_precision,
+        })
+
+    # Punto de la librería, configurable desde el entorno.
+    lat_tienda = os.environ.get("MAPA_TIENDA_LAT")
+    lng_tienda = os.environ.get("MAPA_TIENDA_LNG")
+    tienda = None
+    if lat_tienda and lng_tienda and _coordenadas_validas(lat_tienda, lng_tienda):
+        tienda = {"lat": float(lat_tienda), "lng": float(lng_tienda),
+                  "nombre": os.environ.get("MAPA_TIENDA_NOMBRE", "Librería Salesiana")}
+
+    return render_template("delivery_mapa.html",
+                           puntos=puntos,
+                           tienda=tienda,
+                           sin_ubicar=sin_ubicar,
+                           estado_filter=estado_filter)
+
+
+@app.route("/delivery/mapa/<int:pedido_id>/ubicar", methods=["POST"])
+@login_required
+@admin_required
+@csrf_protect
+def delivery_ubicar(pedido_id):
+    """El administrador fija a mano el punto de un pedido que no se pudo ubicar."""
+    pedido = Pedido.query.get_or_404(pedido_id)
+    lat = request.form.get("lat")
+    lng = request.form.get("lng")
+
+    if not _coordenadas_validas(lat, lng):
+        flash("❌ Coordenadas inválidas o fuera del rango del Perú", "danger")
+        return redirect(url_for("delivery_mapa"))
+
+    pedido.lat = float(lat)
+    pedido.lng = float(lng)
+    pedido.geo_precision = "manual"
+    db.session.commit()
+    registrar_auditoria("UBICAR_DELIVERY", "pedidos",
+                        f"Pedido #{pedido_id} ubicado a mano en {lat}, {lng}")
+    flash(f"✅ Pedido #{pedido_id} ubicado en el mapa", "success")
+    return redirect(url_for("delivery_mapa"))
+
 
 @app.route("/pedidos/detalle/<int:pedido_id>")
 @login_required

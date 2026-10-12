@@ -135,6 +135,14 @@
                             </a>
                             {% endif %}
 
+                            <!-- ===== ADMIN: DELIVERY ===== -->
+                            {% if session.rol == 'administrador' %}
+                            <a href="/delivery/mapa" class="btn-card btn-card-blue" title="Mapa de Delivery">
+                                <i class="fas fa-map-marked-alt"></i>
+                                <span>Mapa Delivery</span>
+                            </a>
+                            {% endif %}
+
                             <!-- ===== TODOS (admin y vendedor) ===== -->
                             <a href="/pedidos" class="btn-card btn-card-pink" title="Ver Pedidos">
                                 <i class="fas fa-truck"></i>
