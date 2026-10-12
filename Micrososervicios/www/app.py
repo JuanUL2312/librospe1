@@ -1089,6 +1089,12 @@ def inject_security_context():
 def csrf_protect(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # El CSRF solo importa en metodos que cambian estado. Antes se
+        # aplicaba sin mirar el metodo y abortaba tambien los GET, lo que
+        # rompia /perfil (que es GET+POST en la misma ruta): un GET normal
+        # del navegador no manda token y salia 400.
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return f(*args, **kwargs)
         enviado = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
         esperado = session.get("csrf_token", "")
         if not enviado or not esperado or not hmac.compare_digest(enviado, esperado):
