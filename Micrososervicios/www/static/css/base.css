@@ -361,6 +361,8 @@
     }
     .btn-card-rose { background: #fce4ec !important; border-color: #f8bbd0 !important; color: #880e4f !important; }
     .btn-card-rose:hover { background: #f8bbd0 !important; }
+    .btn-card-red { background: #fee2e2 !important; border-color: #fecaca !important; color: #991b1b !important; }
+    .btn-card-red:hover { background: #fecaca !important; }
 
     .bg-success-gradient {
         background: linear-gradient(45deg, var(--salesiano-emerald), #059669) !important;

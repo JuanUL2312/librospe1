@@ -2608,6 +2608,118 @@ def inventario():
                           busqueda=busqueda)
 
 
+@app.route("/stock-bajo")
+@login_required
+@permiso_requerido("gestionar_productos")
+def stock_bajo():
+    """Alertas de reposición: solo los productos agotados o por debajo del mínimo.
+
+    Es el complemento operativo de /inventario: en vez de listar todo el
+    catálogo, muestra lo que hay que comprar y cuánto costaría reponerlo.
+    El costo unitario y el costo de reposición solo se muestran a admin.
+    """
+    es_admin = session.get("rol") == "administrador"
+    categoria_id = request.args.get("categoria", type=int)
+    solo_agotados = request.args.get("agotados") == "1"
+    busqueda = (request.args.get("q") or "").strip()
+
+    query = Producto.query.filter(Producto.estado == 1)
+    if categoria_id:
+        query = query.filter(Producto.id_categoria == categoria_id)
+    if busqueda:
+        like = f"%{busqueda}%"
+        query = query.filter(or_(Producto.nombre.like(like),
+                                 Producto.codigo_barras.like(like)))
+
+    filas = []
+    for p in query.order_by(Producto.nombre.asc()).all():
+        cantidad = p.cantidad or 0
+        smin = p.stock_minimo if p.stock_minimo is not None else 5
+        # solo entra lo que hay que reponer
+        if cantidad > smin:
+            continue
+        estado_stock = "agotado" if cantidad == 0 else "bajo"
+        faltan = max(smin - cantidad, 0)
+        costo = float(p.costo or 0)
+        filas.append({
+            "producto": p,
+            "cantidad": cantidad,
+            "stock_minimo": smin,
+            "estado_stock": estado_stock,
+            "faltan": faltan,
+            "costo_unitario": costo,
+            "costo_reposicion": faltan * costo,
+            "tiene_costo": p.costo is not None,
+        })
+
+    if solo_agotados:
+        filas = [f for f in filas if f["estado_stock"] == "agotado"]
+
+    # agotados primero, luego por deficit descendente
+    filas.sort(key=lambda f: (f["estado_stock"] != "agotado", -f["faltan"], f["producto"].nombre))
+
+    totales = {
+        "productos": len(filas),
+        "agotados": sum(1 for f in filas if f["estado_stock"] == "agotado"),
+        "bajos": sum(1 for f in filas if f["estado_stock"] == "bajo"),
+        "unidades_a_reponer": sum(f["faltan"] for f in filas),
+        "costo_reposicion": sum(f["costo_reposicion"] for f in filas),
+        "sin_costo": sum(1 for f in filas if not f["tiene_costo"]),
+    }
+
+    categorias_lista = Categoria.query.filter_by(activo=True)\
+        .order_by(Categoria.nombre.asc()).all()
+
+    return render_template("stock_bajo.html",
+                           filas=filas,
+                           totales=totales,
+                           categorias_lista=categorias_lista,
+                           es_admin=es_admin,
+                           categoria_seleccionada=categoria_id,
+                           solo_agotados=solo_agotados,
+                           busqueda=busqueda)
+
+
+@app.route("/stock-bajo/reponer/<int:id>", methods=["POST"])
+@login_required
+@permiso_requerido("gestionar_productos")
+@csrf_protect
+def reponer_stock(id):
+    """Ajusta el stock de un producto desde la alerta de reposición."""
+    producto_obj = db.session.get(Producto, id)
+    if not producto_obj:
+        flash("❌ Producto no encontrado", "error")
+        return redirect(url_for("stock_bajo"))
+
+    try:
+        cantidad = int(request.form.get("cantidad"))
+    except (TypeError, ValueError):
+        flash("❌ Cantidad inválida", "error")
+        return redirect(url_for("stock_bajo"))
+
+    if cantidad < 0:
+        flash("❌ La cantidad no puede ser negativa", "error")
+        return redirect(url_for("stock_bajo"))
+
+    # stock_minimo es opcional: si no viene, se deja el que ya tenía
+    smin_enviado = request.form.get("stock_minimo")
+    if smin_enviado not in (None, ""):
+        try:
+            producto_obj.stock_minimo = max(int(smin_enviado), 0)
+        except (TypeError, ValueError):
+            flash("❌ Stock mínimo inválido, se conservó el anterior", "error")
+
+    anterior = producto_obj.cantidad or 0
+    producto_obj.cantidad = cantidad
+    db.session.commit()
+
+    registrar_auditoria("REPOSICION", "productos",
+                        f"{producto_obj.nombre}: stock {anterior} -> {cantidad}")
+
+    flash(f"✅ Stock de «{producto_obj.nombre}» actualizado a {cantidad} unidades", "success")
+    return redirect(url_for("stock_bajo"))
+
+
 @app.route("/productos")
 @login_required
 def productos():

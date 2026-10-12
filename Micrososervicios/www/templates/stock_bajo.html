@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+{% block titulito %}⚠️ Stock bajo{% endblock %}
+
+{% block contenido %}
+<div class="container-fluid py-3 py-md-4">
+  <div class="row">
+    <div class="col-12">
+
+      <!-- HEADER -->
+      <div class="p-4 p-md-5 mb-4 mb-md-5 text-white position-relative overflow-hidden hover-lift rounded-4"
+        style="background: linear-gradient(135deg, #b91c1c 0%, #dc2626 45%, #f97316 100%);">
+        <div class="bg-overlay"></div>
+        <div class="position-relative z-3">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+              <h1 class="h2 fw-extrabold mb-2 text-shadow-primary">
+                <i class="fas fa-triangle-exclamation me-3 text-white"></i>
+                Alertas de stock bajo
+              </h1>
+              <p class="h5 mb-0 opacity-90">
+                <i class="fas fa-cart-plus me-2"></i>
+                {{ totales.productos }} productos por reponer
+                {% if totales.agotados %} · <strong>{{ totales.agotados }}</strong> agotados{% endif %}
+              </p>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              <a href="/inventario" class="btn btn-light btn-lg shadow-lg hover-lift">
+                <i class="fas fa-warehouse me-2"></i>Inventario
+              </a>
+              {% if es_admin %}
+              <a href="/inventario?estado=agotado" class="btn btn-warning btn-lg shadow-lg hover-lift">
+                <i class="fas fa-box me-2"></i>Ver todo
+              </a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TARJETAS DE RESUMEN -->
+      <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+          <div class="card shadow-3xl border-0 h-100 hover-lift">
+            <div class="card-body text-center">
+              <div class="rounded-circle mx-auto mb-2 d-flex align-items-center justify-content-center bg-danger bg-opacity-10"
+                style="width: 46px; height: 46px;">
+                <i class="fas fa-ban text-danger"></i>
+              </div>
+              <div class="fs-4 fw-extrabold text-dark">{{ totales.agotados }}</div>
+              <div class="text-muted small">Agotados</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card shadow-3xl border-0 h-100 hover-lift">
+            <div class="card-body text-center">
+              <div class="rounded-circle mx-auto mb-2 d-flex align-items-center justify-content-center bg-warning bg-opacity-10"
+                style="width: 46px; height: 46px;">
+                <i class="fas fa-arrow-trend-down text-warning"></i>
+              </div>
+              <div class="fs-4 fw-extrabold text-dark">{{ totales.bajos }}</div>
+              <div class="text-muted small">Por debajo del mínimo</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card shadow-3xl border-0 h-100 hover-lift">
+            <div class="card-body text-center">
+              <div class="rounded-circle mx-auto mb-2 d-flex align-items-center justify-content-center bg-primary bg-opacity-10"
+                style="width: 46px; height: 46px;">
+                <i class="fas fa-cubes text-primary"></i>
+              </div>
+              <div class="fs-4 fw-extrabold text-dark">{{ totales.unidades_a_reponer }}</div>
+              <div class="text-muted small">Unidades a reponer</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card shadow-3xl border-0 h-100 hover-lift">
+            <div class="card-body text-center">
+              <div class="rounded-circle mx-auto mb-2 d-flex align-items-center justify-content-center bg-success bg-opacity-10"
+                style="width: 46px; height: 46px;">
+                <i class="fas fa-sack-dollar text-success"></i>
+              </div>
+              {% if es_admin %}
+              <div class="fs-5 fw-extrabold text-dark">S/ {{ "%.2f"|format(totales.costo_reposicion) }}</div>
+              <div class="text-muted small">Costo de reposición</div>
+              {% else %}
+              <div class="fs-4 fw-extrabold text-muted">
+                <i class="fas fa-eye-slash"></i>
+              </div>
+              <div class="text-muted small">Costos ocultos para tu rol</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FILTROS -->
+      <div class="card shadow-3xl mb-3 border-0">
+        <div class="card-body">
+          <form method="get" class="row g-2 align-items-end">
+            <div class="col-12 col-md-4">
+              <label class="form-label small fw-bold text-muted">Buscar producto</label>
+              <input type="text" name="q" id="buscarStockBajo" value="{{ busqueda }}"
+                class="form-control form-control-sm bg-light border-0" placeholder="Nombre o código de barras">
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label small fw-bold text-muted">Categoría</label>
+              <select name="categoria" class="form-select form-select-sm bg-light border-0" onchange="this.form.submit()">
+                <option value="">Todas</option>
+                {% for c in categorias_lista %}
+                <option value="{{ c.id_categoria }}" {% if categoria_seleccionada == c.id_categoria %}selected{% endif %}>
+                  {{ c.nombre }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label small fw-bold text-muted">Alcance</label>
+              <select name="agotados" class="form-select form-select-sm bg-light border-0" onchange="this.form.submit()">
+                <option value="">Bajo y agotados</option>
+                <option value="1" {% if solo_agotados %}selected{% endif %}>Solo agotados</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-2 d-grid">
+              <a href="/stock-bajo" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-rotate-left me-1"></i>Limpiar
+              </a>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {% if filas %}
+      <!-- TABLA DE REPOSICION -->
+      <div class="card shadow-3xl mb-0 border-0">
+        <div class="card-header bg-white border-0 pt-3 px-3">
+          <h5 class="fw-bold text-dark mb-0">
+            <i class="fas fa-list me-2 text-danger"></i>Productos por reponer
+            {% if not es_admin %}
+            <span class="badge bg-secondary ms-2" style="font-size:0.65rem;">
+              <i class="fas fa-eye-slash me-1"></i>Costos ocultos para tu rol
+            </span>
+            {% endif %}
+          </h5>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 align-middle" id="tablaStockBajo">
+            <thead class="table-dark">
+              <tr>
+                <th style="width: 45px;">#</th>
+                <th>Producto</th>
+                <th>Categoría</th>
+                <th class="text-center" style="width: 120px;">Estado</th>
+                <th class="text-center" style="width: 100px;">Faltan</th>
+                {% if es_admin %}
+                <th class="text-end" style="width: 100px;">Costo unit.</th>
+                <th class="text-end" style="width: 130px;">Costo reposición</th>
+                {% endif %}
+                <th class="text-center" style="width: 220px;">Reponer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for f in filas %}
+              {% set p = f.producto %}
+              <tr class="hover-row" data-nombre="{{ p.nombre|lower }}">
+                <td class="fw-bold text-danger">{{ loop.index }}</td>
+                <td>
+                  <div class="fw-bold">{{ p.nombre }}</div>
+                  {% if p.codigo_barras %}
+                  <small class="text-muted"><i class="fas fa-barcode me-1"></i>{{ p.codigo_barras }}</small>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if p.categoria_rel %}
+                  <span class="badge bg-light text-dark px-2 py-1">
+                    <i class="fas fa-tag me-1 text-success"></i>{{ p.categoria_rel.nombre }}
+                  </span>
+                  {% else %}
+                  <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td class="text-center">
+                  <span class="fw-bold {% if f.estado_stock == 'agotado' %}text-danger{% else %}text-warning{% endif %}">
+                    {{ f.cantidad }}
+                  </span>
+                  <span class="d-block text-muted" style="font-size:0.65rem;">mín. {{ f.stock_minimo }}</span>
+                  {% if f.estado_stock == 'agotado' %}
+                  <span class="d-block badge bg-danger mt-1" style="font-size:0.6rem;">AGOTADO</span>
+                  {% else %}
+                  <span class="d-block badge bg-warning text-dark mt-1" style="font-size:0.6rem;">Stock bajo</span>
+                  {% endif %}
+                </td>
+                <td class="text-center fw-bold text-dark">{{ f.faltan }}</td>
+                {% if es_admin %}
+                <td class="text-end">
+                  {% if f.tiene_costo %}
+                  <span class="fw-bold">S/ {{ "%.2f"|format(f.costo_unitario) }}</span>
+                  {% else %}
+                  <span class="badge bg-secondary px-2 py-1" style="font-size:0.6rem;">sin costo</span>
+                  {% endif %}
+                </td>
+                <td class="text-end fw-bold {% if not f.tiene_costo %}text-muted{% endif %}">
+                  S/ {{ "%.2f"|format(f.costo_reposicion) }}
+                </td>
+                {% endif %}
+                <td>
+                  <form method="post" action="/stock-bajo/reponer/{{ p.id }}" class="d-flex gap-1 justify-content-center">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="number" name="cantidad" min="0" value="{{ f.faltan }}"
+                      class="form-control form-control-sm text-center {% if f.estado_stock == 'agotado' %}is-danger{% endif %}"
+                      style="width: 80px;" title="Nueva cantidad en stock" required>
+                    <button type="submit" class="btn btn-success btn-sm px-3" title="Actualizar stock">
+                      <i class="fas fa-check"></i>
+                    </button>
+                  </form>
+                  {% if f.tiene_costo and es_admin %}
+                  <small class="text-muted d-block text-center mt-1">
+                    = {{ f.faltan }} × S/ {{ "%.2f"|format(f.costo_unitario) }}
+                  </small>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card shadow-3xl mt-3 border-0">
+        <div class="card-body py-2 d-flex justify-content-end">
+          <small class="text-muted">
+            <i class="fas fa-calculator me-1"></i>
+            Total: {{ totales.productos }} productos · {{ totales.unidades_a_reponer }} unidades a reponer
+            {% if es_admin %}
+            · <span class="fw-bold">S/ {{ "%.2f"|format(totales.costo_reposicion) }} de inversión</span>
+            {% if totales.sin_costo %}
+            · <span class="text-warning">{{ totales.sin_costo }} sin costo registrado</span>
+            {% endif %}
+            {% endif %}
+          </small>
+        </div>
+      </div>
+
+      {% else %}
+      <!-- EMPTY STATE -->
+      <div class="text-center py-8">
+        <div class="bg-success bg-opacity-25 rounded-circle mx-auto mb-5 p-5 d-inline-flex align-items-center justify-content-center shadow-lg"
+          style="width: 150px; height: 150px;">
+          <i class="fas fa-circle-check fa-4x text-success"></i>
+        </div>
+        <h3 class="display-6 fw-extrabold text-muted mb-4">
+          {% if busqueda or categoria_seleccionada or solo_agotados %}
+            Nada que reponer con esos filtros
+          {% else %}
+            Todo el stock en orden
+          {% endif %}
+        </h3>
+        <p class="text-muted mb-4">
+          {% if busqueda or categoria_seleccionada or solo_agotados %}
+            No hay productos agotados o bajo el mínimo que coincidan con la búsqueda
+          {% else %}
+            Ningún producto está agotado o por debajo de su stock mínimo
+          {% endif %}
+        </p>
+        {% if busqueda or categoria_seleccionada or solo_agotados %}
+        <a href="/stock-bajo" class="btn btn-success btn-lg px-5 py-3 shadow-lg hover-lift">
+          <i class="fas fa-rotate-left me-2"></i>Quitar filtros
+        </a>
+        {% else %}
+        <a href="/inventario" class="btn btn-primary btn-lg px-5 py-3 shadow-lg hover-lift">
+          <i class="fas fa-warehouse me-2"></i>Ver inventario completo
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Filtro rápido por nombre mientras se escribe (mismo patrón que categorias.js)
+  function filtrarStockBajo() {
+    const busqueda = document.getElementById('buscarStockBajo');
+    if (!busqueda) return;
+    const termino = busqueda.value.toLowerCase().trim();
+    const rows = document.querySelectorAll('#tablaStockBajo tbody tr');
+    rows.forEach(row => {
+      const nombre = row.getAttribute('data-nombre') || '';
+      row.style.display = (termino === '' || nombre.includes(termino)) ? '' : 'none';
+    });
+  }
+  let timeoutStock;
+  document.addEventListener('DOMContentLoaded', function () {
+    const input = document.getElementById('buscarStockBajo');
+    if (!input) return;
+    input.addEventListener('keyup', function () {
+      clearTimeout(timeoutStock);
+      timeoutStock = setTimeout(filtrarStockBajo, 250);
+    });
+  });
+</script>
+{% endblock %}
