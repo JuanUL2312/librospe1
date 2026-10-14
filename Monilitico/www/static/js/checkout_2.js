@@ -524,6 +524,10 @@ function procesarPago() {
         ? datosDni.apellidos
         : (document.getElementById('apellidosDisplay').textContent || '');
 
+    // Obtener coordenadas del mapa de delivery
+    var latitud = localStorage.getItem('latitudEntrega') || '';
+    var longitud = localStorage.getItem('longitudEntrega') || '';
+
     var checkoutData = {
         nombres: compNombres,
         apellidos: compApellidos,
@@ -536,7 +540,9 @@ function procesarPago() {
         direccion: direccion,
         tipo_comprobante: tipoComprobante,
         razon_social: tipoComprobante === 'factura' ? (document.getElementById('confirmRazonSocial').textContent || '') : '',
-        direccion_fiscal: direccion
+        direccion_fiscal: direccion,
+        latitud: latitud,
+        longitud: longitud
     };
     localStorage.setItem('checkoutData', JSON.stringify(checkoutData));
     localStorage.setItem('tipoEntrega', tipoEntrega);
@@ -564,7 +570,17 @@ document.addEventListener('DOMContentLoaded', function() {
     if (direccionGuardada && direccionInput) {
         direccionInput.value = direccionGuardada;
     }
-    
+
+    // Mostrar coordenadas del mapa si hay delivery
+    var latitud = localStorage.getItem('latitudEntrega') || '';
+    var longitud = localStorage.getItem('longitudEntrega') || '';
+    var coordenadasDiv = document.getElementById('coordenadasEntrega');
+    var coordenadasTexto = document.getElementById('coordenadasTexto');
+    if (latitud && longitud && coordenadasDiv && coordenadasTexto) {
+        coordenadasTexto.textContent = latitud + ', ' + longitud;
+        coordenadasDiv.style.display = 'block';
+    }
+
     // Actualizar contador del carrito
     var contador = document.getElementById('carritoContador');
     if (contador) {

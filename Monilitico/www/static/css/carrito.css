@@ -369,3 +369,33 @@
             border-bottom: none;
         }
     }
+
+    /* ===== MAPA DE UBICACIÓN ===== */
+    #mapaCarrito {
+        transition: border-color 0.3s;
+    }
+
+    #mapaCarrito:hover {
+        border-color: #0d6efd !important;
+    }
+
+    #mapaAviso {
+        transition: all 0.3s;
+    }
+
+    /* Estilos para el popup del mapa */
+    .leaflet-popup-content-wrapper {
+        border-radius: 8px;
+    }
+
+    .leaflet-popup-content {
+        margin: 10px 14px;
+        font-size: 0.85rem;
+    }
+
+    /* Responsive para el mapa */
+    @media (max-width: 576px) {
+        #mapaCarrito {
+            height: 220px !important;
+        }
+    }
