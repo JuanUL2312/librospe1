@@ -373,10 +373,21 @@
     /* ===== MAPA DE UBICACIÓN ===== */
     #mapaCarrito {
         transition: border-color 0.3s;
+        position: relative;
+        z-index: 1;
+        background-color: #f8f9fa;
     }
 
     #mapaCarrito:hover {
         border-color: #0d6efd !important;
+    }
+
+    #mapaContainer {
+        position: relative;
+    }
+
+    #mapaCargando {
+        z-index: 1000;
     }
 
     #mapaAviso {
@@ -391,6 +402,12 @@
     .leaflet-popup-content {
         margin: 10px 14px;
         font-size: 0.85rem;
+    }
+
+    /* Asegurar que Leaflet tenga tamaño */
+    .leaflet-container {
+        width: 100%;
+        height: 100%;
     }
 
     /* Responsive para el mapa */

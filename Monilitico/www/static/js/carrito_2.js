@@ -88,21 +88,85 @@
     // INICIALIZAR MAPA DE CARRITO
     // ===============================
     function inicializarMapaCarrito() {
-        if (mapaCarrito) {
-            mapaCarrito.invalidateSize();
+        console.log('🗺️ inicializarMapaCarrito llamado');
+        
+        const mapaDiv = document.getElementById('mapaCarrito');
+        if (!mapaDiv) {
+            console.error('❌ No se encontró el div #mapaCarrito');
             return;
         }
 
-        const mapaDiv = document.getElementById('mapaCarrito');
-        if (!mapaDiv) return;
+        // Verificar que el contenedor sea visible
+        const rect = mapaDiv.getBoundingClientRect();
+        console.log('📐 Dimensiones del contenedor:', rect.width, 'x', rect.height);
+        
+        if (rect.width === 0 || rect.height === 0) {
+            console.warn('⚠️ Contenedor tiene dimensiones 0, reintentando...');
+            setTimeout(() => inicializarMapaCarrito(), 500);
+            return;
+        }
+
+        // Si el mapa ya existe, solo redimensionar
+        if (mapaCarrito) {
+            mapaCarrito.invalidateSize();
+            mapaCarrito.setView([-12.0464, -77.0428], 13);
+            console.log('✅ Mapa redimensionado');
+            return;
+        }
+
+        // Mostrar indicador de carga
+        const cargando = document.getElementById('mapaCargando');
+        if (cargando) cargando.style.display = 'block';
 
         // Centro inicial por defecto: Lima, Perú
         mapaCarrito = L.map('mapaCarrito').setView([-12.0464, -77.0428], 13);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        // Usar múltiples capas de tiles para mejor rendimiento
+        const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            updateWhenIdle: true,
+            keepBuffer: 2
+        });
+
+        const cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+            updateWhenIdle: true,
+            keepBuffer: 2
+        });
+
+        const cartoDarkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+            updateWhenIdle: true
+        });
+
+        // Cargar CARTO primero (más rápido), fallback a OSM
+        cartoLayer.addTo(mapaCarrito);
+
+        // Agregar control de capas para cambiar entre mapas
+        L.control.layers({
+            'Claro (rápido)': cartoLayer,
+            'OpenStreetMap': osmLayer,
+            'Oscuro': cartoDarkLayer
         }).addTo(mapaCarrito);
+
+        // Detectar error de tiles y mostrar mensaje
+        cartoLayer.on('tileerror', function() {
+            console.warn('Error cargando tiles de CARTO, intentando OSM...');
+            mapaCarrito.removeLayer(cartoLayer);
+            osmLayer.addTo(mapaCarrito);
+        });
+
+        // Ocultar indicador de carga cuando el mapa esté listo
+        mapaCarrito.whenReady(() => {
+            if (cargando) {
+                setTimeout(() => {
+                    cargando.style.display = 'none';
+                }, 500);
+            }
+        });
 
         // Icono personalizado para el marcador
         const iconoMarcador = L.icon({
@@ -160,13 +224,19 @@
             envioTexto.innerHTML = 'S/. 5.00';
             cargarDireccionCliente();
             // Inicializar mapa después de que el contenedor sea visible
-            setTimeout(() => {
-                inicializarMapaCarrito();
-                // Forzar redimensionado del mapa después de que sea visible
-                if (mapaCarrito) {
-                    setTimeout(() => mapaCarrito.invalidateSize(), 200);
-                }
-            }, 300);
+            // Usar requestAnimationFrame para asegurar que el DOM se renderizó
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    inicializarMapaCarrito();
+                    // Forzar redimensionado del mapa después de que sea visible
+                    if (mapaCarrito) {
+                        setTimeout(() => {
+                            mapaCarrito.invalidateSize();
+                            mapaCarrito.setView([-12.0464, -77.0428], 13);
+                        }, 100);
+                    }
+                }, 150);
+            });
         } else {
             direccionDiv.style.display = 'none';
             envioTexto.innerHTML = 'Gratis';
