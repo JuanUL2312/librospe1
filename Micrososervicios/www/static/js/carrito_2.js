@@ -96,13 +96,46 @@
         const mapaDiv = document.getElementById('mapaCarrito');
         if (!mapaDiv) return;
 
+        // Mostrar indicador de carga
+        const cargando = document.getElementById('mapaCargando');
+        if (cargando) cargando.style.display = 'block';
+
         // Centro inicial por defecto: Lima, Perú
         mapaCarrito = L.map('mapaCarrito').setView([-12.0464, -77.0428], 13);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        // Usar múltiples capas de tiles para mejor rendimiento
+        const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            // Mejor rendimiento
+            updateWhenIdle: true,
+            keepBuffer: 2
+        });
+
+        const cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+            updateWhenIdle: true,
+            keepBuffer: 2
+        });
+
+        // Cargar CARTO primero (más rápido), fallback a OSM
+        cartoLayer.addTo(mapaCarrito);
+
+        // Agregar control de capas para cambiar entre mapas
+        L.control.layers({
+            'Claro (rápido)': cartoLayer,
+            'OpenStreetMap': osmLayer
         }).addTo(mapaCarrito);
+
+        // Ocultar indicador de carga cuando el mapa esté listo
+        mapaCarrito.whenReady(() => {
+            if (cargando) {
+                setTimeout(() => {
+                    cargando.style.display = 'none';
+                }, 500);
+            }
+        });
 
         // Icono personalizado para el marcador
         const iconoMarcador = L.icon({
