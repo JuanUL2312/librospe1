@@ -94,6 +94,7 @@
                                placeholder="8 dígitos numéricos" maxlength="8"
                                oninput="validarDocumento(this)">
                         <div class="documento-info" id="documentoInfo">Opcional: ingresa tu DNI para que la boleta salga con tu nombre real (RENIEC)</div>
+                        <div class="documento-info text-muted" id="documentoInfoCE" style="display:none;">Opcional: ingresa tu Carnet de Extranjería (CE) para la boleta.</div>
                         <div class="documento-error" id="documentoError">❌ El DNI debe tener exactamente 8 dígitos numéricos</div>
                     </div>
 
@@ -140,9 +141,7 @@
                             Falta tu distrito de residencia. Actualízalo en
                             <a href="/cliente/perfil" class="alert-link">Mi Perfil</a> para poder usar el delivery.
                         </div>
-                        <label class="field-label">Dirección de entrega <span class="text-danger">*</span></label>
-                        <textarea id="direccionEntrega" class="form-control" rows="2" 
-                                  placeholder="Calle, número, urbanización, referencia...">{{ (cliente.direccion or '') if cliente else '' }}</textarea>
+                        <input type="hidden" id="direccionEntrega" value="">
                         <div class="mt-2" id="destinoEntrega" style="display:none;">
                             <span class="badge bg-success">
                                 <i class="fas fa-map-marker-alt me-1"></i>Distrito de entrega: <span id="destinoDistrito">-</span>

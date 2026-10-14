@@ -121,7 +121,7 @@
         // Centro inicial por defecto: Lima, Perú
         mapaCarrito = L.map('mapaCarrito').setView([-12.0464, -77.0428], 13);
 
-        // Usar múltiples capas de tiles para mejor rendimiento
+        // Usar solo OpenStreetMap (no requiere API key)
         const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -129,35 +129,7 @@
             keepBuffer: 2
         });
 
-        const cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-            updateWhenIdle: true,
-            keepBuffer: 2
-        });
-
-        const cartoDarkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-            updateWhenIdle: true
-        });
-
-        // Cargar CARTO primero (más rápido), fallback a OSM
-        cartoLayer.addTo(mapaCarrito);
-
-        // Agregar control de capas para cambiar entre mapas
-        L.control.layers({
-            'Claro (rápido)': cartoLayer,
-            'OpenStreetMap': osmLayer,
-            'Oscuro': cartoDarkLayer
-        }).addTo(mapaCarrito);
-
-        // Detectar error de tiles y mostrar mensaje
-        cartoLayer.on('tileerror', function() {
-            console.warn('Error cargando tiles de CARTO, intentando OSM...');
-            mapaCarrito.removeLayer(cartoLayer);
-            osmLayer.addTo(mapaCarrito);
-        });
+        osmLayer.addTo(mapaCarrito);
 
         // Ocultar indicador de carga cuando el mapa esté listo
         mapaCarrito.whenReady(() => {

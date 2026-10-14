@@ -116,7 +116,13 @@ function cambiarTipoDocumento() {
         info.textContent = 'Opcional: ingresa tu Carnet de Extranjería (CE) para la boleta.';
         info.style.display = 'block';
         info.style.color = '#6b7280';
-    } else {
+        // Ocultar mensaje de DNI, mostrar mensaje de CE
+        var infoCE = document.getElementById('documentoInfoCE');
+        if (infoCE) infoCE.style.display = 'block';
+    } else if (tipoDocumento === 'DNI') {
+        // Ocultar mensaje de CE
+        var infoCE = document.getElementById('documentoInfoCE');
+        if (infoCE) infoCE.style.display = 'none';
         label.innerHTML = 'DNI <span class="text-muted small">(opcional)</span>';
         input.placeholder = '8 dígitos numéricos';
         input.maxLength = 8;
@@ -234,10 +240,36 @@ function mostrarConfirmacion(documento) {
                     datosDni = { nombres: data.nombres, apellidos: data.apellidos };
                     badge.textContent = '✅ DNI Verificado';
                     badge.className = 'badge-verified';
+                    // Oscurecer campos porque se cargan desde RENIEC (no editables)
+                    var nombresField = document.getElementById('nombresDisplay')?.closest('.field-value');
+                    var apellidosField = document.getElementById('apellidosDisplay')?.closest('.field-value');
+                    if (nombresField) {
+                        nombresField.style.opacity = '0.5';
+                        nombresField.style.backgroundColor = '#e9ecef';
+                        nombresField.style.pointerEvents = 'none';
+                    }
+                    if (apellidosField) {
+                        apellidosField.style.opacity = '0.5';
+                        apellidosField.style.backgroundColor = '#e9ecef';
+                        apellidosField.style.pointerEvents = 'none';
+                    }
                 } else {
                     confirmNombreCompleto.textContent = '⚠️ DNI no encontrado en RENIEC. La boleta usará tu nombre registrado.';
                     badge.textContent = '⚠️ No encontrado en RENIEC';
                     badge.className = 'badge-error';
+                    // Restaurar campos (editables manualmente)
+                    var nombresField = document.getElementById('nombresDisplay')?.closest('.field-value');
+                    var apellidosField = document.getElementById('apellidosDisplay')?.closest('.field-value');
+                    if (nombresField) {
+                        nombresField.style.opacity = '1';
+                        nombresField.style.backgroundColor = '';
+                        nombresField.style.pointerEvents = '';
+                    }
+                    if (apellidosField) {
+                        apellidosField.style.opacity = '1';
+                        apellidosField.style.backgroundColor = '';
+                        apellidosField.style.pointerEvents = '';
+                    }
                 }
             })
             .catch(() => {
@@ -567,8 +599,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Cargar dirección de entrega guardada en el carrito (localStorage)
     var direccionGuardada = localStorage.getItem('direccionEntrega');
     var direccionInput = document.getElementById('direccionEntrega');
-    if (direccionGuardada && direccionInput) {
-        direccionInput.value = direccionGuardada;
+    if (direccionInput) {
+        direccionInput.value = direccionGuardada || '';
     }
 
     // Mostrar coordenadas del mapa si hay delivery

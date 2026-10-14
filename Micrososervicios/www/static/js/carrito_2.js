@@ -85,6 +85,233 @@
     }
 
     // ===============================
+    // UBICAR MI POSICIÓN (Geolocalización)
+    // ===============================
+    function ubicarMiPosicion() {
+        const btn = document.getElementById('btnMiUbicacion');
+        const mapaAviso = document.getElementById('mapaAviso');
+
+        if (!navigator.geolocation) {
+            if (mapaAviso) {
+                mapaAviso.innerHTML = '<i class="fas fa-exclamation-triangle text-warning me-1"></i> Tu navegador no soporta geolocalización';
+            }
+            return;
+        }
+
+        // Deshabilitar botón mientras busca
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Buscando...';
+        }
+
+        if (mapaAviso) {
+            mapaAviso.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Obteniendo tu ubicación...';
+            mapaAviso.classList.remove('text-success');
+            mapaAviso.classList.add('text-muted');
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            function(position) {
+                const lat = position.coords.latitude.toFixed(6);
+                const lng = position.coords.longitude.toFixed(6);
+
+                // Guardar coordenadas
+                document.getElementById('latitud').value = lat;
+                document.getElementById('longitud').value = lng;
+
+                // Mover mapa y colocar marcador
+                if (mapaCarrito) {
+                    mapaCarrito.setView([lat, lng], 16);
+
+                    const iconoMarcador = L.icon({
+                        iconUrl: '/static/img/pin.png',
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 32],
+                        popupAnchor: [0, -32]
+                    });
+
+                    if (marcadorCarrito) {
+                        marcadorCarrito.setLatLng([lat, lng]);
+                    } else {
+                        marcadorCarrito = L.marker([lat, lng], { icon: iconoMarcador }).addTo(mapaCarrito);
+                    }
+
+                    // Reverse geocoding para obtener la dirección
+                    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=es`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data && data.display_name) {
+                                const direccionInput = document.getElementById('direccion');
+                                if (direccionInput) {
+                                    direccionInput.value = data.display_name;
+                                }
+                                marcadorCarrito.setPopupContent(
+                                    '<b>Tu ubicación de entrega</b><br>' + data.display_name + '<br><small>Lat: ' + lat + ' Lng: ' + lng + '</small>'
+                                ).openPopup();
+                            }
+                        })
+                        .catch(() => {
+                            marcadorCarrito.setPopupContent(
+                                '<b>Tu ubicación de entrega</b><br><small>Lat: ' + lat + ' Lng: ' + lng + '</small>'
+                            ).openPopup();
+                        });
+                }
+
+                // Actualizar aviso
+                if (mapaAviso) {
+                    mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> ¡Ubicación encontrada!';
+                    mapaAviso.classList.remove('text-muted');
+                    mapaAviso.classList.add('text-success', 'fw-bold');
+                }
+
+                // Rehabilitar botón
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-crosshairs me-1"></i> Ubicar mi ubicación';
+                }
+            },
+            function(error) {
+                let mensaje = 'No se pudo obtener tu ubicación';
+                switch(error.code) {
+                    case error.PERMISSION_DENIED:
+                        mensaje = 'Permiso de ubicación denegado. Actívalo en tu navegador.';
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        mensaje = 'Ubicación no disponible.';
+                        break;
+                    case error.TIMEOUT:
+                        mensaje = 'Tiempo de espera agotado.';
+                        break;
+                }
+
+                if (mapaAviso) {
+                    mapaAviso.innerHTML = '<i class="fas fa-exclamation-triangle text-warning me-1"></i> ' + mensaje;
+                }
+
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-crosshairs me-1"></i> Ubicar mi ubicación';
+                }
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 60000
+            }
+        );
+    }
+
+    // ===============================
+    // BUSCADOR DE DIRECCIONES (Nominatim)
+    // ===============================
+    let debounceTimer = null;
+
+    function buscarDireccion(query) {
+        if (!query || query.length < 3) {
+            document.getElementById('sugerencias').style.display = 'none';
+            return;
+        }
+
+        // Debounce para no hacer muchas peticiones
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=pe&limit=5&addressdetails=1&accept-language=es`)
+                .then(response => response.json())
+                .then(data => {
+                    const sugerenciasDiv = document.getElementById('sugerencias');
+                    if (!data || data.length === 0) {
+                        sugerenciasDiv.innerHTML = '<div class="p-2 text-muted small">No se encontraron resultados</div>';
+                        sugerenciasDiv.style.display = 'block';
+                        return;
+                    }
+
+                    sugerenciasDiv.innerHTML = '';
+                    data.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'p-2 cursor-pointer small border-bottom';
+                        div.style.cursor = 'pointer';
+                        div.innerHTML = `<i class="fas fa-map-marker-alt text-danger me-1"></i> ${item.display_name.substring(0, 80)}...`;
+                        div.addEventListener('click', () => {
+                            // Seleccionar sugerencia
+                            const direccionInput = document.getElementById('direccion');
+                            direccionInput.value = item.display_name;
+                            document.getElementById('sugerencias').style.display = 'none';
+
+                            // Mover marcador y mapa
+                            const lat = parseFloat(item.lat).toFixed(6);
+                            const lng = parseFloat(item.lon).toFixed(6);
+                            document.getElementById('latitud').value = lat;
+                            document.getElementById('longitud').value = lng;
+
+                            if (mapaCarrito) {
+                                mapaCarrito.setView([lat, lng], 16);
+                                if (marcadorCarrito) {
+                                    marcadorCarrito.setLatLng([lat, lng]);
+                                } else {
+                                    const iconoMarcador = L.icon({
+                                        iconUrl: '/static/img/pin.png',
+                                        iconSize: [32, 32],
+                                        iconAnchor: [16, 32],
+                                        popupAnchor: [0, -32]
+                                    });
+                                    marcadorCarrito = L.marker([lat, lng], { icon: iconoMarcador }).addTo(mapaCarrito);
+                                }
+                                marcadorCarrito.setPopupContent(
+                                    '<b>Tu ubicación de entrega</b><br>' + item.display_name + '<br><small>Lat: ' + lat + ' Lng: ' + lng + '</small>'
+                                ).openPopup();
+                            }
+
+                            // Actualizar aviso
+                            const mapaAviso = document.getElementById('mapaAviso');
+                            if (mapaAviso) {
+                                mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente';
+                                mapaAviso.classList.remove('text-muted');
+                                mapaAviso.classList.add('text-success', 'fw-bold');
+                            }
+                        });
+                        div.addEventListener('mouseenter', () => {
+                            div.style.backgroundColor = '#f8f9fa';
+                        });
+                        div.addEventListener('mouseleave', () => {
+                            div.style.backgroundColor = 'white';
+                        });
+                        sugerenciasDiv.appendChild(div);
+                    });
+                    sugerenciasDiv.style.display = 'block';
+                })
+                .catch(err => {
+                    console.warn('Error buscando dirección:', err);
+                });
+        }, 400);
+    }
+
+    function configurarBuscador() {
+        const direccionInput = document.getElementById('direccion');
+        const sugerenciasDiv = document.getElementById('sugerencias');
+
+        if (!direccionInput) return;
+
+        // Buscar al escribir
+        direccionInput.addEventListener('input', function(e) {
+            buscarDireccion(e.target.value);
+        });
+
+        // Ocultar sugerencias al hacer clic fuera
+        document.addEventListener('click', function(e) {
+            if (!direccionInput.contains(e.target) && !sugerenciasDiv.contains(e.target)) {
+                sugerenciasDiv.style.display = 'none';
+            }
+        });
+
+        // Ocultar sugerencias con Escape
+        direccionInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                sugerenciasDiv.style.display = 'none';
+            }
+        });
+    }
+
+    // ===============================
     // INICIALIZAR MAPA DE CARRITO
     // ===============================
     function inicializarMapaCarrito() {
@@ -121,7 +348,7 @@
         // Centro inicial por defecto: Lima, Perú
         mapaCarrito = L.map('mapaCarrito').setView([-12.0464, -77.0428], 13);
 
-        // Usar múltiples capas de tiles para mejor rendimiento
+        // Usar solo OpenStreetMap (no requiere API key)
         const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -129,35 +356,7 @@
             keepBuffer: 2
         });
 
-        const cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-            updateWhenIdle: true,
-            keepBuffer: 2
-        });
-
-        const cartoDarkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-            updateWhenIdle: true
-        });
-
-        // Cargar CARTO primero (más rápido), fallback a OSM
-        cartoLayer.addTo(mapaCarrito);
-
-        // Agregar control de capas para cambiar entre mapas
-        L.control.layers({
-            'Claro (rápido)': cartoLayer,
-            'OpenStreetMap': osmLayer,
-            'Oscuro': cartoDarkLayer
-        }).addTo(mapaCarrito);
-
-        // Detectar error de tiles y mostrar mensaje
-        cartoLayer.on('tileerror', function() {
-            console.warn('Error cargando tiles de CARTO, intentando OSM...');
-            mapaCarrito.removeLayer(cartoLayer);
-            osmLayer.addTo(mapaCarrito);
-        });
+        osmLayer.addTo(mapaCarrito);
 
         // Ocultar indicador de carga cuando el mapa esté listo
         mapaCarrito.whenReady(() => {
@@ -168,15 +367,15 @@
             }
         });
 
-        // Icono personalizado para el marcador
+        // Configurar buscador de direcciones
+        configurarBuscador();
+
+        // Icono personalizado para el marcador (pin local)
         const iconoMarcador = L.icon({
-            iconUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon.png',
-            iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon-2x.png',
-            shadowUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-shadow.png',
-            iconSize: [25, 41],
-            iconAnchor: [12, 41],
-            popupAnchor: [1, -34],
-            shadowSize: [41, 41]
+            iconUrl: '/static/img/pin.png',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32],
+            popupAnchor: [0, -32]
         });
 
         // Evento clic en el mapa
@@ -197,10 +396,40 @@
 
             const mapaAviso = document.getElementById('mapaAviso');
             if (mapaAviso) {
-                mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente';
-                mapaAviso.classList.remove('text-muted');
-                mapaAviso.classList.add('text-success', 'fw-bold');
+                mapaAviso.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Obteniendo dirección...';
+                mapaAviso.classList.remove('text-success');
+                mapaAviso.classList.add('text-muted');
             }
+
+            // Reverse geocoding con Nominatim (OpenStreetMap)
+            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=es`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.display_name) {
+                        const direccionInput = document.getElementById('direccion');
+                        if (direccionInput) {
+                            direccionInput.value = data.display_name;
+                        }
+                        marcadorCarrito.setPopupContent(
+                            '<b>Tu ubicación de entrega</b><br>' +
+                            data.display_name + '<br>' +
+                            '<small>Lat: ' + lat + ' Lng: ' + lng + '</small>'
+                        );
+                    }
+                    if (mapaAviso) {
+                        mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente';
+                        mapaAviso.classList.remove('text-muted');
+                        mapaAviso.classList.add('text-success', 'fw-bold');
+                    }
+                })
+                .catch(err => {
+                    console.warn('Error en reverse geocoding:', err);
+                    if (mapaAviso) {
+                        mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente';
+                        mapaAviso.classList.remove('text-muted');
+                        mapaAviso.classList.add('text-success', 'fw-bold');
+                    }
+                });
         });
     }
 
@@ -222,7 +451,6 @@
         if (tipo === 'delivery') {
             direccionDiv.style.display = 'block';
             envioTexto.innerHTML = 'S/. 5.00';
-            cargarDireccionCliente();
             // Inicializar mapa después de que el contenedor sea visible
             // Usar requestAnimationFrame para asegurar que el DOM se renderizó
             requestAnimationFrame(() => {
@@ -648,6 +876,10 @@
             direccionInput.value = direccionGuardada;
         }
 
+        // Limpiar coordenadas antiguas del localStorage
+        localStorage.removeItem('latitudEntrega');
+        localStorage.removeItem('longitudEntrega');
+
         // Cargar coordenadas guardadas
         let latGuardada = localStorage.getItem('latitudEntrega');
         let lngGuardada = localStorage.getItem('longitudEntrega');
@@ -715,13 +947,10 @@
                     mapaCarrito.setView([lat, lng], 16);
                     
                     const iconoMarcador = L.icon({
-                        iconUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon.png',
-                        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon-2x.png',
-                        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-shadow.png',
-                        iconSize: [25, 41],
-                        iconAnchor: [12, 41],
-                        popupAnchor: [1, -34],
-                        shadowSize: [41, 41]
+                        iconUrl: '/static/img/pin.png',
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 32],
+                        popupAnchor: [0, -32]
                     });
                     
                     marcadorCarrito = L.marker([lat, lng], { icon: iconoMarcador }).addTo(mapaCarrito);
