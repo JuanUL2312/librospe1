@@ -39,30 +39,16 @@
                     <!-- ===== EMAIL Y TELÉFONO (EDITABLES) ===== -->
                     <div class="row g-3 mt-2">
                         <div class="col-12 col-md-6">
-                            <label class="field-label">Email <span class="text-muted small">(opcional)</span></label>
+                            <label class="field-label">Email <span class="text-danger">*</span></label>
                             <input type="email" id="clienteEmail" class="field-value editable w-100" 
                                    value="{{ cliente.correo if cliente else '' }}"
-                                   placeholder="Sin correo: te avisamos por WhatsApp">
+                                   placeholder="correo@ejemplo.com">
                         </div>
                         <div class="col-12 col-md-6">
                             <label class="field-label">Teléfono <span class="text-danger">*</span></label>
-                            <div class="d-flex gap-2">
-                                <select id="clientePrefijo" class="field-value editable flex-shrink-0 text-center"
-                                        style="width:118px;" aria-label="Código de país">
-                                    <option value="+51" selected>🇵🇪 +51</option>
-                                    <option value="+54">🇦🇷 +54</option>
-                                    <option value="+56">🇨🇱 +56</option>
-                                    <option value="+57">🇨🇴 +57</option>
-                                    <option value="+52">🇲🇽 +52</option>
-                                    <option value="+591">🇧🇴 +591</option>
-                                    <option value="+593">🇪🇨 +593</option>
-                                    <option value="+34">🇪🇸 +34</option>
-                                    <option value="+1">🇺🇸 +1</option>
-                                </select>
-                                <input type="tel" id="clienteTelefono" class="field-value editable flex-grow-1"
-                                       value="{{ cliente.telefono if cliente else '' }}"
-                                       placeholder="987654321">
-                            </div>
+                            <input type="tel" id="clienteTelefono" class="field-value editable w-100" 
+                                   value="{{ cliente.telefono if cliente else '' }}"
+                                   placeholder="987654321">
                         </div>
                     </div>
 
@@ -72,30 +58,21 @@
                     <div class="mb-3">
                         <label class="field-label">Tipo de comprobante <span class="text-danger">*</span></label>
                         <div class="row g-2 mt-1">
-                            <div class="col-4">
+                            <div class="col-6">
                                 <div class="radio-card active" id="cardBoleta" onclick="seleccionarComprobante('boleta')">
                                     <input type="radio" name="tipoComprobante" value="boleta" checked>
                                     <div>
                                         <div class="radio-label">📄 Boleta de venta</div>
-                                        <div class="radio-sub">Personas naturales (DNI o CE)</div>
+                                        <div class="radio-sub">Para personas naturales (DNI o Carnet de Extranjería)</div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-4">
+                            <div class="col-6">
                                 <div class="radio-card" id="cardFactura" onclick="seleccionarComprobante('factura')">
                                     <input type="radio" name="tipoComprobante" value="factura">
                                     <div>
-                                        <div class="radio-label">🧾 Factura</div>
-                                        <div class="radio-sub">Empresas (RUC)</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-4">
-                                <div class="radio-card" id="cardNota" onclick="seleccionarComprobante('nota')">
-                                    <input type="radio" name="tipoComprobante" value="nota">
-                                    <div>
-                                        <div class="radio-label">📝 Nota de venta</div>
-                                        <div class="radio-sub">Compra solo con tu nombre</div>
+                                        <div class="radio-label">📋 Factura</div>
+                                        <div class="radio-sub">Para empresas (RUC)</div>
                                     </div>
                                 </div>
                             </div>
@@ -169,6 +146,11 @@
                         <div class="mt-2" id="destinoEntrega" style="display:none;">
                             <span class="badge bg-success">
                                 <i class="fas fa-map-marker-alt me-1"></i>Distrito de entrega: <span id="destinoDistrito">-</span>
+                            </span>
+                        </div>
+                        <div class="mt-2" id="coordenadasEntrega" style="display:none;">
+                            <span class="badge bg-info">
+                                <i class="fas fa-crosshairs me-1"></i>Coordenadas: <span id="coordenadasTexto">-</span>
                             </span>
                         </div>
                     </div>

@@ -7,6 +7,8 @@
     let descuento = 0;
     let tipoEntregaSeleccionado = 'recojo';
     let direccionEntrega = '';
+    let mapaCarrito = null;
+    let marcadorCarrito = null;
 
     // ===============================
     // FUNCIÓN PARA VALIDAR STOCK CON EL SERVIDOR
@@ -83,6 +85,62 @@
     }
 
     // ===============================
+    // INICIALIZAR MAPA DE CARRITO
+    // ===============================
+    function inicializarMapaCarrito() {
+        if (mapaCarrito) {
+            mapaCarrito.invalidateSize();
+            return;
+        }
+
+        const mapaDiv = document.getElementById('mapaCarrito');
+        if (!mapaDiv) return;
+
+        // Centro inicial por defecto: Lima, Perú
+        mapaCarrito = L.map('mapaCarrito').setView([-12.0464, -77.0428], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(mapaCarrito);
+
+        // Icono personalizado para el marcador
+        const iconoMarcador = L.icon({
+            iconUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon.png',
+            iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon-2x.png',
+            shadowUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        });
+
+        // Evento clic en el mapa
+        mapaCarrito.on('click', function(e) {
+            const lat = e.latlng.lat.toFixed(6);
+            const lng = e.latlng.lng.toFixed(6);
+
+            if (marcadorCarrito) {
+                marcadorCarrito.setLatLng(e.latlng);
+            } else {
+                marcadorCarrito = L.marker(e.latlng, { icon: iconoMarcador }).addTo(mapaCarrito);
+            }
+
+            marcadorCarrito.bindPopup('<b>Tu ubicación de entrega</b><br>Lat: ' + lat + '<br>Lng: ' + lng).openPopup();
+
+            document.getElementById('latitud').value = lat;
+            document.getElementById('longitud').value = lng;
+
+            const mapaAviso = document.getElementById('mapaAviso');
+            if (mapaAviso) {
+                mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente';
+                mapaAviso.classList.remove('text-muted');
+                mapaAviso.classList.add('text-success', 'fw-bold');
+            }
+        });
+    }
+
+    // ===============================
     // SELECCIONAR TIPO DE ENTREGA
     // ===============================
     function seleccionarEntrega(tipo) {
@@ -101,10 +159,27 @@
             direccionDiv.style.display = 'block';
             envioTexto.innerHTML = 'S/. 5.00';
             cargarDireccionCliente();
+            // Inicializar mapa después de que el contenedor sea visible
+            setTimeout(() => {
+                inicializarMapaCarrito();
+                // Forzar redimensionado del mapa después de que sea visible
+                if (mapaCarrito) {
+                    setTimeout(() => mapaCarrito.invalidateSize(), 200);
+                }
+            }, 300);
         } else {
             direccionDiv.style.display = 'none';
             envioTexto.innerHTML = 'Gratis';
             if (direccionInput) direccionInput.value = '';
+            // Limpiar coordenadas si cambia a recojo
+            const lat = document.getElementById('latitud');
+            const lng = document.getElementById('longitud');
+            if (lat) lat.value = '';
+            if (lng) lng.value = '';
+            if (marcadorCarrito) {
+                mapaCarrito.removeLayer(marcadorCarrito);
+                marcadorCarrito = null;
+            }
         }
 
         actualizarTotales();
@@ -148,6 +223,16 @@
                 });
                 return;
             }
+            let lat = document.getElementById('latitud')?.value;
+            let lng = document.getElementById('longitud')?.value;
+            if (!lat || !lng) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Ubicación en el mapa requerida',
+                    text: 'Marca tu ubicación exacta en el mapa haciendo clic'
+                });
+                return;
+            }
             direccionEntrega = direccion;
         } else {
             direccionEntrega = '';
@@ -160,6 +245,14 @@
         }
         localStorage.setItem('tipoEntrega', tipoEntregaSeleccionado);
         localStorage.setItem('direccionEntrega', direccionEntrega);
+
+        // Guardar coordenadas del mapa
+        if (tipoEntregaSeleccionado === 'delivery') {
+            let lat = document.getElementById('latitud')?.value || '';
+            let lng = document.getElementById('longitud')?.value || '';
+            localStorage.setItem('latitudEntrega', lat);
+            localStorage.setItem('longitudEntrega', lng);
+        }
 
         window.location.href = '/checkout';
     }
@@ -484,6 +577,14 @@
         if (direccionGuardada && direccionInput) {
             direccionInput.value = direccionGuardada;
         }
+
+        // Cargar coordenadas guardadas
+        let latGuardada = localStorage.getItem('latitudEntrega');
+        let lngGuardada = localStorage.getItem('longitudEntrega');
+        if (latGuardada && lngGuardada) {
+            document.getElementById('latitud').value = latGuardada;
+            document.getElementById('longitud').value = lngGuardada;
+        }
         
         // VALIDAR STOCK DE CADA PRODUCTO
         let carritoActualizado = [];
@@ -533,6 +634,38 @@
         
         // Renderizar el carrito
         renderizarCarrito();
+
+        // Si hay delivery con coordenadas, restaurar el marcador
+        if (tipoEntregaSeleccionado === 'delivery' && latGuardada && lngGuardada) {
+            setTimeout(() => {
+                inicializarMapaCarrito();
+                if (mapaCarrito) {
+                    const lat = parseFloat(latGuardada);
+                    const lng = parseFloat(lngGuardada);
+                    mapaCarrito.setView([lat, lng], 16);
+                    
+                    const iconoMarcador = L.icon({
+                        iconUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon.png',
+                        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon-2x.png',
+                        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-shadow.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41],
+                        popupAnchor: [1, -34],
+                        shadowSize: [41, 41]
+                    });
+                    
+                    marcadorCarrito = L.marker([lat, lng], { icon: iconoMarcador }).addTo(mapaCarrito);
+                    marcadorCarrito.bindPopup('<b>Tu ubicación de entrega</b><br>Lat: ' + latGuardada + '<br>Lng: ' + lngGuardada).openPopup();
+                    
+                    const mapaAviso = document.getElementById('mapaAviso');
+                    if (mapaAviso) {
+                        mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente';
+                        mapaAviso.classList.remove('text-muted');
+                        mapaAviso.classList.add('text-success', 'fw-bold');
+                    }
+                }
+            }, 300);
+        }
     }
 
     // ===============================
