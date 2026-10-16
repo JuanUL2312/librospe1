@@ -528,15 +528,23 @@ function procesarPago() {
     var documento = document.getElementById('documentoInput').value.trim();
     var direccion = document.getElementById('direccionEntrega').value.trim();
     
-    // Teléfono obligatorio (con código de país). El correo es opcional: si no hay
-    // correo (o no es válido), el comprobante se entrega por WhatsApp al celular.
-    var emailValido = !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    // Contacto para el comprobante: basta con UNO de los dos. Si hay correo, se
+    // envía por correo; si no hay correo, se envía por WhatsApp al celular.
+    var emailPresente = email.length > 0;
+    var emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     var telValido = digitosTel.length >= 7 && digitosTel.length <= 15;
-    if (!telValido || !emailValido) {
+
+    var mensajeContacto = '';
+    if (emailPresente && !emailValido) {
+        mensajeContacto = 'Ingresa un correo electrónico válido';
+    } else if (!emailPresente && !telValido) {
+        mensajeContacto = 'Ingresa un teléfono celular válido (ej. 987654321)';
+    }
+    if (mensajeContacto) {
         Swal.fire({
             icon: 'warning',
             title: 'Campos incompletos',
-            text: (!telValido ? 'Ingresa un teléfono celular válido (ej. 987654321)' : 'Ingresa un correo electrónico válido') + ' (si no tienes correo, te enviamos el comprobante por WhatsApp).',
+            text: mensajeContacto + ' (basta con tu correo o tu celular para enviarte el comprobante).',
             confirmButtonColor: '#D4AF37'
         });
         btn.disabled = false;
