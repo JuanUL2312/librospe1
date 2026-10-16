@@ -1595,6 +1595,7 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
                 <!-- PIE -->
                 <div style="background:#f1f5f9;padding:16px 26px;text-align:center;font-size:11px;color:#64748b;">
                     <div style="font-weight:700;color:#334155;">Librería Salesiana Don Bosco | Todos los derechos reservados</div>
+                    <div style="margin-top:3px;">📍 Jr. Santa Rosa N° 299, El Tambo, Huancayo</div>
                     <div style="margin-top:3px;">📧 ventas@librospe.alwaysdata.net &nbsp;|&nbsp; 📞 (01) 123-4567</div>
                 </div>
             </div>
@@ -5489,8 +5490,22 @@ def crear_pedido():
             f"Total: S/ {float(data['total']):.2f}\n"
             f"Gracias por tu compra."
         )
+        # El cliente elige dónde recibir el comprobante:
+        #   correo   -> se envía el PDF por email
+        #   whatsapp -> se entrega el enlace al celular
+        # Si no eligió, o el canal elegido no está disponible, se usa el que haya.
+        preferencia = (cliente_data.get("preferencia_comprobante", "") or "").strip().lower()
+        correo_disponible = bool(cliente_email and "@" in cliente_email)
+        wa_disponible = enlace_whatsapp(cliente_telefono, "x") is not None
+        print(f"📬 Preferencia del cliente: '{preferencia}' (correo={correo_disponible}, whatsapp={wa_disponible})")
+
+        if preferencia == "whatsapp":
+            enviar_por_correo = (not wa_disponible) and correo_disponible
+        else:
+            enviar_por_correo = correo_disponible
+
         correo_enviado = False
-        if cliente_email and "@" in cliente_email:
+        if enviar_por_correo:
             try:
                 correo_enviado = bool(enviar_comprobante_email(
                     destinatario=cliente_email,

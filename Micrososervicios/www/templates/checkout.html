@@ -36,16 +36,41 @@
                         </div>
                     </div>
 
+                    <!-- ===== DÓNDE RECIBIR EL COMPROBANTE ===== -->
+                    <div class="mb-3 mt-2">
+                        <label class="field-label">¿Dónde quieres recibir tu comprobante? <span class="text-danger">*</span></label>
+                        <div class="row g-2 mt-1">
+                            <div class="col-6">
+                                <div class="radio-card active" id="cardCompCorreo" onclick="seleccionarDestinoComprobante('correo')">
+                                    <input type="radio" name="prefComprobante" value="correo" checked>
+                                    <div>
+                                        <div class="radio-label">📧 Correo</div>
+                                        <div class="radio-sub">Te llega el PDF</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="radio-card" id="cardCompWhatsApp" onclick="seleccionarDestinoComprobante('whatsapp')">
+                                    <input type="radio" name="prefComprobante" value="whatsapp">
+                                    <div>
+                                        <div class="radio-label">💬 WhatsApp</div>
+                                        <div class="radio-sub">Te llega el enlace</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- ===== EMAIL Y TELÉFONO (EDITABLES) ===== -->
                     <div class="row g-3 mt-2">
                         <div class="col-12 col-md-6">
-                            <label class="field-label">Email <span class="text-muted small">(opcional)</span></label>
+                            <label class="field-label" id="labelEmail">Email <span class="text-danger">*</span></label>
                             <input type="email" id="clienteEmail" class="field-value editable w-100" 
                                    value="{{ cliente.correo if cliente else '' }}"
-                                   placeholder="Sin correo: te avisamos por WhatsApp">
+                                   placeholder="tucorreo@ejemplo.com">
                         </div>
                         <div class="col-12 col-md-6">
-                            <label class="field-label">Teléfono <span class="text-danger">*</span></label>
+                            <label class="field-label" id="labelTelefono">Teléfono <span class="text-muted small">(opcional)</span></label>
                             <div class="d-flex gap-2">
                                 <select id="clientePrefijo" class="field-value editable flex-shrink-0 text-center"
                                         style="width:118px;" aria-label="Código de país">

@@ -9,6 +9,36 @@ var tipoEntrega = 'recojo';
 var costoEnvio = 0;
 var ubigeoCliente = null;
 var datosDni = null; // nombre real desde RENIEC (APIPERU) al ingresar DNI
+var preferenciaComprobante = 'correo'; // correo | whatsapp (dónde recibir el comprobante)
+
+// ============================================
+// DÓNDE RECIBIR EL COMPROBANTE (correo / WhatsApp)
+// ============================================
+function seleccionarDestinoComprobante(pref) {
+    preferenciaComprobante = pref;
+
+    var cardCorreo = document.getElementById('cardCompCorreo');
+    var cardWa = document.getElementById('cardCompWhatsApp');
+    if (cardCorreo) cardCorreo.classList.toggle('active', pref === 'correo');
+    if (cardWa) cardWa.classList.toggle('active', pref === 'whatsapp');
+    document.querySelectorAll('input[name="prefComprobante"]').forEach(function(el) {
+        el.checked = el.value === pref;
+    });
+
+    // Marca el campo obligatorio según lo elegido (el otro queda opcional).
+    var labEmail = document.getElementById('labelEmail');
+    var labTel = document.getElementById('labelTelefono');
+    if (labEmail) {
+        labEmail.innerHTML = 'Email ' + (pref === 'correo'
+            ? '<span class="text-danger">*</span>'
+            : '<span class="text-muted small">(opcional)</span>');
+    }
+    if (labTel) {
+        labTel.innerHTML = 'Teléfono ' + (pref === 'whatsapp'
+            ? '<span class="text-danger">*</span>'
+            : '<span class="text-muted small">(opcional)</span>');
+    }
+}
 
 // ============================================
 // SELECCIONAR TIPO DE COMPROBANTE
@@ -528,29 +558,36 @@ function procesarPago() {
     var documento = document.getElementById('documentoInput').value.trim();
     var direccion = document.getElementById('direccionEntrega').value.trim();
     
-    // Contacto para el comprobante: basta con UNO de los dos. Si hay correo, se
-    // envía por correo; si no hay correo, se envía por WhatsApp al celular.
-    var emailPresente = email.length > 0;
+    // Según dónde elija recibir el comprobante, se exige ese dato:
+    //  - Correo: se envía el PDF por email.
+    //  - WhatsApp: se envía el enlace al celular.
     var emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     var telValido = digitosTel.length >= 7 && digitosTel.length <= 15;
 
     var mensajeContacto = '';
-    if (emailPresente && !emailValido) {
-        mensajeContacto = 'Ingresa un correo electrónico válido';
-    } else if (!emailPresente && !telValido) {
-        mensajeContacto = 'Ingresa un teléfono celular válido (ej. 987654321)';
+    if (preferenciaComprobante === 'whatsapp') {
+        if (!telValido) {
+            mensajeContacto = 'Ingresa un teléfono celular válido (ej. 987654321) para recibir tu comprobante por WhatsApp';
+        }
+    } else {
+        if (!emailValido) {
+            mensajeContacto = 'Ingresa un correo electrónico válido para recibir tu comprobante por correo';
+        }
     }
     if (mensajeContacto) {
         Swal.fire({
             icon: 'warning',
             title: 'Campos incompletos',
-            text: mensajeContacto + ' (basta con tu correo o tu celular para enviarte el comprobante).',
+            text: mensajeContacto + '.',
             confirmButtonColor: '#D4AF37'
         });
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-credit-card me-2"></i>Continuar con el pago';
         return;
     }
+
+    // Si el celular no es utilizable, no se envía (queda vacío).
+    if (!telValido) telefono = '';
     
     // Si es delivery, la dirección es obligatoria
     if (tipoEntrega === 'delivery' && !direccion) {
@@ -657,7 +694,8 @@ function procesarPago() {
         razon_social: tipoComprobante === 'factura' ? (document.getElementById('confirmRazonSocial').textContent || '') : '',
         direccion_fiscal: direccion,
         latitud: latitud,
-        longitud: longitud
+        longitud: longitud,
+        preferencia_comprobante: preferenciaComprobante
     };
     localStorage.setItem('checkoutData', JSON.stringify(checkoutData));
     localStorage.setItem('tipoEntrega', tipoEntrega);
@@ -673,6 +711,9 @@ function procesarPago() {
 document.addEventListener('DOMContentLoaded', function() {
     // Código de país del teléfono (detecta si el número guardado ya lo trae)
     initPrefijoTelefono();
+
+    // Dónde recibir el comprobante (por defecto: correo)
+    seleccionarDestinoComprobante(preferenciaComprobante);
 
     // Cargar tipo de entrega guardado en el carrito (localStorage)
     var tipoGuardado = localStorage.getItem('tipoEntrega');

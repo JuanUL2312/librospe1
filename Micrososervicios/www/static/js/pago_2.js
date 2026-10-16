@@ -289,7 +289,8 @@ async function confirmarPedido(){
             documento: checkoutData.documento || '',
             tipo_documento: checkoutData.tipo_documento || '',
             razon_social: checkoutData.razon_social || '',
-            direccion_fiscal: checkoutData.direccion_fiscal || ''
+            direccion_fiscal: checkoutData.direccion_fiscal || '',
+            preferencia_comprobante: checkoutData.preferencia_comprobante || ''
         }
     };
     
