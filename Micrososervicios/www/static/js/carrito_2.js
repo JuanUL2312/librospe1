@@ -9,6 +9,7 @@
     let direccionEntrega = '';
     let mapaCarrito = null;
     let marcadorCarrito = null;
+    let circuloPrecision = null;  // margen de error del último geolocalizado
 
     // ===============================
     // FUNCIÓN PARA VALIDAR STOCK CON EL SERVIDOR
@@ -106,99 +107,151 @@
 
         if (mapaAviso) {
             mapaAviso.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Obteniendo tu ubicación...';
-            mapaAviso.classList.remove('text-success');
+            mapaAviso.classList.remove('text-success', 'text-warning', 'fw-bold');
             mapaAviso.classList.add('text-muted');
         }
 
+        // Lectura FRESCA (maximumAge:0) y en alta precisión. Si el equipo no
+        // tiene GPS (PC/laptop) y falla o tarda, se reintenta una vez en modo
+        // red (más rápido, aunque menos exacto).
         navigator.geolocation.getCurrentPosition(
-            function(position) {
-                const lat = position.coords.latitude.toFixed(6);
-                const lng = position.coords.longitude.toFixed(6);
-
-                // Guardar coordenadas
-                document.getElementById('latitud').value = lat;
-                document.getElementById('longitud').value = lng;
-
-                // Mover mapa y colocar marcador
-                if (mapaCarrito) {
-                    mapaCarrito.setView([lat, lng], 16);
-
-                    const iconoMarcador = L.icon({
-                        iconUrl: '/static/img/pin.png',
-                        iconSize: [32, 32],
-                        iconAnchor: [16, 32],
-                        popupAnchor: [0, -32]
-                    });
-
-                    if (marcadorCarrito) {
-                        marcadorCarrito.setLatLng([lat, lng]);
-                    } else {
-                        marcadorCarrito = L.marker([lat, lng], { icon: iconoMarcador }).addTo(mapaCarrito);
-                    }
-
-                    // Reverse geocoding para obtener la dirección
-                    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=es`)
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data && data.display_name) {
-                                const direccionInput = document.getElementById('direccion');
-                                if (direccionInput) {
-                                    direccionInput.value = data.display_name;
-                                }
-                                marcadorCarrito.setPopupContent(
-                                    '<b>Tu ubicación de entrega</b><br>' + data.display_name + '<br><small>Lat: ' + lat + ' Lng: ' + lng + '</small>'
-                                ).openPopup();
-                            }
-                        })
-                        .catch(() => {
-                            marcadorCarrito.setPopupContent(
-                                '<b>Tu ubicación de entrega</b><br><small>Lat: ' + lat + ' Lng: ' + lng + '</small>'
-                            ).openPopup();
-                        });
-                }
-
-                // Actualizar aviso
-                if (mapaAviso) {
-                    mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> ¡Ubicación encontrada!';
-                    mapaAviso.classList.remove('text-muted');
-                    mapaAviso.classList.add('text-success', 'fw-bold');
-                }
-
-                // Rehabilitar botón
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-crosshairs me-1"></i> Ubicar mi ubicación';
-                }
-            },
+            pintarUbicacionCliente,
             function(error) {
-                let mensaje = 'No se pudo obtener tu ubicación';
-                switch(error.code) {
-                    case error.PERMISSION_DENIED:
-                        mensaje = 'Permiso de ubicación denegado. Actívalo en tu navegador.';
-                        break;
-                    case error.POSITION_UNAVAILABLE:
-                        mensaje = 'Ubicación no disponible.';
-                        break;
-                    case error.TIMEOUT:
-                        mensaje = 'Tiempo de espera agotado.';
-                        break;
-                }
-
-                if (mapaAviso) {
-                    mapaAviso.innerHTML = '<i class="fas fa-exclamation-triangle text-warning me-1"></i> ' + mensaje;
-                }
-
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-crosshairs me-1"></i> Ubicar mi ubicación';
+                const falloRed = error && (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE);
+                if (falloRed) {
+                    if (mapaAviso) {
+                        mapaAviso.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Afinando por red...';
+                    }
+                    navigator.geolocation.getCurrentPosition(
+                        pintarUbicacionCliente,
+                        mostrarErrorUbicacion,
+                        { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 }
+                    );
+                } else {
+                    mostrarErrorUbicacion(error);
                 }
             },
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 60000
-            }
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
         );
+    }
+
+    // Dibuja el punto del cliente junto con su margen de error real (± metros).
+    function pintarUbicacionCliente(position) {
+        const btn = document.getElementById('btnMiUbicacion');
+        const mapaAviso = document.getElementById('mapaAviso');
+
+        const lat = position.coords.latitude.toFixed(6);
+        const lng = position.coords.longitude.toFixed(6);
+        const margen = Math.round(position.coords.accuracy || 0); // metros de error
+
+        // Guardar coordenadas (input del formulario + localStorage para el checkout)
+        document.getElementById('latitud').value = lat;
+        document.getElementById('longitud').value = lng;
+        localStorage.setItem('latitudEntrega', lat);
+        localStorage.setItem('longitudEntrega', lng);
+
+        if (mapaCarrito) {
+            // Si la ubicación es precisa, se acerca más.
+            mapaCarrito.setView([lat, lng], margen && margen <= 150 ? 17 : 16);
+
+            const iconoMarcador = L.icon({
+                iconUrl: '/static/img/pin.png',
+                iconSize: [32, 32],
+                iconAnchor: [16, 32],
+                popupAnchor: [0, -32]
+            });
+
+            if (marcadorCarrito) {
+                marcadorCarrito.setLatLng([lat, lng]);
+            } else {
+                marcadorCarrito = L.marker([lat, lng], { icon: iconoMarcador }).addTo(mapaCarrito);
+            }
+
+            // Círculo con el margen de error real que reporta el navegador.
+            if (circuloPrecision) {
+                mapaCarrito.removeLayer(circuloPrecision);
+                circuloPrecision = null;
+            }
+            if (margen > 0) {
+                circuloPrecision = L.circle([lat, lng], {
+                    radius: margen,
+                    color: '#2563eb',
+                    weight: 1,
+                    fillColor: '#2563eb',
+                    fillOpacity: 0.12
+                }).addTo(mapaCarrito);
+            }
+
+            // Reverse geocoding para completar la dirección
+            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=es`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.display_name) {
+                        const direccionInput = document.getElementById('direccion');
+                        if (direccionInput) {
+                            direccionInput.value = data.display_name;
+                        }
+                        marcadorCarrito.setPopupContent(
+                            '<b>Tu ubicación de entrega</b><br>' + data.display_name + '<br><small>Lat: ' + lat + ' Lng: ' + lng + ' (±' + margen + ' m)</small>'
+                        ).openPopup();
+                    }
+                })
+                .catch(() => {
+                    marcadorCarrito.setPopupContent(
+                        '<b>Tu ubicación de entrega</b><br><small>Lat: ' + lat + ' Lng: ' + lng + ' (±' + margen + ' m)</small>'
+                    ).openPopup();
+                });
+        }
+
+        // Aviso según la precisión: <=150 m se considera fiable.
+        const fiable = margen > 0 && margen <= 150;
+        if (mapaAviso) {
+            if (fiable) {
+                mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> ¡Ubicación encontrada! (±' + margen + ' m)';
+                mapaAviso.classList.remove('text-muted', 'text-warning');
+                mapaAviso.classList.add('text-success', 'fw-bold');
+            } else {
+                mapaAviso.innerHTML = '<i class="fas fa-exclamation-triangle text-warning me-1"></i> Ubicación poco precisa (±' + margen +
+                    ' m). Si no es exacta, haz clic en el mapa para afinarla.';
+                mapaAviso.classList.remove('text-muted', 'text-success', 'fw-bold');
+                mapaAviso.classList.add('text-warning');
+            }
+        }
+
+        // Rehabilitar botón
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-crosshairs me-1"></i> Ubicar mi ubicación';
+        }
+    }
+
+    function mostrarErrorUbicacion(error) {
+        const btn = document.getElementById('btnMiUbicacion');
+        const mapaAviso = document.getElementById('mapaAviso');
+
+        let mensaje = 'No se pudo obtener tu ubicación';
+        switch (error.code) {
+            case error.PERMISSION_DENIED:
+                mensaje = 'Permiso de ubicación denegado. Actívalo en tu navegador.';
+                break;
+            case error.POSITION_UNAVAILABLE:
+                mensaje = 'Ubicación no disponible.';
+                break;
+            case error.TIMEOUT:
+                mensaje = 'Tiempo de espera agotado.';
+                break;
+        }
+
+        if (mapaAviso) {
+            mapaAviso.innerHTML = '<i class="fas fa-exclamation-triangle text-warning me-1"></i> ' + mensaje;
+            mapaAviso.classList.remove('text-muted', 'text-success', 'fw-bold');
+            mapaAviso.classList.add('text-warning');
+        }
+
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-crosshairs me-1"></i> Ubicar mi ubicación';
+        }
     }
 
     // ===============================
@@ -242,6 +295,12 @@
                             const lng = parseFloat(item.lon).toFixed(6);
                             document.getElementById('latitud').value = lat;
                             document.getElementById('longitud').value = lng;
+
+                            // Sugerencia elegida = punto preciso: se quita el círculo de error.
+                            if (circuloPrecision) {
+                                mapaCarrito.removeLayer(circuloPrecision);
+                                circuloPrecision = null;
+                            }
 
                             if (mapaCarrito) {
                                 mapaCarrito.setView([lat, lng], 16);
@@ -394,6 +453,12 @@
             document.getElementById('latitud').value = lat;
             document.getElementById('longitud').value = lng;
 
+            // Punto elegido a mano = preciso: se quita el círculo de error.
+            if (circuloPrecision) {
+                mapaCarrito.removeLayer(circuloPrecision);
+                circuloPrecision = null;
+            }
+
             const mapaAviso = document.getElementById('mapaAviso');
             if (mapaAviso) {
                 mapaAviso.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Obteniendo dirección...';
@@ -477,6 +542,10 @@
             if (marcadorCarrito) {
                 mapaCarrito.removeLayer(marcadorCarrito);
                 marcadorCarrito = null;
+            }
+            if (circuloPrecision) {
+                mapaCarrito.removeLayer(circuloPrecision);
+                circuloPrecision = null;
             }
         }
 
