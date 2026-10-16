@@ -367,6 +367,7 @@ class Pedido(db.Model):
     # Confirmación de entrega (delivery)
     nombre_recibe = db.Column(db.String(200), nullable=True)
     dni_recibe = db.Column(db.String(20), nullable=True)
+    foto_entrega = db.Column(db.String(200), nullable=True)  # nombre del archivo de la foto de entrega
     fecha_entrega = db.Column(db.DateTime, nullable=True)
     confirmado_por = db.Column(db.String(100), nullable=True)
     cliente_confirmo = db.Column(db.Integer, default=0)
@@ -5216,8 +5217,23 @@ def confirmar_recepcion_pedido(pedido_id):
         flash("✅ Ya habías confirmado la recepción de este pedido", "info")
         return redirect(url_for("mis_pedidos"))
 
+    # La foto de la entrega es OBLIGATORIA: es la constancia de que el cliente recibió.
+    foto = request.files.get("foto_entrega")
+    if not foto or not foto.filename or not allowed_file(foto.filename):
+        msg = "Debes tomar una foto de la entrega para confirmar la recepción."
+        if is_ajax:
+            return jsonify({"success": False, "error": msg}), 400
+        flash(f"❌ {msg}", "danger")
+        return redirect(url_for("mis_pedidos"))
+
+    carpeta = os.path.join("static", "img", "entregas")
+    os.makedirs(carpeta, exist_ok=True)
+    filename = f"entrega_{pedido.id}_{int(time.time())}_{secure_filename(foto.filename)}"
+    foto.save(os.path.join(carpeta, filename))
+
     pedido.cliente_confirmo = 1
     pedido.fecha_confirmacion_cliente = datetime.now()
+    pedido.foto_entrega = filename
     db.session.commit()
 
     print(f"✅ Cliente confirmó recepción del pedido #{pedido_id} ({datetime.now()})")

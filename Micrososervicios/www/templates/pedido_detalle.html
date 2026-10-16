@@ -140,6 +140,13 @@
                                     {% else %}
                                     <br>⏳ <span class="text-warning">El cliente aún no confirma la recepción</span>
                                     {% endif %}
+                                    {% if pedido.foto_entrega %}
+                                    <br>📷 <strong>Foto de la entrega:</strong><br>
+                                    <a href="{{ url_for('static', filename='img/entregas/' + pedido.foto_entrega) }}" target="_blank">
+                                        <img src="{{ url_for('static', filename='img/entregas/' + pedido.foto_entrega) }}"
+                                             alt="Foto de la entrega" class="img-thumbnail" style="max-width:200px;">
+                                    </a>
+                                    {% endif %}
                                 </p>
                                 {% endif %}
                                 <p><strong>📄 Tipo Comprobante:</strong><br>
