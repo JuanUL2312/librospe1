@@ -361,6 +361,8 @@ class Pedido(db.Model):
     costo_envio = db.Column(db.Float, default=0)
     metodo_pago = db.Column(db.String(30), nullable=True)
     distrito_entrega = db.Column(db.String(80), nullable=True)
+    cargo_contraentrega = db.Column(db.Float, default=0)
+    reporto_no_recibido = db.Column(db.Integer, default=0)
     direccion_entrega = db.Column(db.Text)
     tipo_entrega = db.Column(db.String(20), default="recojo")
     # Punto de entrega en el mapa (migracion_delivery_mapa.sql).
@@ -5249,6 +5251,83 @@ def confirmar_recepcion_pedido(pedido_id):
     flash("✅ ¡Gracias por confirmar la recepción de tu pedido!", "success")
     return redirect(url_for("mis_pedidos"))
 
+
+@app.route("/pedidos/reportar-no-recibido/<int:pedido_id>", methods=["POST"])
+@login_required_cliente
+def reportar_no_recibido(pedido_id):
+    """El cliente reporta que NO recibió su pedido delivery."""
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    pedido = Pedido.query.get_or_404(pedido_id)
+
+    if pedido.cliente_id != session.get("cliente_id"):
+        msg = "No autorizado"
+        if is_ajax:
+            return jsonify({"success": False, "error": msg}), 403
+        flash(f"❌ {msg}", "danger")
+        return redirect(url_for("mis_pedidos"))
+
+    if pedido.tipo_entrega != "delivery":
+        msg = "Este pedido no es delivery"
+        if is_ajax:
+            return jsonify({"success": False, "error": msg}), 400
+        flash(f"❌ {msg}", "danger")
+        return redirect(url_for("mis_pedidos"))
+
+    if pedido.estado != "entregado":
+        msg = "El pedido aún no está marcado como entregado"
+        if is_ajax:
+            return jsonify({"success": False, "error": msg}), 400
+        flash(f"❌ {msg}", "danger")
+        return redirect(url_for("mis_pedidos"))
+
+    if pedido.cliente_confirmo:
+        msg = "Ya confirmaste la recepción de este pedido"
+        if is_ajax:
+            return jsonify({"success": False, "error": msg}), 400
+        flash(f"ℹ️ {msg}", "info")
+        return redirect(url_for("mis_pedidos"))
+
+    pedido.reporto_no_recibido = 1
+    db.session.commit()
+
+    # Avisar a la tienda
+    try:
+        _notificar_no_recibido(pedido)
+    except Exception as e:
+        print(f"[no-recibido] Error notificando a la tienda: {e}")
+
+    if is_ajax:
+        return jsonify({"success": True, "message": "Reporte recibido. Te contactaremos pronto."})
+    flash("✅ Reporte recibido. Te contactaremos pronto.", "success")
+    return redirect(url_for("mis_pedidos"))
+
+
+def _notificar_no_recibido(pedido):
+    """Correo a la tienda: el cliente reporta que no recibió el pedido."""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    cliente = Cliente.query.get(pedido.cliente_id)
+    msg = MIMEMultipart()
+    msg['From'] = EMAIL_FROM or EMAIL_USER
+    msg['To'] = EMAIL_USER
+    msg['Subject'] = f"⚠️ Cliente reporta que NO recibió el pedido #{pedido.id}"
+    cuerpo = (
+        f"El cliente {(cliente.nombres + ' ' + cliente.apellidos).strip() if cliente else 'desconocido'} "
+        f"reporta que NO recibió el pedido #{pedido.id}.\n\n"
+        f"Dirección de entrega: {pedido.direccion_entrega or '—'}\n"
+        f"Distrito: {pedido.distrito_entrega or '—'}\n"
+        f"Recibido por (según el repartidor): {pedido.nombre_recibe or '—'}\n"
+        f"Teléfono del cliente: {cliente.telefono if cliente else '—'}\n\n"
+        f"Revisa el pedido en el panel de administración."
+    )
+    msg.attach(MIMEText(cuerpo, 'plain', 'utf-8'))
+    with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
+        server.starttls()
+        server.login(EMAIL_USER, EMAIL_PASSWORD)
+        server.sendmail(msg['From'], [msg['To']], msg.as_string())
+
 @app.route("/api/mis-pedidos")
 @login_required_cliente
 def api_mis_pedidos():
@@ -5408,6 +5487,7 @@ def crear_pedido():
         subtotal_pedido = sum(float(it["precio"]) * int(it["cantidad"]) for it in data["items"])
         descuento_pedido = float(data.get("descuento") or 0)
         costo_envio_pedido = float(data.get("costo_envio") or 0)
+        cargo_contraentrega_pedido = float(data.get("cargo_contraentrega") or 0)
         metodo_pago_pedido = (data.get("metodo_pago") or "").strip() or None
         distrito_pedido = (data.get("distrito") or "").strip() or None
 
@@ -5417,6 +5497,7 @@ def crear_pedido():
             subtotal=subtotal_pedido,
             descuento=descuento_pedido,
             costo_envio=costo_envio_pedido,
+            cargo_contraentrega=cargo_contraentrega_pedido,
             metodo_pago=metodo_pago_pedido,
             distrito_entrega=distrito_pedido,
             tipo_entrega=data["tipo_entrega"],

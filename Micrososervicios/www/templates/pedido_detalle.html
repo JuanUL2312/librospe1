@@ -149,6 +149,13 @@
                                     {% endif %}
                                 </p>
                                 {% endif %}
+                                {% if pedido.reporto_no_recibido %}
+                                <p class="mt-2 mb-0">
+                                    <span class="badge bg-danger text-white fs-6 px-2 py-1">
+                                        <i class="fas fa-exclamation-triangle me-1"></i>El cliente reporta que NO recibió el pedido
+                                    </span>
+                                </p>
+                                {% endif %}
                                 <p><strong>📄 Tipo Comprobante:</strong><br>
                                     {% if venta and venta.tipo_comprobante == 'factura' %}
                                         <span class="badge bg-primary">🏢 FACTURA</span>
@@ -216,6 +223,12 @@
                                         Envío{% if pedido.distrito_entrega %} ({{ pedido.distrito_entrega }}){% endif %}:
                                     </td>
                                     <td class="text-end">S/. {{ "%.2f"|format(pedido.costo_envio or 0) }}</td>
+                                </tr>
+                                {% endif %}
+                                {% if pedido.cargo_contraentrega %}
+                                <tr class="table-active">
+                                    <td colspan="3" class="text-end fw-bold">Contraentrega:</td>
+                                    <td class="text-end">S/. {{ "%.2f"|format(pedido.cargo_contraentrega) }}</td>
                                 </tr>
                                 {% endif %}
                                 <tr class="table-active">

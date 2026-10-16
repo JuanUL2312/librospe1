@@ -282,6 +282,7 @@ async function confirmarPedido(){
         direccion:checkoutData.direccion || '',
         distrito: checkoutData.distrito || localStorage.getItem('distritoEntrega') || '',
         costo_envio: costoEnvio,
+        cargo_contraentrega: cargoContraentrega,
         latitud:latitudEntrega,
         longitud:longitudEntrega,
         comprobante: { tipo: checkoutData.tipo_comprobante || 'boleta' },

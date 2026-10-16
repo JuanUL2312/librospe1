@@ -144,6 +144,19 @@
                                                 <i class="fas fa-check-circle me-1"></i>Sí, confirmo que recibí mi pedido
                                             </button>
                                         </form>
+                                        <form id="formNoRecibido" method="POST"
+                                              action="/pedidos/reportar-no-recibido/{{ pedido.id }}">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm mt-2"
+                                                    id="btnNoRecibido">
+                                                <i class="fas fa-times-circle me-1"></i>No recibí mi pedido
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                    {% if pedido.reporto_no_recibido %}
+                                    <div class="alert alert-danger mb-0 py-2">
+                                        <i class="fas fa-exclamation-triangle me-2"></i><strong>Reportaste que no recibiste el pedido.</strong>
+                                        <small class="text-muted d-block">Te contactaremos pronto.</small>
+                                    </div>
                                     {% endif %}
                                 </div>
                                 {% endif %}
@@ -207,6 +220,12 @@
                                     <td class="text-end">S/. {{ "%.2f"|format(pedido.costo_envio or 0) }}</td>
                                 </tr>
                                 {% endif %}
+                                {% if pedido.cargo_contraentrega %}
+                                <tr class="table-active">
+                                    <td colspan="3" class="text-end fw-bold">Contraentrega:</td>
+                                    <td class="text-end">S/. {{ "%.2f"|format(pedido.cargo_contraentrega) }}</td>
+                                </tr>
+                                {% endif %}
                                 <tr class="table-active">
                                     <td colspan="3" class="text-end fw-bold fs-6 fs-md-5">TOTAL:
                                     <td class="text-end text-success fs-5 fs-md-4 fw-bold">S/. {{ "%.2f"|format(pedido.total) }}
@@ -232,39 +251,71 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/cliente_pedido_detalle.css') }}">
 <script>
     (function () {
+        // Confirmar recepción (con foto obligatoria)
         var form = document.getElementById('formConfirmarRecepcion');
-        if (!form) return;
-        form.addEventListener('submit', function (e) {
-            e.preventDefault();
-            var input = document.getElementById('fotoEntrega');
-            if (!input.files || !input.files[0]) {
-                alert('Debes tomar una foto de la entrega para confirmar la recepción.');
-                return;
-            }
-            var btn = document.getElementById('btnConfirmarRecepcion');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Enviando...';
-            var formData = new FormData(form);
-            fetch(form.action, {
-                method: 'POST',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                body: formData
-            }).then(function (r) {
-                return r.json().then(function (d) { return { ok: r.ok, d: d }; });
-            }).then(function (res) {
-                if (res.ok && res.d.success) {
-                    window.location.reload();
-                } else {
-                    alert(res.d.error || 'No se pudo confirmar la recepción.');
+        if (form) {
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                var input = document.getElementById('fotoEntrega');
+                if (!input.files || !input.files[0]) {
+                    alert('Debes tomar una foto de la entrega para confirmar la recepción.');
+                    return;
+                }
+                var btn = document.getElementById('btnConfirmarRecepcion');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Enviando...';
+                var formData = new FormData(form);
+                fetch(form.action, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    body: formData
+                }).then(function (r) {
+                    return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+                }).then(function (res) {
+                    if (res.ok && res.d.success) {
+                        window.location.reload();
+                    } else {
+                        alert(res.d.error || 'No se pudo confirmar la recepción.');
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-check-circle me-1"></i>Sí, confirmo que recibí mi pedido';
+                    }
+                }).catch(function () {
+                    alert('Error al enviar. Inténtalo de nuevo.');
                     btn.disabled = false;
                     btn.innerHTML = '<i class="fas fa-check-circle me-1"></i>Sí, confirmo que recibí mi pedido';
-                }
-            }).catch(function () {
-                alert('Error al enviar. Inténtalo de nuevo.');
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-check-circle me-1"></i>Sí, confirmo que recibí mi pedido';
+                });
             });
-        });
+        }
+
+        // Reportar que NO recibió el pedido
+        var formNo = document.getElementById('formNoRecibido');
+        if (formNo) {
+            formNo.addEventListener('submit', function (e) {
+                e.preventDefault();
+                if (!confirm('¿Seguro que NO recibiste tu pedido? Se avisará a la tienda.')) return;
+                var btn = document.getElementById('btnNoRecibido');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Enviando...';
+                fetch(formNo.action, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                }).then(function (r) {
+                    return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+                }).then(function (res) {
+                    if (res.ok && res.d.success) {
+                        window.location.reload();
+                    } else {
+                        alert(res.d.error || 'No se pudo enviar el reporte.');
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-times-circle me-1"></i>No recibí mi pedido';
+                    }
+                }).catch(function () {
+                    alert('Error al enviar. Inténtalo de nuevo.');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-times-circle me-1"></i>No recibí mi pedido';
+                });
+            });
+        }
     })();
 </script>
 {% endblock %}
