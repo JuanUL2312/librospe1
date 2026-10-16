@@ -439,7 +439,7 @@ function seleccionarEntrega(tipo) {
     var dirSection = document.getElementById('direccionSection');
     if (tipo === 'delivery') {
         dirSection.style.display = 'block';
-        costoEnvio = 5;
+        costoEnvio = parseFloat(localStorage.getItem('costoEntrega')) || 0;
         actualizarDireccionEntrega();
     } else {
         dirSection.style.display = 'none';
@@ -470,13 +470,15 @@ function actualizarDireccionEntrega() {
     var faltante = document.getElementById('ubicacionFaltante');
     var destino = document.getElementById('destinoEntrega');
     var btn = document.getElementById('btnPagar');
-    var completo = ubigeoCliente !== null;
+    var distritoElegido = localStorage.getItem('distritoEntrega') || '';
+    var completo = !!distritoElegido || ubigeoCliente !== null;
 
     if (faltante) faltante.classList.toggle('d-none', completo);
     if (destino) {
         if (completo) {
             document.getElementById('destinoDistrito').textContent =
-                ubigeoCliente.distrito + ' (' + ubigeoCliente.departamento + ' - ' + ubigeoCliente.provincia + ')';
+                distritoElegido ||
+                (ubigeoCliente.distrito + ' (' + ubigeoCliente.departamento + ' - ' + ubigeoCliente.provincia + ')');
             destino.style.display = 'block';
         } else {
             destino.style.display = 'none';
@@ -695,6 +697,8 @@ function procesarPago() {
         direccion_fiscal: direccion,
         latitud: latitud,
         longitud: longitud,
+        distrito: localStorage.getItem('distritoEntrega') || '',
+        costo_envio: parseFloat(localStorage.getItem('costoEntrega')) || 0,
         preferencia_comprobante: preferenciaComprobante
     };
     localStorage.setItem('checkoutData', JSON.stringify(checkoutData));

@@ -11,6 +11,74 @@
     let marcadorCarrito = null;
     let circuloPrecision = null;  // margen de error del último geolocalizado
 
+    // ===============================
+    // ZONAS DE DELIVERY (distrito -> costo de envío)
+    // Edita aquí los distritos y tarifas si la tienda cambia la política.
+    // ===============================
+    var ZONAS_DELIVERY = {
+        1: { costo: 5,  nombre: 'Zona 1 · Entrega rápida',
+             distritos: ['Huancayo (Cercado)', 'El Tambo', 'Chilca', 'Pilcomayo'] },
+        2: { costo: 12, nombre: 'Zona 2 · Entrega programada',
+             distritos: ['San Jerónimo de Tunán', 'San Agustín (Cajas)', 'Hualhuas', 'Saño',
+                         'Huancán', 'Huayucachi', 'Viques', 'Sapallanga', 'Sicaya'] },
+        3: { costo: 20, nombre: 'Zona 3 · Envío especial',
+             distritos: ['Chupuro', 'Colca', 'Chacapampa', 'Chicche', 'Carhuacallanga',
+                         'Chongos Alto', 'Huasicancha', 'Ingenio', 'Quichuay', 'Quilcas',
+                         'San Pedro de Saño', 'Santo Domingo de Acobamba', 'Pucará', 'Cullhuas',
+                         'Pariahuanca'] }
+    };
+    var distritoEntrega = '';
+    var costoEntrega = 0;
+
+    function zonaPorDistrito(d) {
+        if (!d) return null;
+        for (var z in ZONAS_DELIVERY) {
+            if (ZONAS_DELIVERY[z].distritos.indexOf(d) !== -1) return ZONAS_DELIVERY[z];
+        }
+        return null;
+    }
+    function costoPorDistrito(d) {
+        var z = zonaPorDistrito(d);
+        return z ? z.costo : 0;
+    }
+    function aplicarDistrito(d) {
+        distritoEntrega = d || '';
+        costoEntrega = costoPorDistrito(distritoEntrega);
+        localStorage.setItem('distritoEntrega', distritoEntrega);
+        localStorage.setItem('costoEntrega', String(costoEntrega));
+        var info = document.getElementById('zonaInfo');
+        if (info) {
+            if (!distritoEntrega) {
+                info.innerHTML = '<span class="text-danger"><i class="fas fa-exclamation-circle me-1"></i>Elige tu distrito para calcular el envío.</span>';
+            } else {
+                var z = zonaPorDistrito(distritoEntrega);
+                info.innerHTML = '<span class="text-success"><i class="fas fa-check-circle me-1"></i>' +
+                    z.nombre + ': envío S/ ' + costoEntrega.toFixed(2) + '</span>';
+            }
+        }
+        actualizarTotales();
+    }
+    function inicializarDistritos() {
+        var sel = document.getElementById('distritoEntregaSel');
+        if (!sel) return;
+        var html = '<option value="">— Elige tu distrito —</option>';
+        for (var z in ZONAS_DELIVERY) {
+            var zona = ZONAS_DELIVERY[z];
+            html += '<optgroup label="' + zona.nombre + ' (S/ ' + zona.costo.toFixed(2) + ')">';
+            zona.distritos.forEach(function(d) {
+                html += '<option value="' + d + '">' + d + '</option>';
+            });
+            html += '</optgroup>';
+        }
+        sel.innerHTML = html;
+        var guardado = localStorage.getItem('distritoEntrega');
+        if (guardado) aplicarDistrito(guardado);
+    }
+    function cambiarDistritoEntrega() {
+        var sel = document.getElementById('distritoEntregaSel');
+        aplicarDistrito(sel ? sel.value : '');
+    }
+
     // Icono del pin de entrega.
     function iconoPin() {
         return L.icon({
@@ -491,7 +559,7 @@
         if (tipo === 'delivery') {
             direccionDiv.style.display = 'block';
             if (infoRecojo) infoRecojo.style.display = 'none';
-            envioTexto.innerHTML = 'S/. 5.00';
+            aplicarDistrito(distritoEntrega);
             // Inicializar mapa después de que el contenedor sea visible
             // Usar requestAnimationFrame para asegurar que el DOM se renderizó
             requestAnimationFrame(() => {
@@ -509,6 +577,10 @@
         } else {
             direccionDiv.style.display = 'none';
             if (infoRecojo) infoRecojo.style.display = 'block';
+            distritoEntrega = '';
+            costoEntrega = 0;
+            localStorage.setItem('distritoEntrega', '');
+            localStorage.setItem('costoEntrega', '0');
             envioTexto.innerHTML = 'Gratis';
             if (direccionInput) direccionInput.value = '';
             // Limpiar coordenadas si cambia a recojo
@@ -578,6 +650,14 @@
                 return;
             }
             direccionEntrega = direccion;
+            if (!distritoEntrega) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Distrito requerido',
+                    text: 'Elige tu distrito de entrega para calcular el envío.'
+                });
+                return;
+            }
         } else {
             direccionEntrega = '';
         }
@@ -589,6 +669,8 @@
         }
         localStorage.setItem('tipoEntrega', tipoEntregaSeleccionado);
         localStorage.setItem('direccionEntrega', direccionEntrega);
+        localStorage.setItem('distritoEntrega', distritoEntrega);
+        localStorage.setItem('costoEntrega', String(costoEntrega));
 
         // Guardar coordenadas del mapa
         if (tipoEntregaSeleccionado === 'delivery') {
@@ -652,8 +734,8 @@
         let costoEnvio = 0;
 
         if (tipoEntregaSeleccionado === 'delivery' && cuponAplicado?.tipo !== 'envio') {
-            costoEnvio = 5;
-            document.getElementById('envioTexto').innerHTML = 'S/. 5.00';
+            costoEnvio = costoEntrega;
+            document.getElementById('envioTexto').innerHTML = 'S/. ' + costoEnvio.toFixed(2);
         } else if (tipoEntregaSeleccionado === 'delivery' && cuponAplicado?.tipo === 'envio') {
             document.getElementById('envioTexto').innerHTML = 'Gratis (Cupón)';
         } else {
@@ -1025,7 +1107,10 @@
     document.addEventListener('DOMContentLoaded', function () {
         // Cargar carrito con validación
         cargarCarrito();
-        
+
+        // Selector de distrito (define el costo de envío por zona)
+        inicializarDistritos();
+
         // Configurar eventos
         const btnCupon = document.getElementById('btnAplicarCupon');
         const cuponInput = document.getElementById('cuponInput');

@@ -190,6 +190,24 @@
                             </tbody>
                             <tfoot>
                                 <tr class="table-active">
+                                    <td colspan="3" class="text-end fw-bold">Subtotal:</td>
+                                    <td class="text-end">S/. {{ "%.2f"|format(pedido.subtotal or 0) }}</td>
+                                </tr>
+                                {% if pedido.descuento %}
+                                <tr class="table-active">
+                                    <td colspan="3" class="text-end fw-bold text-success">Descuento:</td>
+                                    <td class="text-end text-success">-S/. {{ "%.2f"|format(pedido.descuento) }}</td>
+                                </tr>
+                                {% endif %}
+                                {% if pedido.tipo_entrega == 'delivery' %}
+                                <tr class="table-active">
+                                    <td colspan="3" class="text-end fw-bold">
+                                        Envío{% if pedido.distrito_entrega %} ({{ pedido.distrito_entrega }}){% endif %}:
+                                    </td>
+                                    <td class="text-end">S/. {{ "%.2f"|format(pedido.costo_envio or 0) }}</td>
+                                </tr>
+                                {% endif %}
+                                <tr class="table-active">
                                     <td colspan="3" class="text-end fw-bold fs-6 fs-md-5">TOTAL:
                                     <td class="text-end text-success fs-5 fs-md-4 fw-bold">S/. {{ "%.2f"|format(pedido.total) }}
                                 </tr>

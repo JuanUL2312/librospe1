@@ -356,6 +356,11 @@ class Pedido(db.Model):
     fecha_pedido = db.Column(db.DateTime, default=datetime.now)
     estado = db.Column(db.String(20), default="pendiente")
     total = db.Column(db.Float)
+    subtotal = db.Column(db.Float)
+    descuento = db.Column(db.Float, default=0)
+    costo_envio = db.Column(db.Float, default=0)
+    metodo_pago = db.Column(db.String(30), nullable=True)
+    distrito_entrega = db.Column(db.String(80), nullable=True)
     direccion_entrega = db.Column(db.Text)
     tipo_entrega = db.Column(db.String(20), default="recojo")
     # Punto de entrega en el mapa (migracion_delivery_mapa.sql).
@@ -5400,9 +5405,20 @@ def crear_pedido():
         lat_entrega, lng_entrega, precision_entrega = _punto_entrega_pedido(
             data, cliente_direccion, cliente_residencia)
 
+        subtotal_pedido = sum(float(it["precio"]) * int(it["cantidad"]) for it in data["items"])
+        descuento_pedido = float(data.get("descuento") or 0)
+        costo_envio_pedido = float(data.get("costo_envio") or 0)
+        metodo_pago_pedido = (data.get("metodo_pago") or "").strip() or None
+        distrito_pedido = (data.get("distrito") or "").strip() or None
+
         pedido = Pedido(
             cliente_id=session["cliente_id"],
             total=float(data["total"]),
+            subtotal=subtotal_pedido,
+            descuento=descuento_pedido,
+            costo_envio=costo_envio_pedido,
+            metodo_pago=metodo_pago_pedido,
+            distrito_entrega=distrito_pedido,
             tipo_entrega=data["tipo_entrega"],
             direccion_entrega=cliente_direccion if data["tipo_entrega"] == "delivery" else "",
             lat=lat_entrega,

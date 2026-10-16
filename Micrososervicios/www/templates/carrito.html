@@ -162,6 +162,22 @@
                             </small>
                         </div>
                         <div id="direccionEntrega" class="mt-3" style="display: none;">
+                            <!-- PASO 0: DISTRITO (define el costo de envío) -->
+                            <div class="p-3 rounded-3 mb-3" style="background:#fff7ed;border:1px solid #fed7aa;">
+                                <label class="fw-bold mb-2 small d-block" for="distritoEntregaSel"
+                                       style="color:#9a3412;">
+                                    <i class="fas fa-truck-fast me-1"></i>
+                                    ¿A qué distrito te lo llevamos? <span class="text-danger">*</span>
+                                </label>
+                                <select id="distritoEntregaSel" class="form-select form-select-lg"
+                                        onchange="cambiarDistritoEntrega()">
+                                    <option value="">— Elige tu distrito —</option>
+                                </select>
+                                <small id="zonaInfo" class="d-block mt-2 text-muted">
+                                    Elige tu distrito para calcular el costo de envío.
+                                </small>
+                            </div>
+
                             <!-- PASO 1: BUSCAR LA DIRECCIÓN POR TEXTO (lo más exacto) -->
                             <div class="p-3 rounded-3 mb-3" style="background:#f0f7ff;border:1px solid #bfdbfe;">
                                 <label class="fw-bold mb-2 small text-primary">

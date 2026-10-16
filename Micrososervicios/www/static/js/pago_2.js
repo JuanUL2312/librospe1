@@ -198,7 +198,11 @@ function cargarDatos(){
     }
     
     const tipoEntrega=localStorage.getItem('tipoEntrega')||'recojo';
-    if(tipoEntrega==='delivery'){costoEnvio=5;document.getElementById('envioRow').style.display='flex';document.getElementById('envioTexto').innerHTML='S/. 5.00'}
+    if(tipoEntrega==='delivery'){
+        costoEnvio=parseFloat(localStorage.getItem('costoEntrega'))||0;
+        document.getElementById('envioRow').style.display='flex';
+        document.getElementById('envioTexto').innerHTML='S/. '+costoEnvio.toFixed(2);
+    }
     else{costoEnvio=0;document.getElementById('envioRow').style.display='none'}
     
     subtotal=carrito.reduce((s,i)=>s+(i.precio*i.cantidad),0);
@@ -276,6 +280,8 @@ async function confirmarPedido(){
         total:total,
         tipo_entrega:tipoEntrega,
         direccion:checkoutData.direccion || '',
+        distrito: checkoutData.distrito || localStorage.getItem('distritoEntrega') || '',
+        costo_envio: costoEnvio,
         latitud:latitudEntrega,
         longitud:longitudEntrega,
         comprobante: { tipo: checkoutData.tipo_comprobante || 'boleta' },
