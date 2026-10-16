@@ -318,28 +318,41 @@ async function confirmarPedido(){
             localStorage.removeItem('tipoEntrega');
             localStorage.removeItem('direccionEntrega');
             
+            const waUrl=data.whatsapp_url||'';
             let aviso='';
             if(data.correo_enviado){
-                aviso='<br><br>📧 El comprobante ha sido enviado a tu correo';
-            }else if(data.whatsapp_url){
-                aviso='<br><br>💬 No tienes correo: envía el comprobante a tu celular por WhatsApp';
+                aviso='<br><br>📧 El comprobante fue enviado a tu correo';
+            }else if(waUrl){
+                aviso='<br><br>💬 Para recibir tu comprobante, abre WhatsApp y toca <b>Enviar</b>. El mensaje ya está listo.';
             }else{
                 aviso=data.numero_comprobante ? '<br><br>📄 Comprobante: <b>'+escapeHtml(data.numero_comprobante)+'</b>' : '';
             }
-            const waUrl=data.whatsapp_url||'';
 
-            Swal.fire({
-                icon:'success',
-                title:'¡Pedido realizado!',
-                html:`✅ ¡Pedido realizado!<br>Total: S/. ${total.toFixed(2)}${aviso}`,
-                showDenyButton:!!waUrl,
-                denyButtonText:'<i class="fab fa-whatsapp me-1"></i>Enviar por WhatsApp',
-                confirmButtonText:'Ver mis pedidos',
-                confirmButtonColor:'#D4AF37'
-            }).then((r)=>{
-                if(r.isDenied && waUrl){ window.open(waUrl,'_blank'); }
-                window.location.href='/mis-pedidos';
-            });
+            if(waUrl){
+                // El comprobante por WhatsApp necesita un toque del cliente (WhatsApp
+                // no permite enviar mensajes solo desde el servidor sin su API de pago).
+                Swal.fire({
+                    icon:'success',
+                    title:'¡Pedido realizado!',
+                    html:`✅ ¡Pedido realizado!<br>Total: S/. ${total.toFixed(2)}${aviso}`,
+                    confirmButtonText:'<i class="fab fa-whatsapp me-1"></i>Recibir por WhatsApp',
+                    confirmButtonColor:'#25D366',
+                    showCancelButton:true,
+                    cancelButtonText:'Ver mis pedidos',
+                    allowOutsideClick:false
+                }).then((r)=>{
+                    if(r.isConfirmed){ window.open(waUrl,'_blank'); }
+                    window.location.href='/mis-pedidos';
+                });
+            }else{
+                Swal.fire({
+                    icon:'success',
+                    title:'¡Pedido realizado!',
+                    html:`✅ ¡Pedido realizado!<br>Total: S/. ${total.toFixed(2)}${aviso}`,
+                    confirmButtonText:'Ver mis pedidos',
+                    confirmButtonColor:'#D4AF37'
+                }).then(()=>{ window.location.href='/mis-pedidos'; });
+            }
         }else{
             Swal.fire({icon:'error',title:'Error',text:data.error});
         }
