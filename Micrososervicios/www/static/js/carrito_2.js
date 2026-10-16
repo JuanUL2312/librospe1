@@ -11,6 +11,84 @@
     let marcadorCarrito = null;
     let circuloPrecision = null;  // margen de error del último geolocalizado
 
+    // Icono del pin de entrega.
+    function iconoPin() {
+        return L.icon({
+            iconUrl: '/static/img/pin.png',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32],
+            popupAnchor: [0, -32]
+        });
+    }
+
+    // Crea (o mueve) el marcador de entrega. Es ARRASTRABLE para afinar el punto.
+    function colocarMarcador(lat, lng) {
+        const punto = [parseFloat(lat), parseFloat(lng)];
+        if (marcadorCarrito) {
+            marcadorCarrito.setLatLng(punto);
+        } else {
+            marcadorCarrito = L.marker(punto, { icon: iconoPin(), draggable: true }).addTo(mapaCarrito);
+            // Al soltar el pin, ese punto pasa a ser la ubicación final.
+            marcadorCarrito.on('dragend', function() {
+                const p = marcadorCarrito.getLatLng();
+                fijarPuntoManual(p.lat, p.lng);
+            });
+        }
+        return marcadorCarrito;
+    }
+
+    // Fija un punto elegido a mano (clic, sugerencia o arrastre): es preciso, así
+    // que quita el círculo de error del geolocalizado y actualiza la dirección.
+    function fijarPuntoManual(lat, lng, direccionForzada) {
+        const latStr = parseFloat(lat).toFixed(6);
+        const lngStr = parseFloat(lng).toFixed(6);
+
+        document.getElementById('latitud').value = latStr;
+        document.getElementById('longitud').value = lngStr;
+        localStorage.setItem('latitudEntrega', latStr);
+        localStorage.setItem('longitudEntrega', lngStr);
+
+        if (circuloPrecision) {
+            mapaCarrito.removeLayer(circuloPrecision);
+            circuloPrecision = null;
+        }
+
+        colocarMarcador(latStr, lngStr);
+        marcadorCarrito.bindPopup('<b>Tu ubicación de entrega</b><br>Lat: ' + latStr + '<br>Lng: ' + lngStr).openPopup();
+
+        const mapaAviso = document.getElementById('mapaAviso');
+        const pintarAviso = (html, esOk) => {
+            if (!mapaAviso) return;
+            mapaAviso.innerHTML = html;
+            mapaAviso.classList.remove('text-muted', 'text-success', 'text-warning', 'fw-bold');
+            mapaAviso.classList.add(esOk ? 'text-success' : 'text-muted');
+            if (esOk) mapaAviso.classList.add('fw-bold');
+        };
+
+        // Si la dirección ya se conoce (sugerencia elegida), no se vuelve a consultar.
+        if (direccionForzada) {
+            pintarAviso('<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente', true);
+            return;
+        }
+
+        pintarAviso('<i class="fas fa-spinner fa-spin me-1"></i> Obteniendo dirección...', false);
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latStr}&lon=${lngStr}&zoom=18&addressdetails=1&accept-language=es`)
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.display_name) {
+                    const direccionInput = document.getElementById('direccion');
+                    if (direccionInput) direccionInput.value = data.display_name;
+                    marcadorCarrito.setPopupContent(
+                        '<b>Tu ubicación de entrega</b><br>' + data.display_name + '<br><small>Lat: ' + latStr + ' Lng: ' + lngStr + '</small>'
+                    ).openPopup();
+                }
+                pintarAviso('<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente', true);
+            })
+            .catch(() => {
+                pintarAviso('<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente', true);
+            });
+    }
+
     // ===============================
     // FUNCIÓN PARA VALIDAR STOCK CON EL SERVIDOR
     // ===============================
@@ -154,18 +232,7 @@
             // Si la ubicación es precisa, se acerca más.
             mapaCarrito.setView([lat, lng], margen && margen <= 150 ? 17 : 16);
 
-            const iconoMarcador = L.icon({
-                iconUrl: '/static/img/pin.png',
-                iconSize: [32, 32],
-                iconAnchor: [16, 32],
-                popupAnchor: [0, -32]
-            });
-
-            if (marcadorCarrito) {
-                marcadorCarrito.setLatLng([lat, lng]);
-            } else {
-                marcadorCarrito = L.marker([lat, lng], { icon: iconoMarcador }).addTo(mapaCarrito);
-            }
+            colocarMarcador(lat, lng);
 
             // Círculo con el margen de error real que reporta el navegador.
             if (circuloPrecision) {
@@ -290,42 +357,12 @@
                             direccionInput.value = item.display_name;
                             document.getElementById('sugerencias').style.display = 'none';
 
-                            // Mover marcador y mapa
+                            // Punto de la sugerencia = preciso: se fija como ubicación final.
                             const lat = parseFloat(item.lat).toFixed(6);
                             const lng = parseFloat(item.lon).toFixed(6);
-                            document.getElementById('latitud').value = lat;
-                            document.getElementById('longitud').value = lng;
-
-                            // Sugerencia elegida = punto preciso: se quita el círculo de error.
-                            if (circuloPrecision) {
-                                mapaCarrito.removeLayer(circuloPrecision);
-                                circuloPrecision = null;
-                            }
-
                             if (mapaCarrito) {
                                 mapaCarrito.setView([lat, lng], 16);
-                                if (marcadorCarrito) {
-                                    marcadorCarrito.setLatLng([lat, lng]);
-                                } else {
-                                    const iconoMarcador = L.icon({
-                                        iconUrl: '/static/img/pin.png',
-                                        iconSize: [32, 32],
-                                        iconAnchor: [16, 32],
-                                        popupAnchor: [0, -32]
-                                    });
-                                    marcadorCarrito = L.marker([lat, lng], { icon: iconoMarcador }).addTo(mapaCarrito);
-                                }
-                                marcadorCarrito.setPopupContent(
-                                    '<b>Tu ubicación de entrega</b><br>' + item.display_name + '<br><small>Lat: ' + lat + ' Lng: ' + lng + '</small>'
-                                ).openPopup();
-                            }
-
-                            // Actualizar aviso
-                            const mapaAviso = document.getElementById('mapaAviso');
-                            if (mapaAviso) {
-                                mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente';
-                                mapaAviso.classList.remove('text-muted');
-                                mapaAviso.classList.add('text-success', 'fw-bold');
+                                fijarPuntoManual(lat, lng, item.display_name);
                             }
                         });
                         div.addEventListener('mouseenter', () => {
@@ -429,72 +466,9 @@
         // Configurar buscador de direcciones
         configurarBuscador();
 
-        // Icono personalizado para el marcador (pin local)
-        const iconoMarcador = L.icon({
-            iconUrl: '/static/img/pin.png',
-            iconSize: [32, 32],
-            iconAnchor: [16, 32],
-            popupAnchor: [0, -32]
-        });
-
-        // Evento clic en el mapa
+        // Evento clic en el mapa: fija el punto exacto donde se hace clic.
         mapaCarrito.on('click', function(e) {
-            const lat = e.latlng.lat.toFixed(6);
-            const lng = e.latlng.lng.toFixed(6);
-
-            if (marcadorCarrito) {
-                marcadorCarrito.setLatLng(e.latlng);
-            } else {
-                marcadorCarrito = L.marker(e.latlng, { icon: iconoMarcador }).addTo(mapaCarrito);
-            }
-
-            marcadorCarrito.bindPopup('<b>Tu ubicación de entrega</b><br>Lat: ' + lat + '<br>Lng: ' + lng).openPopup();
-
-            document.getElementById('latitud').value = lat;
-            document.getElementById('longitud').value = lng;
-
-            // Punto elegido a mano = preciso: se quita el círculo de error.
-            if (circuloPrecision) {
-                mapaCarrito.removeLayer(circuloPrecision);
-                circuloPrecision = null;
-            }
-
-            const mapaAviso = document.getElementById('mapaAviso');
-            if (mapaAviso) {
-                mapaAviso.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Obteniendo dirección...';
-                mapaAviso.classList.remove('text-success');
-                mapaAviso.classList.add('text-muted');
-            }
-
-            // Reverse geocoding con Nominatim (OpenStreetMap)
-            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=es`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data && data.display_name) {
-                        const direccionInput = document.getElementById('direccion');
-                        if (direccionInput) {
-                            direccionInput.value = data.display_name;
-                        }
-                        marcadorCarrito.setPopupContent(
-                            '<b>Tu ubicación de entrega</b><br>' +
-                            data.display_name + '<br>' +
-                            '<small>Lat: ' + lat + ' Lng: ' + lng + '</small>'
-                        );
-                    }
-                    if (mapaAviso) {
-                        mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente';
-                        mapaAviso.classList.remove('text-muted');
-                        mapaAviso.classList.add('text-success', 'fw-bold');
-                    }
-                })
-                .catch(err => {
-                    console.warn('Error en reverse geocoding:', err);
-                    if (mapaAviso) {
-                        mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente';
-                        mapaAviso.classList.remove('text-muted');
-                        mapaAviso.classList.add('text-success', 'fw-bold');
-                    }
-                });
+            fijarPuntoManual(e.latlng.lat, e.latlng.lng);
         });
     }
 
@@ -1014,15 +988,8 @@
                     const lat = parseFloat(latGuardada);
                     const lng = parseFloat(lngGuardada);
                     mapaCarrito.setView([lat, lng], 16);
-                    
-                    const iconoMarcador = L.icon({
-                        iconUrl: '/static/img/pin.png',
-                        iconSize: [32, 32],
-                        iconAnchor: [16, 32],
-                        popupAnchor: [0, -32]
-                    });
-                    
-                    marcadorCarrito = L.marker([lat, lng], { icon: iconoMarcador }).addTo(mapaCarrito);
+
+                    colocarMarcador(lat, lng);
                     marcadorCarrito.bindPopup('<b>Tu ubicación de entrega</b><br>Lat: ' + latGuardada + '<br>Lng: ' + lngGuardada).openPopup();
                     
                     const mapaAviso = document.getElementById('mapaAviso');

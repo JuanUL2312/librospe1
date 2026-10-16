@@ -141,21 +141,29 @@
                             </div>
                         </div>
                         <div id="direccionEntrega" class="mt-3" style="display: none;">
-                            <div class="position-relative">
-                                <input type="text" id="direccion" class="form-control"
-                                    placeholder="🔍 Buscar dirección (escribe y selecciona)" autocomplete="off">
-                                <div id="sugerencias" class="position-absolute w-100 bg-white border rounded shadow-sm"
-                                    style="display: none; z-index: 1050; max-height: 200px; overflow-y: auto;">
+                            <!-- PASO 1: BUSCAR LA DIRECCIÓN POR TEXTO (lo más exacto) -->
+                            <div class="p-3 rounded-3 mb-3" style="background:#f0f7ff;border:1px solid #bfdbfe;">
+                                <label class="fw-bold mb-2 small text-primary">
+                                    <i class="fas fa-search-location me-1"></i>
+                                    Busca tu dirección (recomendado):
+                                </label>
+                                <div class="position-relative">
+                                    <input type="text" id="direccion" class="form-control form-control-lg"
+                                        placeholder="Ej.: Calle Real 125, Huancayo" autocomplete="off">
+                                    <div id="sugerencias" class="position-absolute w-100 bg-white border rounded shadow-sm"
+                                        style="display: none; z-index: 1050; max-height: 200px; overflow-y: auto;">
+                                    </div>
                                 </div>
+                                <small id="direccionAyuda" class="text-muted"></small>
+                                <small class="text-muted d-block mt-1">Escribe tu calle y número y elige la opción correcta de la lista.</small>
                             </div>
-                            <small id="direccionAyuda" class="text-muted"></small>
                             <small class="text-muted d-block mt-1">* Tiempo de entrega: 3-5 días hábiles</small>
 
-                            <!-- MAPA DE UBICACIÓN -->
+                            <!-- PASO 2: CONFIRMAR Y AFINAR EL PUNTO EN EL MAPA -->
                             <div class="mt-3">
                                 <label class="fw-bold mb-2 small">
                                     <i class="fas fa-map-marker-alt me-1 text-danger"></i>
-                                    Ubica tu dirección exacta en el mapa:
+                                    Confirma y afina el punto exacto:
                                 </label>
                                 <div class="mb-2">
                                     <button type="button" id="btnMiUbicacion" class="btn btn-outline-primary btn-sm w-100" onclick="ubicarMiPosicion()">
@@ -174,7 +182,7 @@
                                 <input type="hidden" id="longitud" value="">
                                 <small class="text-muted mt-1 d-block" id="mapaAviso">
                                     <i class="fas fa-hand-pointer me-1"></i>
-                                    Haz clic en el mapa o usa "Ubicar mi ubicación"
+                                    Haz clic en el mapa, arrastra el pin o usa "Ubicar mi ubicación"
                                 </small>
                             </div>
                         </div>
