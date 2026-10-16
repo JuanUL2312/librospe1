@@ -5274,7 +5274,15 @@ def _punto_entrega_pedido(data, cliente_direccion, cliente_residencia):
 @login_required_cliente
 def crear_pedido():
     data = request.get_json()
-    
+
+    # Diagnostico: ver si llegaron las coordenadas marcadas por el cliente.
+    try:
+        with open("/home/librospe/tmp/pedidos_diag.log", "a", encoding="utf-8") as _f:
+            _f.write(f"[diag] latitud={data.get('latitud')!r} longitud={data.get('longitud')!r} "
+                     f"tipo_entrega={data.get('tipo_entrega')!r} total={data.get('total')!r}\n")
+    except Exception:
+        pass
+
     print("=" * 60)
     print("📦 DATOS RECIBIDOS EN /api/pedidos/crear:")
     print(f"Items: {len(data.get('items', []))} productos")
@@ -5693,9 +5701,9 @@ def _coordenadas_validas(lat, lng):
             and LNG_LIMITE[0] <= lng <= LNG_LIMITE[1])
 
 
-def _consultar_nominatim(consulta):
-    """Una consulta a Nominatim. Devuelve (lat, lng) o (None, None)."""
-    url = (f"{URL_NOMINATIM}?format=jsonv2&limit=1&countrycodes=pe"
+def _consultar_nominatim(consulta, limit=1):
+    """Consulta Nominatim. Devuelve (lat, lng) o (None, None)."""
+    url = (f"{URL_NOMINATIM}?format=jsonv2&limit={limit}&countrycodes=pe"
            f"&q={quote_plus(consulta)}")
     try:
         peticion = Request(url, headers={
@@ -5716,32 +5724,68 @@ def _consultar_nominatim(consulta):
     return None, None
 
 
+def _consultar_nominatim_poblado(consulta):
+    """Como _consultar_nominatim, pero prefiere un POBLADO (suburb/town/village)
+    al centroide del límite administrativo: en distritos grandes (ej. El Tambo)
+    el centroide cae a ~10 km del pueblo real."""
+    url = (f"{URL_NOMINATIM}?format=jsonv2&limit=5&countrycodes=pe"
+           f"&q={quote_plus(consulta)}")
+    try:
+        peticion = Request(url, headers={
+            "User-Agent": os.environ.get(
+                "MAPA_USER_AGENT", "LibreriaSalesiana/1.0 (proyecto academico)"),
+            "Accept-Language": "es",
+        })
+        with urlopen(peticion, timeout=4) as resp:
+            datos = json.loads(resp.read().decode("utf-8"))
+        if not datos:
+            return None, None
+        preferidos = {"suburb", "town", "village", "hamlet", "locality",
+                       "neighbourhood", "residential", "quarter", "borough",
+                       "city", "university", "school"}
+        elegido = None
+        for d in datos:
+            if d.get("type") in preferidos and _coordenadas_validas(d.get("lat"), d.get("lon")):
+                elegido = d
+                break
+        if elegido is None:
+            elegido = datos[0]
+        lat, lng = elegido.get("lat"), elegido.get("lon")
+        if _coordenadas_validas(lat, lng):
+            return float(lat), float(lng)
+    except Exception as e:
+        print(f"[mapa] Nominatim fallo en '{consulta[:60]}': {e}")
+    return None, None
+
+
 def geocodificar_direccion(direccion, departamento=None, provincia=None, distrito=None):
     """Ubica una dirección. Devuelve (lat, lng, precision).
 
-    precision: 'exacta'     -> se resolvió la dirección completa
-               'aproximada' -> cayó al centroide del distrito
+    precision: 'exacta'     -> se resolvió la dirección
+               'aproximada' -> cayó a un pueblo/centro del distrito
                None         -> no se pudo ubicar
 
-    Hace dos intentos porque en Perú OpenStreetMap tiene muchas calles sin
-    geocodificar: medido sobre 7 lugares reales, la dirección completa
-    acierta 3/7 y el distrito 7/7. El punto aproximado se marca como tal en
-    el mapa para que el administrador sepa que debe refinarlo.
+    La dirección del cliente suele ya incluir ciudad, distrito y país, así que
+    se consulta SOLA primero: al volver a anexarle el distrito, Nominatim
+    devuelve vacío (comprobado con 'ISTP Continental... El Tambo, Huancayo,
+    Junín'). El respaldo usa el distrito y prefiere el POBLADO real.
     """
-    # 1) Dirección completa, la más precisa si responde.
-    if direccion:
-        partes = [p for p in [direccion, distrito, provincia, departamento] if p]
-        consulta = ", ".join(dict.fromkeys(partes))
-        if consulta.strip():
-            lat, lng = _consultar_nominatim(consulta)
-            if lat is not None:
-                return lat, lng, "exacta"
+    # 1) La dirección tal como la escribió el cliente.
+    if direccion and direccion.strip():
+        lat, lng = _consultar_nominatim(direccion)
+        if lat is not None:
+            return lat, lng, "exacta"
 
-    # 2) Fallback al centroide del distrito.
+    # 2) Dirección + distrito (por si la dirección no lo traía).
+    if direccion and distrito and distrito.lower() not in direccion.lower():
+        lat, lng = _consultar_nominatim(f"{direccion}, {distrito}")
+        if lat is not None:
+            return lat, lng, "exacta"
+
+    # 3) Respaldo: el distrito, prefiriendo el pueblo y no el centroide administrativo.
     partes = [p for p in [distrito, provincia, departamento] if p]
-    consulta = ", ".join(dict.fromkeys(partes))
-    if consulta.strip():
-        lat, lng = _consultar_nominatim(consulta)
+    if partes:
+        lat, lng = _consultar_nominatim_poblado(", ".join(dict.fromkeys(partes)))
         if lat is not None:
             return lat, lng, "aproximada"
 
