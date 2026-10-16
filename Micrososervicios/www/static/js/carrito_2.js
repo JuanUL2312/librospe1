@@ -425,12 +425,13 @@
                             direccionInput.value = item.display_name;
                             document.getElementById('sugerencias').style.display = 'none';
 
-                            // Punto de la sugerencia = preciso: se fija como ubicación final.
+                            // Punto de la sugerencia = preciso: se fija como ubicación final
+                            // (siempre, incluso si el mapa aún no terminó de cargar).
                             const lat = parseFloat(item.lat).toFixed(6);
                             const lng = parseFloat(item.lon).toFixed(6);
+                            fijarPuntoManual(lat, lng, item.display_name);
                             if (mapaCarrito) {
                                 mapaCarrito.setView([lat, lng], 16);
-                                fijarPuntoManual(lat, lng, item.display_name);
                             }
                         });
                         div.addEventListener('mouseenter', () => {
