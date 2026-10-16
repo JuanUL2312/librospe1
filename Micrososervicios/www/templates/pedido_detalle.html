@@ -60,7 +60,7 @@
                                     {{ venta.cliente_email if venta else cliente.email }}
                                 </p>
                                 <p><strong>📱 Teléfono:</strong><br>
-                                    {{ venta.cliente_telefono if venta else cliente.telefono }}
+                                    {{ venta.cliente_telefono if venta and venta.cliente_telefono else ((cliente.telefono if cliente else '') or '') }}
                                 </p>
                                 <p><strong>🆔 Documento (DNI/RUC/CE):</strong><br>
                                     <strong class="text-primary">{{ venta.cliente_documento if venta else cliente.dni }}</strong>

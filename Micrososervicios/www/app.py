@@ -239,6 +239,7 @@ class Venta(db.Model):
     cliente_apellidos = db.Column(db.String(100), nullable=True)
     cliente_documento = db.Column(db.String(20), nullable=True)
     cliente_tipo_documento = db.Column(db.String(30), nullable=True)  # RUC | DNI | Carnet de Extranjería
+    cliente_telefono = db.Column(db.String(20), nullable=True)
     cliente_email = db.Column(db.String(150), nullable=True)
     cliente_direccion = db.Column(db.Text, nullable=True)
     cliente_direccion_fiscal = db.Column(db.Text, nullable=True)
@@ -5435,6 +5436,7 @@ def crear_pedido():
                 cliente_apellidos=cliente_apellidos,
                 cliente_documento=cliente_documento,
                 cliente_tipo_documento=cliente_tipo_documento or None,
+                cliente_telefono=cliente_telefono or None,
                 cliente_email=cliente_email,
                 cliente_direccion=cliente_direccion,
                 cliente_direccion_fiscal=cliente_direccion_fiscal,  # ← NUEVO: dirección fiscal
@@ -5464,6 +5466,8 @@ def crear_pedido():
                 campos["nombres"] = cliente_nombres
             if not cliente_obj.apellidos and cliente_apellidos:
                 campos["apellidos"] = cliente_apellidos
+            if not cliente_obj.telefono and cliente_telefono:
+                campos["telefono"] = cliente_telefono
             if campos:
                 _guardar_datos_cliente(session["cliente_id"], campos)
         
