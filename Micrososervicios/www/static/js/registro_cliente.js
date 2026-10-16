@@ -99,11 +99,17 @@
         if (nombresInput) nombresInput.readOnly = true;
         if (apellidosInput) apellidosInput.readOnly = true;
 
-        // --- Selects en cascada: departamento -> provincia -> distrito ---
-        const depSel = document.getElementById('departamento');
-        const provSel = document.getElementById('provincia');
+        // --- Ubigeo: departamento -> provincia -> distrito ---
+        // La plantilla nueva fija Departamento (JUNIN) y Provincia (HUANCAYO) como
+        // inputs readonly y deja elegir solo el Distrito. La plantilla antigua usa
+        // selects en cascada. Se soportan ambas para no romper durante el despliegue
+        // (las plantillas quedan cacheadas hasta que la app se reinicia).
+        const depEl = document.getElementById('departamento');
+        const provEl = document.getElementById('provincia');
         const distSel = document.getElementById('distrito');
-        let departamentos = [];
+        const DEP_FIJO = 'JUNIN';
+        const PROV_FIJA = 'HUANCAYO';
+        const depEsSelect = depEl && depEl.tagName === 'SELECT';
 
         function llenar(select, items, placeholder) {
             select.innerHTML = '<option value="">' + placeholder + '</option>';
@@ -115,40 +121,68 @@
             });
         }
 
-        // Cargar departamentos al cargar la página
-        fetch('/api/departamentos')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                departamentos = data;
-                llenar(depSel, data, 'Seleccione departamento');
+        function cargarDistritos(provId) {
+            return fetch('/api/distritos/' + provId)
+                .then(function(r) { return r.json(); })
+                .then(function(distritos) {
+                    if (distritos && distSel) llenar(distSel, distritos, 'Seleccione distrito');
+                });
+        }
+
+        if (depEsSelect) {
+            // --- Plantilla antigua: selects en cascada editables ---
+            let departamentos = [];
+            fetch('/api/departamentos')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    departamentos = data;
+                    llenar(depEl, data, 'Seleccione departamento');
+                });
+
+            depEl.addEventListener('change', function() {
+                provEl.innerHTML = '<option value="">Seleccione provincia</option>';
+                distSel.innerHTML = '<option value="">Seleccione distrito</option>';
+                const dep = departamentos.find(function(d) { return d.nombre === depEl.value; });
+                if (!dep) return;
+                fetch('/api/provincias/' + dep.id)
+                    .then(function(r) { return r.json(); })
+                    .then(function(provincias) { llenar(provEl, provincias, 'Seleccione provincia'); });
             });
 
-        depSel.addEventListener('change', function() {
-            provSel.innerHTML = '<option value="">Seleccione provincia</option>';
-            distSel.innerHTML = '<option value="">Seleccione distrito</option>';
-            const dep = departamentos.find(function(d) { return d.nombre === depSel.value; });
-            if (!dep) return;
-            fetch('/api/provincias/' + dep.id)
+            provEl.addEventListener('change', function() {
+                distSel.innerHTML = '<option value="">Seleccione distrito</option>';
+                const dep = departamentos.find(function(d) { return d.nombre === depEl.value; });
+                if (!dep) return;
+                fetch('/api/provincias/' + dep.id)
+                    .then(function(r) { return r.json(); })
+                    .then(function(provincias) {
+                        const prov = provincias.find(function(p) { return p.nombre === provEl.value; });
+                        if (!prov) return;
+                        cargarDistritos(prov.id);
+                    });
+            });
+        } else {
+            // --- Plantilla nueva: JUNIN/HUANCAYO fijos, solo distrito editable ---
+            fetch('/api/departamentos')
                 .then(function(r) { return r.json(); })
-                .then(function(provincias) { llenar(provSel, provincias, 'Seleccione provincia'); });
-        });
-
-        provSel.addEventListener('change', function() {
-            distSel.innerHTML = '<option value="">Seleccione distrito</option>';
-            const dep = departamentos.find(function(d) { return d.nombre === depSel.value; });
-            if (!dep) return;
-            fetch('/api/provincias/' + dep.id)
-                .then(function(r) { return r.json(); })
-                .then(function(provincias) {
-                    const prov = provincias.find(function(p) { return p.nombre === provSel.value; });
-                    if (!prov) return;
-                    return fetch('/api/distritos/' + prov.id).then(function(r) { return r.json(); });
+                .then(function(departamentos) {
+                    const dep = (departamentos || []).find(function(d) {
+                        return String(d.nombre).toUpperCase() === DEP_FIJO;
+                    });
+                    if (!dep) return null;
+                    if (depEl) depEl.value = dep.nombre;
+                    return fetch('/api/provincias/' + dep.id).then(function(r) { return r.json(); });
                 })
-                .then(function(distritos) {
-                    if (!distritos) return;
-                    llenar(distSel, distritos, 'Seleccione distrito');
+                .then(function(provincias) {
+                    if (!provincias) return null;
+                    const prov = provincias.find(function(p) {
+                        return String(p.nombre).toUpperCase() === PROV_FIJA;
+                    });
+                    if (!prov) return null;
+                    if (provEl) provEl.value = prov.nombre;
+                    return cargarDistritos(prov.id);
                 });
-        });
+        }
 
         document.querySelector('form').addEventListener('submit', function(e) {
             let clave = document.querySelector('input[name="clave"]').value;
