@@ -265,11 +265,19 @@ async function confirmarPedido(){
         cantidad:parseInt(i.cantidad)
     }));
     
+    // Ubicación exacta que el cliente marcó en el mapa del carrito (si es delivery).
+    // Sin esto, el backend geocodificaba solo el texto de la dirección y el punto
+    // aparecía en otra zona.
+    const latitudEntrega = checkoutData.latitud || localStorage.getItem('latitudEntrega') || '';
+    const longitudEntrega = checkoutData.longitud || localStorage.getItem('longitudEntrega') || '';
+
     const pedidoData={
         items:items,
         total:total,
         tipo_entrega:tipoEntrega,
         direccion:checkoutData.direccion || '',
+        latitud:latitudEntrega,
+        longitud:longitudEntrega,
         comprobante: { tipo: checkoutData.tipo_comprobante || 'boleta' },
         metodo_pago:metodoSeleccionado,
         descuento:descuento,

@@ -5241,6 +5241,33 @@ def api_mis_pedidos():
         for p in pedidos
     ])
 
+def _punto_entrega_pedido(data, cliente_direccion, cliente_residencia):
+    """Punto (lat, lng, precision) para un pedido de delivery.
+
+    Prioriza la ubicación exacta que el cliente marcó en el mapa del carrito
+    (llega como 'latitud'/'longitud' en el payload). Si no vino, geocodifica el
+    texto de la dirección como respaldo. Devuelve (None, None, None) cuando no
+    es delivery o no se pudo ubicar (el admin lo fija a mano).
+    """
+    if (data or {}).get("tipo_entrega") != "delivery":
+        return None, None, None
+
+    lat_cliente = str((data or {}).get("latitud") or "").strip()
+    lng_cliente = str((data or {}).get("longitud") or "").strip()
+    if _coordenadas_validas(lat_cliente, lng_cliente):
+        # La ubicación que el cliente ve y marca en el mapa es la que manda.
+        return float(lat_cliente), float(lng_cliente), "exacta"
+
+    if cliente_direccion:
+        return geocodificar_direccion(
+            cliente_direccion,
+            getattr(cliente_residencia, "departamento", None),
+            getattr(cliente_residencia, "provincia", None),
+            getattr(cliente_residencia, "distrito", None),
+        )
+    return None, None, None
+
+
 @app.route("/api/pedidos/crear", methods=["POST"])
 @login_required_cliente
 def crear_pedido():
@@ -5341,16 +5368,11 @@ def crear_pedido():
         # registrarse solo en el microservicio, asegura la fila en la principal.
         _asegurar_cliente_en_principal(session["cliente_id"])
 
-        # Punto en el mapa: el geocodificado es opcional y nunca debe
-        # tumbar el pedido. Si falla, el admin lo ubica a mano.
-        lat_entrega = lng_entrega = precision_entrega = None
-        if data["tipo_entrega"] == "delivery" and cliente_direccion:
-            lat_entrega, lng_entrega, precision_entrega = geocodificar_direccion(
-                cliente_direccion,
-                getattr(cliente_residencia, "departamento", None),
-                getattr(cliente_residencia, "provincia", None),
-                getattr(cliente_residencia, "distrito", None),
-            )
+        # Punto en el mapa: prioriza la ubicación exacta que el cliente marcó
+        # en el mapa del carrito; si no llegó, geocodifica la dirección como
+        # respaldo. Nunca tumba el pedido.
+        lat_entrega, lng_entrega, precision_entrega = _punto_entrega_pedido(
+            data, cliente_direccion, cliente_residencia)
 
         pedido = Pedido(
             cliente_id=session["cliente_id"],
