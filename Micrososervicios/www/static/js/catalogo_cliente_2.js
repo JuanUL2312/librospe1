@@ -16,7 +16,25 @@ function cargarProductos() {
         .then(function(data) {
             productosOriginal = data;
             productosFiltrados = data;
-            mostrarProductos(productosFiltrados);
+            // Soporte para llegar desde el buscador de la barra superior
+            // (/catalogo?q=...) o por categoría (?categoria=...).
+            var params = new URLSearchParams(window.location.search);
+            var buscarInicial = params.get('q');
+            var categoriaInicial = params.get('categoria');
+            var aplicado = false;
+            if (buscarInicial) {
+                var inp = document.getElementById('filtroBuscar');
+                if (inp) { inp.value = buscarInicial; aplicado = true; }
+            }
+            if (categoriaInicial) {
+                var sel = document.getElementById('filtroCategoria');
+                if (sel) { sel.value = categoriaInicial; aplicado = true; }
+            }
+            if (aplicado && typeof aplicarFiltros === 'function') {
+                aplicarFiltros();
+            } else {
+                mostrarProductos(productosFiltrados);
+            }
         })
         .catch(function(error) {
             document.getElementById('productosGrid').innerHTML = '<div class="col-12 text-center"><div class="alert alert-danger">❌ Error al cargar productos</div></div>';

@@ -31,6 +31,26 @@
             color: var(--salesiano-gold);
         }
 
+        /* ===== BUSCADOR DE LA BARRA SUPERIOR ===== */
+        .buscador-navbar {
+            max-width: 520px;
+        }
+
+        .buscador-navbar .input-group {
+            border-radius: 999px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+        }
+
+        .buscador-navbar .form-control:focus {
+            box-shadow: none;
+        }
+
+        .buscador-navbar .form-control,
+        .buscador-navbar .input-group-text {
+            border-color: #e5e7eb;
+        }
+
         .nav-categorias {
             display: flex;
             align-items: center;

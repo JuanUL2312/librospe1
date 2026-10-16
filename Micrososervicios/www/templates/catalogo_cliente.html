@@ -11,20 +11,7 @@
                     <h6 class="mb-0 fw-bold"><i class="fas fa-sliders-h me-2"></i>Filtrar Productos</h6>
                 </div>
                 <div class="card-body p-3">
-                    <!-- Búsqueda por nombre -->
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold small text-uppercase text-muted">
-                            <i class="fas fa-search me-1 text-primary"></i> Buscar
-                        </label>
-                        <div class="autocomplete-wrap position-relative">
-                            <input type="text" id="filtroBuscar" class="form-control form-control-sm rounded-pill autocomplete-input"
-                                   placeholder="🔍 Nombre del producto..." autocomplete="off"
-                                   onkeyup="if(event.key==='Enter') aplicarFiltros();">
-                            <div id="autocompleteResultados" class="autocomplete-results d-none"></div>
-                        </div>
-                        <small class="text-muted d-block mt-1">Escribe para ver sugerencias en tiempo real</small>
-                    </div>
-                    
+                    <!-- El buscador se movió a la barra superior (navbar de base_cliente.html) -->
                     <!-- Filtro por categoría -->
                     <div class="mb-3">
                         <label class="form-label fw-semibold small text-uppercase text-muted">
@@ -157,7 +144,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script src="{{ url_for('static', filename='js/autocomplete.js') }}"></script>
 <script src="{{ url_for('static', filename='js/catalogo_cliente_2.js') }}"></script>
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/catalogo_cliente.css') }}">

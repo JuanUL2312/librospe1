@@ -21,9 +21,12 @@ document.addEventListener('DOMContentLoaded', function () {
         ocultar();
         if (typeof aplicarFiltros === 'function') {
             aplicarFiltros();
+            input.focus();
+            input.select();
+        } else {
+            // No estamos en la página del catálogo: llevar la búsqueda allí.
+            window.location.href = '/catalogo?q=' + encodeURIComponent(producto.nombre);
         }
-        input.focus();
-        input.select();
     }
 
     input.addEventListener('input', function () {
