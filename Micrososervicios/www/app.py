@@ -1318,6 +1318,104 @@ def armar_telefono(prefijo, numero):
     return (f"+{dig}" if len(dig) > 9 else dig)[:15]
 
 
+def generar_comprobante_pdf(tipo_comprobante, numero_comprobante, fecha, cliente_nombre,
+                            documento="", tipo_documento="", razon_social="",
+                            direccion_fiscal="", productos=None, total_venta=0.0):
+    """Genera el PDF del comprobante (boleta/factura/nota) y devuelve los bytes.
+
+    Se usa para adjuntarlo al correo del comprobante. Mismo estilo que la ruta
+    /comprobante/<id>/pdf (reportlab) pero soporta varios productos, porque un
+    pedido del carrito puede tener más de un ítem.
+    """
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    productos = productos or []
+    titulo_comp = {
+        "boleta": "BOLETA DE VENTA ELECTRÓNICA",
+        "factura": "FACTURA ELECTRÓNICA",
+        "nota": "NOTA DE VENTA",
+    }.get(tipo_comprobante, "COMPROBANTE DE VENTA")
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20*mm, leftMargin=20*mm,
+                            topMargin=20*mm, bottomMargin=20*mm)
+    estilos = getSampleStyleSheet()
+    elementos = []
+
+    elementos.append(Paragraph("LIBRERÍA SALESIANA DON BOSCO", estilos['Title']))
+    elementos.append(Paragraph(f"<b>{titulo_comp}</b> N° {numero_comprobante}", estilos['Heading2']))
+    elementos.append(Spacer(1, 8))
+
+    titulo_doc = tipo_documento or ("RUC" if tipo_comprobante == "factura"
+                                    else ("DNI" if documento else "No informado"))
+    fecha_txt = fecha.strftime('%d/%m/%Y %H:%M') if hasattr(fecha, "strftime") else str(fecha)
+    datos = [
+        ["Fecha de emisión", fecha_txt],
+        ["Cliente", cliente_nombre or "Consumidor Final"],
+        [f"Documento ({titulo_doc})", documento or "—"],
+    ]
+    if razon_social:
+        datos.append(["Razón social", razon_social])
+    if direccion_fiscal:
+        datos.append(["Dirección fiscal", direccion_fiscal])
+    cabecera = Table(datos, colWidths=[55*mm, 115*mm])
+    cabecera.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 0.4, colors.grey),
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#EEF2FF')),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9.5),
+    ]))
+    elementos.append(cabecera)
+    elementos.append(Spacer(1, 12))
+
+    # Detalle de productos
+    filas = [["Producto", "Cant.", "P. Unit.", "Total"]]
+    for p in productos:
+        cantidad = int(p.get('cantidad', 1) or 1)
+        precio = float(p.get('precio_unitario', p.get('precio', 0)) or 0)
+        total_linea = float(p.get('total', precio * cantidad) or 0)
+        filas.append([str(p.get('nombre', '')), str(cantidad),
+                      f"S/ {precio:.2f}", f"S/ {total_linea:.2f}"])
+    filas.append(["", "", "TOTAL", f"S/ {float(total_venta or 0):.2f}"])
+    detalle = Table(filas, colWidths=[95*mm, 18*mm, 27*mm, 30*mm])
+    detalle.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e3a8a')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#e2e8f0')),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#F0FDF4')),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (2, -1), (3, -1), colors.HexColor('#16a34a')),
+    ]))
+    elementos.append(detalle)
+    elementos.append(Spacer(1, 12))
+
+    # Autorización SUNAT simulada (mismo criterio que /comprobante/<id>/pdf)
+    codigo_autorizacion = f"{numero_comprobante} | {secrets.token_hex(8).upper()}"
+    autorizacion = Table([["AUTORIZACIÓN SUNAT (SIMULADA)"], [codigo_autorizacion]], colWidths=[170*mm])
+    autorizacion.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#16A34A')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F0FDF4')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+    ]))
+    elementos.append(autorizacion)
+    elementos.append(Spacer(1, 8))
+    elementos.append(Paragraph("<small>Este es un comprobante de venta electrónico válido. ¡Gracias por su compra!</small>", estilos['Italic']))
+
+    doc.build(elementos)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta, documento="", tipo_documento="", razon_social="", direccion_fiscal=""):
     """Envía el comprobante (factura/boleta) por correo con estructura profesional de documento SUNAT."""
     try:
@@ -1505,6 +1603,32 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
         """
 
         msg.attach(MIMEText(html, 'html'))
+
+        # Adjuntar el comprobante en PDF (además del detalle en el cuerpo del correo).
+        # Así el cliente recibe "el documento" descargable y no solo el HTML.
+        try:
+            from email.mime.application import MIMEApplication
+            pdf_bytes = generar_comprobante_pdf(
+                tipo_comprobante=tipo_comprobante,
+                numero_comprobante=numero_comprobante,
+                fecha=fecha,
+                cliente_nombre=cliente_nombre,
+                documento=documento,
+                tipo_documento=tipo_documento,
+                razon_social=razon_social,
+                direccion_fiscal=direccion_fiscal,
+                productos=productos,
+                total_venta=total_venta,
+            )
+            prefijo_archivo = {"factura": "Factura", "nota": "NotaVenta"}.get(tipo_comprobante, "Boleta")
+            numero_limpio = "".join(ch if (ch.isalnum() or ch in "._-") else "_" for ch in str(numero_comprobante))
+            nombre_pdf = f"{prefijo_archivo}_{numero_limpio}.pdf"
+            adjunto = MIMEApplication(pdf_bytes, _subtype="pdf")
+            adjunto.add_header("Content-Disposition", "attachment", filename=nombre_pdf)
+            msg.attach(adjunto)
+            print(f"📎 PDF adjuntado: {nombre_pdf}")
+        except Exception as e:
+            print(f"⚠️ No se pudo adjuntar el PDF: {e}")
 
         print(f"📧 Enviando a {destinatario}...")
         server = smtplib.SMTP(smtp_server, smtp_port)
