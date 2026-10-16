@@ -484,11 +484,13 @@
         document.querySelector(`.delivery-option[data-tipo="${tipo}"]`).classList.add('selected');
 
         const direccionDiv = document.getElementById('direccionEntrega');
+        const infoRecojo = document.getElementById('infoRecojo');
         const envioTexto = document.getElementById('envioTexto');
         const direccionInput = document.getElementById('direccion');
 
         if (tipo === 'delivery') {
             direccionDiv.style.display = 'block';
+            if (infoRecojo) infoRecojo.style.display = 'none';
             envioTexto.innerHTML = 'S/. 5.00';
             // Inicializar mapa después de que el contenedor sea visible
             // Usar requestAnimationFrame para asegurar que el DOM se renderizó
@@ -506,6 +508,7 @@
             });
         } else {
             direccionDiv.style.display = 'none';
+            if (infoRecojo) infoRecojo.style.display = 'block';
             envioTexto.innerHTML = 'Gratis';
             if (direccionInput) direccionInput.value = '';
             // Limpiar coordenadas si cambia a recojo
