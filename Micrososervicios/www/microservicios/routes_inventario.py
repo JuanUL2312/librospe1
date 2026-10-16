@@ -122,6 +122,31 @@ def api_inventario_verificar_stock(id, cantidad):
         return jsonify({"error": str(e)}), 500
 
 
+def verificar_stock(producto_id, cantidad):
+    """Stock de un producto leído de la BD PROPIA de inventario (bind 'inventario').
+
+    Devuelve el mismo diccionario que responde el endpoint interno
+    ``_verificar-stock``, o ``None`` si el producto no existe. Lo usan tanto
+    el endpoint HTTP (para otros servicios) como la resolución en proceso
+    cuando ventas e inventario viven en el mismo worker (evita el autobloqueo
+    de una llamada HTTP a sí mismo).
+    """
+    producto = db.session.execute(text("""
+        SELECT cantidad FROM inventario_productos WHERE id = :id
+    """), {"id": producto_id}, bind_arguments={"bind": motor_inventario}).mappings().first()
+
+    if not producto:
+        return None
+
+    return {
+        "servicio": "inventario",
+        "producto_id": producto_id,
+        "disponible": producto["cantidad"] >= cantidad,
+        "stock_actual": producto["cantidad"],
+        "cantidad_solicitada": cantidad,
+    }
+
+
 @inventario_bp.route("/_verificar-stock/<int:id>/<int:cantidad>", methods=["GET"])
 @servicio_requerido
 def api_inventario_interno_verificar_stock(id, cantidad):
@@ -130,22 +155,10 @@ def api_inventario_interno_verificar_stock(id, cantidad):
     No requiere sesion de usuario sino X-Service-Token.
     """
     try:
-        producto = db.session.execute(text("""
-            SELECT cantidad FROM inventario_productos WHERE id = :id
-        """), {"id": id}, bind_arguments={"bind": motor_inventario}).mappings().first()
-
-        if not producto:
+        resultado = verificar_stock(id, cantidad)
+        if resultado is None:
             return jsonify({"error": "Producto no encontrado"}), 404
-
-        disponible = producto["cantidad"] >= cantidad
-
-        return jsonify({
-            "servicio": "inventario",
-            "producto_id": id,
-            "disponible": disponible,
-            "stock_actual": producto["cantidad"],
-            "cantidad_solicitada": cantidad
-        })
+        return jsonify(resultado)
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500

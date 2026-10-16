@@ -3,6 +3,13 @@
 1 gateway + 4 servicios independientes, cada uno con **su propia BD** y
 comunicación **HTTP + `X-Service-Token`**. Sin SQL cruzado entre BDs.
 
+> **Nota:** en producción todo corre dentro de un mismo proceso uWSGI
+> (`processes = 1`). Una llamada HTTP de un servicio a la propia URL se
+> autobloquea hasta el timeout (503), así que
+> `microservicios.es_llamada_a_si_mismo()` detecta el caso y resuelve el stock
+> **en proceso**; con servicios en procesos separados (local) se usa HTTP + token
+> como siempre.
+
 ## Puertos
 
 | Servicio | Carpeta | Puerto | BD | Tablas |

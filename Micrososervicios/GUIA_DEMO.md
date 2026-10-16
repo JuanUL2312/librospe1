@@ -114,6 +114,14 @@ Muestra clientes registrados y el resumen por ubicación (BD `librospe_ms_client
 `GET /api/comercial/validar-stock/<id>/<cant>` → ventas **llama por HTTP** al endpoint interno `_verificar-stock` de inventario con `X-Service-Token`.
 **Qué decir:** *"Aquí está la clave: ventas NECESITA saber el stock, pero NO puede leer la BD de inventario. Por eso inventario publicó un endpoint interno protegido por token y ventas lo consulta por HTTP. Es la comunicación real entre microservicios."*
 
+> **Nota (producción):** cuando la app corre en un solo proceso uWSGI
+> (`processes = 1`, como en alwaysdata), una llamada HTTP a la propia URL se
+> autobloquea hasta el timeout → 503. Por eso
+> `microservicios.es_llamada_a_si_mismo()` detecta ese caso y ventas resuelve el
+> stock **en proceso** (misma lógica de inventario), manteniendo HTTP + token
+> cuando los servicios son procesos separados (demo local en 8001-8004). En ese
+> caso la respuesta indica `"consulto_a": "inventario (en proceso ...)"`.
+
 ### Paso 9 — (Opcional) Escritura solo admin
 ```powershell
 .\demo_microservicios.ps1 -Correo "admin@correo.com" -Clave "123456" -EjecutarEscritura

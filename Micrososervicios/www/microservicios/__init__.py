@@ -15,6 +15,7 @@ Las dependencias compartidas (``db`` y ``login_required``) se inyectan mediante
 """
 import hmac
 from functools import wraps
+from urllib.parse import urlsplit
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -68,6 +69,43 @@ def get_service_engine(bind_key):
     Cada microservicio usa SIEMPRE su propio bind; jamas lee de la BD de otro.
     """
     return _db.get_engine(bind_key)
+
+
+def _puerto_efectivo(url):
+    """Puerto de una URL ya parseada (el explícito o el del esquema)."""
+    if url.port:
+        return url.port
+    return 443 if url.scheme == "https" else 80
+
+
+def es_llamada_a_si_mismo(url):
+    """True si ``url`` apunta a ESTA misma aplicación (mismo host y puerto).
+
+    En producción los microservicios viven dentro del mismo proceso uWSGI
+    (``processes = 1``): una llamada HTTP a la propia URL se autobloquearía
+    hasta agotar el timeout, porque el único worker estaría ocupado
+    esperando su propia respuesta. Quien detecte este caso debe resolverlo
+    en proceso en lugar de por HTTP (con servicios realmente separados, en
+    cambio, sí se hace la llamada HTTP normal).
+    """
+    try:
+        destino = urlsplit(url)
+        propio = urlsplit(request.host_url)
+    except ValueError:
+        return False
+    if not destino.hostname or not propio.hostname:
+        return False
+    if destino.hostname != propio.hostname:
+        return False
+    puerto_destino = _puerto_efectivo(destino)
+    puerto_propio = _puerto_efectivo(propio)
+    if puerto_destino == puerto_propio:
+        return True
+    # Detrás de un proxy que no propaga el esquema, ``request.host_url`` puede
+    # verse como ``http://`` mientras la URL configurada es ``https://`` (o al
+    # contrario). Mismo host con solo los puertos por defecto 80/443 sigue
+    # siendo esta misma aplicación.
+    return {puerto_destino, puerto_propio} <= {80, 443}
 
 
 def servicio_requerido(f):

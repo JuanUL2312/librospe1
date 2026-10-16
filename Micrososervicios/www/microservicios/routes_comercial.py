@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 from flask import current_app, jsonify, request, session
 from sqlalchemy import text
 
-from . import comercial_bp, get_db, get_login_required, get_service_engine
+from . import comercial_bp, es_llamada_a_si_mismo, get_db, get_login_required, get_service_engine
 
 db = get_db()
 login_required = get_login_required()
@@ -19,10 +19,27 @@ motor_ventas = get_service_engine("ventas")
 
 
 def _consultar_inventario(producto_id, cantidad):
-    """Llama por HTTP al microservicio INVENTARIO con token interno."""
+    """Pide stock al microservicio INVENTARIO.
+
+    Con servicios realmente separados (local: procesos en 8001-8004) usa
+    HTTP + X-Service-Token. En produccion todo corre en un unico worker
+    uWSGI: llamar por HTTP a la propia URL se autobloquearia (el worker
+    quedaria esperando su propia respuesta hasta el timeout), asi que en ese
+    caso se ejecuta la MISMA logica de inventario en proceso.
+    """
     url = "{}/api/inventario/_verificar-stock/{}/{}".format(
-        current_app.config.get("MS_INVENTARIO_URL", "http://127.0.0.1:8000"),
+        current_app.config.get("MS_INVENTARIO_URL", "http://127.0.0.1:8001"),
         producto_id, cantidad)
+
+    if es_llamada_a_si_mismo(url):
+        from .routes_inventario import verificar_stock
+
+        resultado = verificar_stock(producto_id, cantidad)
+        if resultado is None:
+            raise LookupError("Producto no encontrado")
+        resultado["via"] = "en proceso (misma app: evita el autobloqueo del worker)"
+        return resultado
+
     req = Request(url, headers={"X-Service-Token": current_app.config["SERVICE_TOKEN"]})
     with urlopen(req, timeout=5) as resp:
         return json.loads(resp.read().decode("utf-8"))
@@ -126,9 +143,10 @@ def api_comercial_validar_stock(producto_id, cantidad):
     """
     try:
         resultado = _consultar_inventario(producto_id, cantidad)
+        via = resultado.pop("via", "HTTP + X-Service-Token")
         return jsonify({
             "origen": "comercial (servicio ventas)",
-            "consulto_a": "inventario (HTTP + X-Service-Token)",
+            "consulto_a": "inventario ({})".format(via),
             "respuesta": resultado
         })
     except Exception as e:
