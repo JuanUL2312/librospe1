@@ -468,6 +468,52 @@ function actualizarTotales() {
 }
 
 // ============================================
+// TELÉFONO CON CÓDIGO DE PAÍS
+// ============================================
+function telefonoCompleto() {
+    var sel = document.getElementById('clientePrefijo');
+    var prefijo = sel ? sel.value : '+51';
+    var crudo = (document.getElementById('clienteTelefono').value || '').trim();
+    var digitos = crudo.replace(/\D/g, '');
+    var cod = prefijo.replace('+', '');
+
+    // Si el usuario escribió el código dentro del campo, no se duplica
+    if (digitos && digitos.length > cod.length + 5 && digitos.indexOf(cod) === 0) {
+        digitos = digitos.slice(cod.length);
+    }
+    // Formato local peruano 0987654321 -> 987654321
+    if (cod === '51' && digitos.length === 10 && digitos.charAt(0) === '0') {
+        digitos = digitos.slice(1);
+    }
+    return prefijo + digitos;
+}
+
+function initPrefijoTelefono() {
+    var sel = document.getElementById('clientePrefijo');
+    var inp = document.getElementById('clienteTelefono');
+    if (!sel || !inp || !inp.value) return;
+
+    var digitos = inp.value.replace(/\D/g, '');
+    var codigos = [];
+    for (var i = 0; i < sel.options.length; i++) {
+        codigos.push(sel.options[i].value.replace('+', ''));
+    }
+    codigos.sort(function(a, b) { return b.length - a.length; });
+
+    for (var j = 0; j < codigos.length; j++) {
+        if (digitos.length > codigos[j].length + 5 && digitos.indexOf(codigos[j]) === 0) {
+            sel.value = '+' + codigos[j];
+            inp.value = digitos.slice(codigos[j].length);
+            return;
+        }
+    }
+    // 0987654321 guardado sin código: se muestra limpio bajo +51
+    if (digitos.length === 10 && digitos.charAt(0) === '0') {
+        inp.value = digitos.slice(1);
+    }
+}
+
+// ============================================
 // PROCESAR PAGO
 // ============================================
 function procesarPago() {
@@ -477,15 +523,20 @@ function procesarPago() {
     
     // Validar campos
     var email = document.getElementById('clienteEmail').value.trim();
-    var telefono = document.getElementById('clienteTelefono').value.trim();
+    var telefono = telefonoCompleto();
+    var digitosTel = telefono.replace(/\D/g, '');
     var documento = document.getElementById('documentoInput').value.trim();
     var direccion = document.getElementById('direccionEntrega').value.trim();
     
-    if (!email || !telefono) {
+    // Teléfono obligatorio (con código de país). El correo es opcional: si no hay
+    // correo (o no es válido), el comprobante se entrega por WhatsApp al celular.
+    var emailValido = !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    var telValido = digitosTel.length >= 7 && digitosTel.length <= 15;
+    if (!telValido || !emailValido) {
         Swal.fire({
             icon: 'warning',
             title: 'Campos incompletos',
-            text: 'Por favor completa todos los campos obligatorios.',
+            text: (!telValido ? 'Ingresa un teléfono celular válido (ej. 987654321)' : 'Ingresa un correo electrónico válido') + ' (si no tienes correo, te enviamos el comprobante por WhatsApp).',
             confirmButtonColor: '#D4AF37'
         });
         btn.disabled = false;
@@ -612,6 +663,9 @@ function procesarPago() {
 // INICIALIZAR
 // ============================================
 document.addEventListener('DOMContentLoaded', function() {
+    // Código de país del teléfono (detecta si el número guardado ya lo trae)
+    initPrefijoTelefono();
+
     // Cargar tipo de entrega guardado en el carrito (localStorage)
     var tipoGuardado = localStorage.getItem('tipoEntrega');
     if (tipoGuardado) {

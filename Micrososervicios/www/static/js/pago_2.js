@@ -247,8 +247,8 @@ async function confirmarPedido(){
         }
     }
     
-    if(!checkoutData.email){
-        Swal.fire({icon:'error',title:'Error',text:'No hay email. Regresa a checkout'});
+    if(!checkoutData.email && !checkoutData.telefono){
+        Swal.fire({icon:'error',title:'Error',text:'Necesitas un correo o un celular para enviarte el comprobante. Regresa a checkout'});
         return;
     }
     
