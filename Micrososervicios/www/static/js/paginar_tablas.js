@@ -184,12 +184,9 @@
         var ctrl = elem.closest('.' + CLASE);
         if (!ctrl) return null;
         var id = ctrl.getAttribute('data-tabla');
-        for (var k in controles) {
-            if (k === id) {
-                for (var i = 0; i < document.tables.length; i++) {
-                    if (idDe(document.tables[i]) === id) return document.tables[i];
-                }
-            }
+        var tablas = document.querySelectorAll('table');
+        for (var i = 0; i < tablas.length; i++) {
+            if (idDe(tablas[i]) === id) return tablas[i];
         }
         return null;
     }
