@@ -640,3 +640,76 @@
             font-size: 0.7rem !important;
         }
     }
+
+    /* ============================================================ */
+    /* ===== PANEL → SIDEBAR LATERAL IZQUIERDO (desktop >=992px) ===== */
+    /* ============================================================ */
+    @media (min-width: 992px) {
+        .panel-salesiano-wrapper {
+            position: fixed !important;
+            top: var(--nav-h, 58px) !important;
+            left: 0 !important;
+            bottom: 0 !important;
+            width: 236px !important;
+            padding: 0.7rem 0.65rem !important;
+            margin-bottom: 0 !important;
+            overflow-y: auto;
+            background: #ffffff !important;
+            border-right: 1px solid #e9ecef;
+            box-shadow: 3px 0 16px rgba(0, 0, 0, 0.07) !important;
+            z-index: 1045;
+        }
+        .panel-salesiano-wrapper .container {
+            max-width: 100% !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        .panel-salesiano-wrapper .dashboard-header {
+            background: transparent !important;
+            border: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+        }
+        .panel-salesiano-wrapper .dashboard-header:hover {
+            transform: none !important;
+            box-shadow: none !important;
+        }
+        .panel-salesiano-wrapper .row {
+            display: block !important;
+            margin: 0 !important;
+        }
+        .panel-salesiano-wrapper .panel-titulo,
+        .panel-salesiano-wrapper .panel-botones {
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        .panel-salesiano-wrapper .panel-botones {
+            margin-top: 0.7rem !important;
+        }
+        .panel-salesiano-wrapper .admin-dashboard-grid {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            justify-content: flex-start !important;
+            gap: 0.45rem !important;
+            width: 100% !important;
+        }
+        .panel-salesiano-wrapper .admin-dashboard-grid > .btn-card,
+        .panel-salesiano-wrapper .admin-dashboard-grid .dropdown,
+        .panel-salesiano-wrapper .admin-dashboard-grid .dropdown > .btn-card {
+            display: flex !important;
+            width: 100% !important;
+            margin: 0 !important;
+            justify-content: flex-start !important;
+        }
+        .panel-salesiano-wrapper .admin-dashboard-grid .dropdown-menu {
+            width: 100%;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        .container.fade-in {
+            margin-left: 236px !important;
+        }
+    }

@@ -32,6 +32,18 @@
 
         document.addEventListener('DOMContentLoaded', function() {
             // ============================================
+            // SIDEBAR: ALTURA REAL DE LA NAVBAR (--nav-h)
+            // ============================================
+            function ajustarNavH() {
+                const nav = document.querySelector('.navbar');
+                if (nav) {
+                    document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+                }
+            }
+            ajustarNavH();
+            window.addEventListener('resize', ajustarNavH);
+
+            // ============================================
             // EFECTO DE SOMBRA AL HACER SCROLL
             // ============================================
             const panel = document.getElementById('panelSalesiano');
