@@ -56,7 +56,15 @@ jobs:
           TEST_DB_PORT: "3306"
           TEST_DB_USER: root
           TEST_DB_PASSWORD: dev
-        run: python Micrososervicios/tests/preparar_base.py
+        run: |
+          for i in $(seq 1 20); do
+            if mysqladmin ping -h127.0.0.1 -uroot -pdev --silent; then break; fi
+            sleep 3
+          done
+          for bd in librospe_ms_inventario librospe_ms_ventas librospe_ms_usuarios librospe_ms_clientes; do
+            mysql -h 127.0.0.1 -uroot -pdev -e "CREATE DATABASE IF NOT EXISTS \`$bd\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          done
+          python Micrososervicios/tests/preparar_base.py
 
       - name: Ejecutar las pruebas
         env:
