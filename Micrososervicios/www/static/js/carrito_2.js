@@ -30,6 +30,288 @@
     var distritoEntrega = '';
     var costoEntrega = 0;
 
+    // ===============================
+    // CENTROS DE LOS DISTRITOS DE ENTREGA
+    // Coordenadas del centro de cada distrito de la provincia de Huancayo
+    // (Junín). Se usan para centrar el mapa en el distrito elegido sin
+    // depender de internet: si algún día se agrega un distrito nuevo, se
+    // resuelve con Nominatim (ver geocodificarDistrito).
+    // ===============================
+    var CENTROS_DISTRITO = {
+        'Huancayo (Cercado)':        { lat: -12.068098, lng: -75.210095 },
+        'El Tambo':                   { lat: -12.056906, lng: -75.216436 },
+        'Chilca':                     { lat: -12.086334, lng: -75.208289 },
+        'Pilcomayo':                  { lat: -12.049373, lng: -75.250404 },
+        'San Jerónimo de Tunán':      { lat: -11.949024, lng: -75.282712 },
+        'San Agustín (Cajas)':        { lat: -11.990063, lng: -75.244004 },
+        'Hualhuas':                   { lat: -11.971609, lng: -75.251050 },
+        'Saño':                       { lat: -11.957327, lng: -75.257295 },
+        'Huancán':                    { lat: -12.106278, lng: -75.216796 },
+        'Huayucachi':                 { lat: -12.137816, lng: -75.222934 },
+        'Viques':                     { lat: -12.159667, lng: -75.232318 },
+        'Sapallanga':                 { lat: -12.141190, lng: -75.157824 },
+        'Sicaya':                     { lat: -12.014454, lng: -75.280519 },
+        'Chupuro':                    { lat: -12.155252, lng: -75.245458 },
+        'Colca':                      { lat: -12.317826, lng: -75.223131 },
+        'Chacapampa':                 { lat: -12.272300, lng: -75.120086 },
+        'Chicche':                    { lat: -12.295962, lng: -75.297748 },
+        'Carhuacallanga':             { lat: -12.354751, lng: -75.200512 },
+        'Chongos Alto':               { lat: -12.311269, lng: -75.289033 },
+        'Huasicancha':                { lat: -12.332013, lng: -75.282125 },
+        'Ingenio':                    { lat: -11.889759, lng: -75.265417 },
+        'Quichuay':                   { lat: -11.889812, lng: -75.286375 },
+        'Quilcas':                    { lat: -11.937489, lng: -75.259295 },
+        'San Pedro de Saño':          { lat: -11.958942, lng: -75.258274 },
+        'Santo Domingo de Acobamba': { lat: -11.768890, lng: -74.795196 },
+        'Pucará':                     { lat: -12.172779, lng: -75.145997 },
+        'Cullhuas':                   { lat: -12.223783, lng: -75.170550 },
+        'Pariahuanca':                { lat: -12.028990, lng: -74.852245 }
+    };
+    // Zoom por zona: la Zona 1 es urbana y se ve mas cerca; la Zona 3 es
+    // dispersa y se ve mas amplia para que el distrito entre en la pantalla.
+    var ZOOM_POR_ZONA = { 1: 14, 2: 13, 3: 12 };
+    // Centro pendiente de aplicar (si se eligio distrito antes de que el mapa existiera).
+    var centroDistritoPendiente = null;
+
+    function numeroZonaPorDistrito(d) {
+        if (!d) return null;
+        for (var z in ZONAS_DELIVERY) {
+            if (ZONAS_DELIVERY[z].distritos.indexOf(d) !== -1) return z;
+        }
+        return null;
+    }
+    // Normaliza texto (sin acentos y en minusculas) para comparar nombres.
+    function normalizarTexto(t) {
+        if (!t) return '';
+        var s = t.toString().toLowerCase();
+        if (s.normalize) s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return s.trim();
+    }
+    function buscarCentroDistrito(distrito) {
+        var clave = normalizarTexto(distrito);
+        for (var nombre in CENTROS_DISTRITO) {
+            if (normalizarTexto(nombre) === clave) return CENTROS_DISTRITO[nombre];
+        }
+        return null;
+    }
+    // ===============================
+    // DETECCION DEL DISTRITO A PARTIR DEL PIN
+    // Cuando el cliente marca su punto se hace geocodificacion inversa y el
+    // distrito detectado se escribe solo en el selector (asi el costo de
+    // envio se recalcula sin que el cliente tenga que elegirlo a mano).
+    // ===============================
+    // Nombres que devuelve el geocodificador -> opcion del selector.
+    var ALIAS_DISTRITO = {
+        'huancayo': 'Huancayo (Cercado)',
+        'huan cayo': 'Huancayo (Cercado)',
+        'san agustin de cajas': 'San Agustín (Cajas)',
+        'san agustin': 'San Agustín (Cajas)',
+        'cajas': 'San Agustín (Cajas)',
+        'san pedro de sano': 'San Pedro de Saño',
+        'san pedro': 'San Pedro de Saño',
+        'santo domingo de acrobamba': 'Santo Domingo de Acobamba',
+        'acobamba': 'Santo Domingo de Acobamba',
+        'san jeronimo de tunan': 'San Jerónimo de Tunán',
+        'tunan': 'San Jerónimo de Tunán',
+        'qhichuay': 'Quichuay',
+        'chongos altos': 'Chongos Alto'
+    };
+    // Devuelve la opcion del selector que corresponde a un nombre de distrito
+    // (o null si no es un distrito de reparto).
+    function opcionDistritoPorNombre(nombre) {
+        if (!nombre) return null;
+        var clave = normalizarTexto(nombre);
+        if (!clave) return null;
+        for (var z in ZONAS_DELIVERY) {
+            var lista = ZONAS_DELIVERY[z].distritos;
+            for (var i = 0; i < lista.length; i++) {
+                if (normalizarTexto(lista[i]) === clave) return lista[i];
+                // "Huancayo (Cercado)" -> "huancayo"
+                var sinParen = normalizarTexto(lista[i].replace(/\(.*\)/, ''));
+                if (sinParen && sinParen === clave) return lista[i];
+            }
+        }
+        if (ALIAS_DISTRITO[clave]) return ALIAS_DISTRITO[clave];
+        return null;
+    }
+    // Detecta el distrito a partir de la respuesta de geocodificacion inversa.
+    function detectarDistritoEnRespuesta(data) {
+        if (!data) return null;
+        var addr = data.address || {};
+        var partes = String(data.display_name || '').split(',').map(function(s) { return s.trim(); });
+        // 1) campos administrativos (los mas fiables)
+        var campos = [addr.city_district, addr.city, addr.town, addr.municipality, addr.county];
+        for (var i = 0; i < campos.length; i++) {
+            var opcion = opcionDistritoPorNombre(campos[i]);
+            if (opcion) return { distrito: opcion, texto: campos[i], fueraDeZona: false };
+        }
+        // 2) partes de la direccion (p.ej. "Chicche, Huancayo, Junin, Peru")
+        var region = normalizarTexto(addr.region || '');
+        var estado = normalizarTexto(addr.state || '');
+        var ignorar = [region, estado, normalizarTexto(addr.country || ''), 'peru'];
+        // En Junin, "Huancayo" en la direccion es la provincia: se deja para
+        // el final por si el distrito real no se pudo leer.
+        var postponed = null;
+        for (var j = 0; j < partes.length; j++) {
+            var n = normalizarTexto(partes[j]);
+            if (!n || ignorar.indexOf(n) !== -1) continue;
+            var op = opcionDistritoPorNombre(partes[j]);
+            if (op) {
+                if (n === 'huancayo' && (estado === 'junin' || region === 'huancayo')) {
+                    postponed = { distrito: op, texto: partes[j], fueraDeZona: false };
+                    continue;
+                }
+                return { distrito: op, texto: partes[j], fueraDeZona: false };
+            }
+        }
+        if (postponed) return postponed;
+        // No se pudo identificar: se informa si esta fuera de nuestra provincia.
+        var fuera = !!(region && region !== 'huancayo' && estado !== 'junin');
+        return { distrito: null, texto: partes[0] || '', fueraDeZona: fuera };
+    }
+    // Detecta el distrito a partir de un texto de direccion (sugerencias).
+    function detectarDistritoEnTexto(texto) {
+        if (!texto) return null;
+        var partes = String(texto).split(',').map(function(s) { return s.trim(); });
+        var postponed = null;
+        for (var i = 0; i < partes.length; i++) {
+            var op = opcionDistritoPorNombre(partes[i]);
+            if (!op) continue;
+            // "Huancayo" puede ser la provincia: solo se usa si no hay otro distrito.
+            if (normalizarTexto(partes[i]) === 'huancayo') {
+                if (!postponed) postponed = { distrito: op, texto: partes[i], fueraDeZona: false };
+                continue;
+            }
+            return { distrito: op, texto: partes[i], fueraDeZona: false };
+        }
+        if (postponed) return postponed;
+        return { distrito: null, texto: partes[0] || '', fueraDeZona: true };
+    }
+    // Escribe el distrito detectado en el selector y recalcula el envio.
+    function aplicarDistritoDetectado(info, pintarMensaje) {
+        if (!info) return info;
+        var sel = document.getElementById('distritoEntregaSel');
+        if (info.distrito) {
+            if (sel) {
+                var existe = Array.prototype.some.call(sel.options, function(o) { return o.value === info.distrito; });
+                if (existe) sel.value = info.distrito;
+            }
+            aplicarDistrito(info.distrito);
+            if (pintarMensaje === false) return info;
+            var zona = zonaPorDistrito(info.distrito);
+            avisarMapa('<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente · ' +
+                       'Distrito <b>' + info.distrito + '</b>' +
+                       (zona ? ' · envío S/ ' + costoEntrega.toFixed(2) : ''), false, 'text-success');
+        } else {
+            if (pintarMensaje === false) return info;
+            avisarMapa('<i class="fas fa-exclamation-triangle text-warning me-1"></i> ' +
+                       'El punto marcado está en <b>' + (info.texto || 'otra zona') + '</b>, ' +
+                       'fuera de nuestras zonas de reparto.', true);
+        }
+        return info;
+    }
+    // Mensaje del mapa (debajo del mapa).
+    function avisarMapa(html, esAviso, clase) {
+        const mapaAviso = document.getElementById('mapaAviso');
+        if (!mapaAviso) return;
+        mapaAviso.innerHTML = html;
+        mapaAviso.classList.remove('text-muted', 'text-success', 'text-warning', 'text-primary', 'fw-bold');
+        mapaAviso.classList.add(clase || (esAviso ? 'text-warning' : 'text-primary'));
+    }
+    // Vista por defecto: la libreria (El Tambo, Huancayo).
+    function vistaPorDefecto() {
+        const div = document.getElementById('mapaCarrito');
+        const lat = parseFloat(div && div.dataset ? div.dataset.lat : NaN);
+        const lng = parseFloat(div && div.dataset ? div.dataset.lng : NaN);
+        if (!isNaN(lat) && !isNaN(lng)) return [lat, lng];
+        return [-12.065863, -75.215397];
+    }
+    // Limpia la direccion, el pin y las coordenadas de entrega.
+    // Se usa cuando el cliente cambia de distrito a mano: la direccion y el
+    // pin anteriores son de otro distrito, asi que dejarlos seria entregar
+    // en el sitio equivocado.
+    function limpiarPuntoEntrega() {
+        const latEl = document.getElementById('latitud');
+        const lngEl = document.getElementById('longitud');
+        // Si habia un punto marcado, la direccion autocompletada tambien es
+        // de ese punto (o de la sugerencia elegida): se limpia. Si el cliente
+        // solo escribio el texto a mano, se respeta.
+        const habiaPunto = !!marcadorCarrito || (latEl && latEl.value);
+        const direccionInput = document.getElementById('direccion');
+        if (habiaPunto && direccionInput) direccionInput.value = '';
+        if (latEl) latEl.value = '';
+        if (lngEl) lngEl.value = '';
+        localStorage.removeItem('latitudEntrega');
+        localStorage.removeItem('longitudEntrega');
+        if (mapaCarrito) {
+            if (marcadorCarrito) {
+                mapaCarrito.removeLayer(marcadorCarrito);
+                marcadorCarrito = null;
+            }
+            if (circuloPrecision) {
+                mapaCarrito.removeLayer(circuloPrecision);
+                circuloPrecision = null;
+            }
+        }
+    }
+    // Centra el mapa en el distrito elegido. NO fija el punto de entrega:
+    // el cliente sigue teniendo que marcar su direccion exacta.
+    function centrarMapaEnDistrito(distrito, recienCambiado) {
+        if (!distrito) return;
+        var centro = buscarCentroDistrito(distrito);
+        if (centro) {
+            aplicarVistaDistrito(centro, distrito, false, recienCambiado);
+        } else if (!mapaCarrito) {
+            // El mapa todavia no existe: se resuelve cuando se cree.
+            centroDistritoPendiente = { distrito: distrito };
+        } else {
+            geocodificarDistrito(distrito, recienCambiado);
+        }
+    }
+    function aplicarVistaDistrito(centro, distrito, sinAnimacion, recienCambiado) {
+        const zona = numeroZonaPorDistrito(distrito);
+        const zoom = ZOOM_POR_ZONA[zona] || 13;
+        if (!mapaCarrito) {
+            centroDistritoPendiente = { lat: centro.lat, lng: centro.lng, zoom: zoom, distrito: distrito };
+            return;
+        }
+        centroDistritoPendiente = null;
+        mapaCarrito.invalidateSize();
+        if (!sinAnimacion && typeof mapaCarrito.flyTo === 'function') {
+            mapaCarrito.flyTo([centro.lat, centro.lng], zoom, { duration: 0.8 });
+        } else {
+            mapaCarrito.setView([centro.lat, centro.lng], zoom);
+        }
+        avisarMapa(recienCambiado
+            ? '<i class="fas fa-map-marker-alt me-1"></i> Distrito actualizado a <b>' + distrito +
+              '</b>. Vuelve a marcar tu punto en el mapa.'
+            : '<i class="fas fa-map-marker-alt me-1"></i> Mostrando <b>' + distrito +
+              '</b>. Marca tu punto exacto de entrega.');
+    }
+    // Respaldo para distritos que no estan en la tabla: se geocodifican con
+    // Nominatim (mismo servicio que usa el buscador de direcciones).
+    function geocodificarDistrito(distrito, recienCambiado) {
+        const base = String(distrito).split('(')[0].trim();
+        const url = 'https://nominatim.openstreetmap.org/search?format=json&q=' +
+            encodeURIComponent(base + ', Provincia de Huancayo, Junín, Perú') +
+            '&countrycodes=pe&limit=1&accept-language=es';
+        avisarMapa('<i class="fas fa-spinner fa-spin me-1"></i> Buscando el distrito ' + distrito + '...');
+        fetch(url)
+            .then(r => r.json())
+            .then(data => {
+                if (!data || !data.length) {
+                    avisarMapa('<i class="fas fa-exclamation-triangle text-warning me-1"></i> ' +
+                               'No se pudo ubicar el distrito ' + distrito + '.', true);
+                    return;
+                }
+                aplicarVistaDistrito({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }, distrito, false, recienCambiado);
+            })
+            .catch(() => {
+                avisarMapa('<i class="fas fa-exclamation-triangle text-warning me-1"></i> ' +
+                           'No se pudo centrar el mapa en ' + distrito + '.', true);
+            });
+    }
+
     function zonaPorDistrito(d) {
         if (!d) return null;
         for (var z in ZONAS_DELIVERY) {
@@ -72,11 +354,24 @@
         }
         sel.innerHTML = html;
         var guardado = localStorage.getItem('distritoEntrega');
-        if (guardado) aplicarDistrito(guardado);
+        if (guardado) {
+            // Dejar el distrito guardado marcado en el selector.
+            var existe = Array.prototype.some.call(sel.options, function(o) { return o.value === guardado; });
+            if (existe) sel.value = guardado;
+            aplicarDistrito(guardado);
+            // Si ya habia un distrito elegido, el mapa se abre en ese distrito.
+            centrarMapaEnDistrito(guardado);
+        }
     }
     function cambiarDistritoEntrega() {
         var sel = document.getElementById('distritoEntregaSel');
-        aplicarDistrito(sel ? sel.value : '');
+        var d = sel ? sel.value : '';
+        aplicarDistrito(d);
+        // La direccion y el pin anteriores son de otro distrito: se limpian
+        // para que el cliente marque su punto en el nuevo distrito.
+        limpiarPuntoEntrega();
+        // El mapa se centra en el distrito elegido.
+        centrarMapaEnDistrito(d, true);
     }
 
     // Icono del pin de entrega.
@@ -135,7 +430,8 @@
 
         // Si la dirección ya se conoce (sugerencia elegida), no se vuelve a consultar.
         if (direccionForzada) {
-            pintarAviso('<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente', true);
+            // El distrito se deduce del texto de la dirección elegida.
+            aplicarDistritoDetectado(detectarDistritoEnTexto(direccionForzada));
             return;
         }
 
@@ -150,7 +446,8 @@
                         '<b>Tu ubicación de entrega</b><br>' + data.display_name + '<br><small>Lat: ' + latStr + ' Lng: ' + lngStr + '</small>'
                     ).openPopup();
                 }
-                pintarAviso('<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente', true);
+                // El distrito se actualiza solo segun el punto marcado.
+                aplicarDistritoDetectado(detectarDistritoEnRespuesta(data));
             })
             .catch(() => {
                 pintarAviso('<i class="fas fa-check-circle text-success me-1"></i> Ubicación marcada correctamente', true);
@@ -330,6 +627,23 @@
                             '<b>Tu ubicación de entrega</b><br>' + data.display_name + '<br><small>Lat: ' + lat + ' Lng: ' + lng + ' (±' + margen + ' m)</small>'
                         ).openPopup();
                     }
+                    // El distrito se actualiza solo con la ubicacion del GPS.
+                    const info = aplicarDistritoDetectado(detectarDistritoEnRespuesta(data), false);
+                    if (info && mapaAviso) {
+                        if (info.distrito) {
+                            const zona = zonaPorDistrito(info.distrito);
+                            mapaAviso.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> ¡Ubicación encontrada! (±' +
+                                margen + ' m) · Distrito <b>' + info.distrito + '</b>' +
+                                (zona ? ' · envío S/ ' + costoEntrega.toFixed(2) : '');
+                            mapaAviso.classList.remove('text-muted', 'text-warning', 'fw-bold');
+                            mapaAviso.classList.add('text-success', 'fw-bold');
+                        } else if (info.fueraDeZona) {
+                            mapaAviso.innerHTML = '<i class="fas fa-exclamation-triangle text-warning me-1"></i> Ubicación en <b>' +
+                                (info.texto || 'otra zona') + '</b>, fuera de nuestras zonas de reparto (±' + margen + ' m)';
+                            mapaAviso.classList.remove('text-muted', 'text-success', 'fw-bold');
+                            mapaAviso.classList.add('text-warning');
+                        }
+                    }
                 })
                 .catch(() => {
                     marcadorCarrito.setPopupContent(
@@ -501,7 +815,11 @@
         // Si el mapa ya existe, solo redimensionar
         if (mapaCarrito) {
             mapaCarrito.invalidateSize();
-            mapaCarrito.setView([-12.0464, -77.0428], 13);
+            if (distritoEntrega) {
+                centrarMapaEnDistrito(distritoEntrega);
+            } else {
+                mapaCarrito.setView(vistaPorDefecto(), 13);
+            }
             console.log('✅ Mapa redimensionado');
             return;
         }
@@ -510,8 +828,8 @@
         const cargando = document.getElementById('mapaCargando');
         if (cargando) cargando.style.display = 'block';
 
-        // Centro inicial por defecto: Lima, Perú
-        mapaCarrito = L.map('mapaCarrito').setView([-12.0464, -77.0428], 13);
+        // Centro inicial por defecto: la libreria (El Tambo, Huancayo)
+        mapaCarrito = L.map('mapaCarrito').setView(vistaPorDefecto(), 13);
 
         // Usar solo OpenStreetMap (no requiere API key)
         const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -522,6 +840,22 @@
         });
 
         osmLayer.addTo(mapaCarrito);
+
+        // Si el cliente ya habia elegido distrito (antes de que existiera el
+        // mapa), el mapa se abre en ese distrito.
+        if (centroDistritoPendiente) {
+            const pendiente = centroDistritoPendiente;
+            centroDistritoPendiente = null;
+            if (pendiente.lat) {
+                mapaCarrito.setView([pendiente.lat, pendiente.lng], pendiente.zoom || 13);
+                avisarMapa('<i class="fas fa-map-marker-alt me-1"></i> Mostrando <b>' +
+                           pendiente.distrito + '</b>. Marca tu punto exacto de entrega.');
+            } else if (pendiente.distrito) {
+                geocodificarDistrito(pendiente.distrito);
+            }
+        } else if (distritoEntrega) {
+            centrarMapaEnDistrito(distritoEntrega);
+        }
 
         // Ocultar indicador de carga cuando el mapa esté listo
         mapaCarrito.whenReady(() => {
@@ -570,7 +904,13 @@
                     if (mapaCarrito) {
                         setTimeout(() => {
                             mapaCarrito.invalidateSize();
-                            mapaCarrito.setView([-12.0464, -77.0428], 13);
+                            // Si ya hay un distrito elegido, se mantiene el mapa
+                            // sobre ese distrito; si no, se muestra la libreria.
+                            if (distritoEntrega) {
+                                centrarMapaEnDistrito(distritoEntrega);
+                            } else {
+                                mapaCarrito.setView(vistaPorDefecto(), 13);
+                            }
                         }, 100);
                     }
                 }, 150);

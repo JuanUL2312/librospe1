@@ -1,27 +1,84 @@
 version: "3.8"
 services:
+  # ============================================================
+  # Agente de mensajes (RabbitMQ) - imagen oficial de Docker Hub.
+  # No requiere Dockerfile propio: la imagen trae broker + consola
+  # de administracion (http://localhost:15672 - guest/guest).
+  # ============================================================
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: librospe-rabbitmq
+    hostname: librospe-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"     # AMQP (las apps conectan aqui)
+      - "15672:15672"   # consola web de administracion
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    volumes:
+      - rabbitmq_datos:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
   gateway:
     build: ./www
     ports: ["8000:8000"]
     env_file: .env
-    depends_on: [inventario, ventas, usuarios, clientes]
+    environment:
+      AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      inventario: {condition: service_started}
+      ventas: {condition: service_started}
+      usuarios: {condition: service_started}
+      clientes: {condition: service_started}
   inventario:
     build: ./servicio-inventario
     ports: ["8001:8001"]
     env_file: .env
+    environment:
+      AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
     command: python app.py
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
   ventas:
     build: ./servicio-ventas
     ports: ["8002:8002"]
     env_file: .env
+    environment:
+      AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
     command: python app.py
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
   usuarios:
     build: ./servicio-usuarios
     ports: ["8003:8003"]
     env_file: .env
+    environment:
+      AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
     command: python app.py
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
   clientes:
     build: ./servicio-clientes
     ports: ["8004:8004"]
     env_file: .env
+    environment:
+      AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
     command: python app.py
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  rabbitmq_datos:

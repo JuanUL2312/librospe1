@@ -37,6 +37,24 @@ function togglePassword(idInput, iconId) {
         }
     }
 
+    // Sombrea (y bloquea) los campos de nombre/apellidos cuando el dato
+    // viene de RENIEC, para que se vea que NO se pueden editar.
+    function aplicarBloqueoNombreUsuario(bloquear, mensajeHint, esError) {
+        const nombres = document.getElementById('nombresUsuario');
+        const apellidos = document.getElementById('apellidosUsuario');
+        [nombres, apellidos].forEach(function(campo) {
+            if (!campo) return;
+            campo.readOnly = !!bloquear;
+            campo.classList.toggle('campo-bloqueado', !!bloquear);
+        });
+        const hint = document.getElementById('nombresHint');
+        if (hint && mensajeHint) {
+            hint.textContent = mensajeHint;
+            hint.classList.remove('text-muted', 'text-success', 'text-warning');
+            hint.classList.add(esError ? 'text-warning' : (bloquear ? 'text-success' : 'text-muted'));
+        }
+    }
+
     async function consultarDocumentoUsuario() {
         const sel = document.getElementById('tipoDocumentoUsuario');
         const input = document.getElementById('documentoUsuario');
@@ -50,22 +68,18 @@ function togglePassword(idInput, iconId) {
         const val = input.value.trim();
         // Solo DNI via ApiPeru, CE es manual
         if (tipo === 'CE') {
-            nombresInput.readOnly = false;
-            apellidosInput.readOnly = false;
             nombresInput.placeholder = 'Ingrese nombres';
             apellidosInput.placeholder = 'Ingrese apellidos';
-            if (nombresHint) nombresHint.textContent = 'Carnet de Extranjería: ingrese nombres manualmente.';
+            aplicarBloqueoNombreUsuario(false, 'Carnet de Extranjería: ingrese nombres manualmente.');
             if (loading) loading.style.display = 'none';
             if (errorDiv) errorDiv.style.display = 'none';
             return;
         }
         // DNI: debe tener 8 dígitos
         if (val.length !== 8 || !/^\d{8}$/.test(val)) {
-            nombresInput.readOnly = true;
-            apellidosInput.readOnly = true;
             nombresInput.value = '';
             apellidosInput.value = '';
-            if (nombresHint) nombresHint.textContent = 'Se llenará automáticamente al ingresar DNI.';
+            aplicarBloqueoNombreUsuario(true, 'Se llenará automáticamente al ingresar DNI.');
             return;
         }
         // Consulta ApiPeru
@@ -78,17 +92,14 @@ function togglePassword(idInput, iconId) {
             if (data.success && data.nombres) {
                 nombresInput.value = data.nombres;
                 apellidosInput.value = data.apellidos || '';
-                nombresInput.readOnly = true;
-                apellidosInput.readOnly = true;
-                if (nombresHint) nombresHint.textContent = 'Nombre cargado automáticamente desde RENIEC (no editable).';
+                // Nombre encontrado en RENIEC: se sombrea y no se puede editar.
+                aplicarBloqueoNombreUsuario(true, 'Nombre cargado automáticamente desde RENIEC (no editable).');
                 if (errorDiv) errorDiv.style.display = 'none';
             } else {
                 // No encontrado en ApiPeru -> permitir edición manual
-                nombresInput.readOnly = false;
-                apellidosInput.readOnly = false;
                 nombresInput.placeholder = 'No encontrado en RENIEC, ingrese manualmente';
                 apellidosInput.placeholder = 'No encontrado en RENIEC, ingrese manualmente';
-                if (nombresHint) nombresHint.textContent = 'No se encontró en RENIEC, puedes editar manualmente.';
+                aplicarBloqueoNombreUsuario(false, 'No se encontró en RENIEC, puedes editar manualmente.', true);
                 if (errorDiv) {
                     errorDiv.style.display = 'block';
                     errorDiv.querySelector('small').textContent = '⚠️ DNI no encontrado en RENIEC, ingrese nombres manualmente.';
@@ -96,9 +107,7 @@ function togglePassword(idInput, iconId) {
             }
         } catch (e) {
             if (loading) loading.style.display = 'none';
-            nombresInput.readOnly = false;
-            apellidosInput.readOnly = false;
-            if (nombresHint) nombresHint.textContent = 'Error al consultar RENIEC, ingrese manualmente.';
+            aplicarBloqueoNombreUsuario(false, 'Error al consultar RENIEC, ingrese manualmente.', true);
         }
     }
 
@@ -110,8 +119,13 @@ function togglePassword(idInput, iconId) {
                 // Al cambiar tipo, resetea nombres y consulta si corresponde
                 const nombresInput = document.getElementById('nombresUsuario');
                 const apellidosInput = document.getElementById('apellidosUsuario');
-                if (nombresInput) { nombresInput.value = ''; nombresInput.readOnly = sel.value === 'DNI'; }
-                if (apellidosInput) { apellidosInput.value = ''; apellidosInput.readOnly = sel.value === 'DNI'; }
+                if (nombresInput) nombresInput.value = '';
+                if (apellidosInput) apellidosInput.value = '';
+                if (sel.value === 'CE') {
+                    aplicarBloqueoNombreUsuario(false, 'Carnet de Extranjería: ingrese nombres manualmente.');
+                } else {
+                    aplicarBloqueoNombreUsuario(true, 'Se llenará automáticamente al ingresar DNI.');
+                }
                 consultarDocumentoUsuario();
             });
         }
@@ -128,8 +142,9 @@ function togglePassword(idInput, iconId) {
                 } else if (!esCE && this.value.length < 8) {
                     const nombresInput = document.getElementById('nombresUsuario');
                     const apellidosInput = document.getElementById('apellidosUsuario');
-                    if (nombresInput) { nombresInput.value = ''; nombresInput.readOnly = true; }
-                    if (apellidosInput) { apellidosInput.value = ''; apellidosInput.readOnly = true; }
+                    if (nombresInput) nombresInput.value = '';
+                    if (apellidosInput) apellidosInput.value = '';
+                    aplicarBloqueoNombreUsuario(true, 'Se llenará automáticamente al ingresar DNI.');
                 }
             });
             // También consulta al perder foco

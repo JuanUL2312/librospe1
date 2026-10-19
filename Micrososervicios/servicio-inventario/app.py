@@ -230,5 +230,63 @@ def _verificar(pid, cant):
                     "stock_actual": r["cantidad"], "cantidad_solicitada": cant})
 
 
+def _aplicar_evento(tipo, datos):
+    """Aplica un evento recibido del agente de mensajes (RabbitMQ).
+
+    - pedido.creado / venta.registrada: descuenta el stock.
+    - producto.actualizado: actualiza precio y stock minimo.
+    Devuelve True si el evento quedo aplicado (no se re-encola).
+    """
+    try:
+        if tipo in ("pedido.creado", "venta.registrada"):
+            items = datos.get("items") or []
+            if tipo == "venta.registrada":
+                items = [{"id": datos.get("producto_id"), "cantidad": datos.get("cantidad", 0)}]
+            for item in items:
+                pid = item.get("id")
+                cant = int(item.get("cantidad") or 0)
+                if not pid or cant <= 0:
+                    continue
+                db.session.execute(text("""
+                    UPDATE inventario_productos
+                    SET cantidad = GREATEST(cantidad - :c, 0)
+                    WHERE id = :id
+                """), {"c": cant, "id": pid})
+            db.session.commit()
+            print(f"[inventario] stock descontado por '{tipo}' ({len(items)} item(s))")
+            return True
+        if tipo == "producto.actualizado":
+            db.session.execute(text("""
+                UPDATE inventario_productos
+                SET precio = COALESCE(:precio, precio),
+                    cantidad = COALESCE(:cantidad, cantidad),
+                    stock_minimo = COALESCE(:smin, stock_minimo)
+                WHERE id = :id
+            """), {
+                "precio": datos.get("precio"),
+                "cantidad": datos.get("cantidad"),
+                "smin": datos.get("stock_minimo"),
+                "id": datos.get("id"),
+            })
+            db.session.commit()
+            print(f"[inventario] producto {datos.get('id')} actualizado por evento")
+            return True
+        if tipo == "producto.alerta_stock":
+            print(f"[inventario] alerta de stock: {datos.get('nombre')} "
+                  f"({datos.get('cantidad')}/{datos.get('stock_minimo')})")
+            return True
+        # Evento que no aplica a este servicio: se responde OK para no re-encolar.
+        return True
+    except Exception as e:
+        db.session.rollback()
+        print(f"[inventario] error aplicando el evento '{tipo}': {e}")
+        return False
+
+
 if __name__ == "__main__":
+    try:
+        from rabbit_consumidor import iniciar_consumidor
+        iniciar_consumidor("inventario", _aplicar_evento)
+    except Exception as e:
+        print(f"[inventario] no se pudo iniciar el consumidor de eventos: {e}")
     app.run(host="0.0.0.0", port=8001)

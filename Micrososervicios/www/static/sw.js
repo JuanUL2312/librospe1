@@ -6,7 +6,7 @@
    - Estáticos (css/js/img): cache-first.
    - APIs (/api/*): solo red (no se cachean datos de negocio).
    ========================================================= */
-const CACHE_VERSION = 'librospe-v1';
+const CACHE_VERSION = 'librospe-v4';
 const PRECACHE = [
   '/',
   '/catalogo',

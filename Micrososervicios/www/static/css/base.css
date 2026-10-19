@@ -838,3 +838,23 @@
             margin-left: 244px !important;
         }
     }
+
+    /* =========================================================
+       Campo bloqueado: el dato viene de RENIEC (no editable).
+       Se muestra sombreado para que se vea que no se puede escribir.
+       ========================================================= */
+    .form-control.campo-bloqueado,
+    .form-control.campo-bloqueado[readonly] {
+        background-color: #e9ecef;
+        color: #6c757d;
+        border-color: #ced4da;
+        cursor: not-allowed;
+        opacity: 1;
+    }
+    .form-control.campo-bloqueado:focus {
+        box-shadow: none;
+        border-color: #ced4da;
+    }
+    .form-control.campo-bloqueado::placeholder {
+        color: #adb5bd;
+    }

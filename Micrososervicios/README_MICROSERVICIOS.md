@@ -10,6 +10,53 @@ comunicación **HTTP + `X-Service-Token`**. Sin SQL cruzado entre BDs.
 > **en proceso**; con servicios en procesos separados (local) se usa HTTP + token
 > como siempre.
 
+## Agente de mensajes (RabbitMQ)
+
+Comunicación **asincrónica** entre el gateway y los microservicios: en vez de
+copiar tablas por SQL, el gateway publica los **eventos del dominio** en un
+exchange de RabbitMQ y cada servicio consume los que le corresponden.
+
+```
+gateway --publica--> exchange "librospe.eventos" (topic, durable)
+                              |                |
+                    cola librospe.inventario  cola librospe.ventas
+                    cola librospe.usuarios    cola librospe.clientes
+```
+
+| Evento | Se publica cuando | Lo consumen |
+|---|---|---|
+| `pedido.creado` | el cliente confirma un pedido | inventario, ventas |
+| `venta.registrada` | se registra una venta (POS) | inventario, ventas |
+| `producto.actualizado` | se crea o edita un producto | ventas, inventario |
+| `cliente.registrado` | un cliente se registra | ventas, usuarios |
+| `producto.alerta_stock` | el stock cae bajo el mínimo | usuarios, ventas |
+
+**Sin broker no se pierde nada:** si `AMQP_URL` está vacío o el broker no
+responde, el evento se guarda en la tabla `eventos_pendientes` (outbox) y el
+cron `procesar_eventos.sh` lo reintenta cada 10 minutos. El sistema sigue
+funcionando exactamente igual que con la sincronización por SQL.
+
+```bash
+# Local (imagen oficial de Docker Hub, sin Dockerfile propio)
+docker compose up rabbitmq          # AMQP en 5672, consola en http://localhost:15672
+docker compose up -d                # gateway + 4 servicios + broker
+```
+
+```ini
+# .env (produccion: broker externo, p. ej. CloudAMQP)
+AMQP_URL=amqp://usuario:clave@host:5672/vhost
+AMQP_EXCHANGE=librospe.eventos
+```
+
+| Módulo | Para qué sirve |
+|---|---|
+| `www/mensajeria.py` | publicador del gateway + outbox de respaldo |
+| `servicio-*/rabbit_consumidor.py` | consumidor autónomo de cada servicio |
+| `procesar_eventos.sh` | cron que reintenta los eventos del outbox |
+
+Estado en vivo: `GET /api/health` → `agente_mensajes` y
+`GET /api/eventos/estado` (admin).
+
 ## Puertos
 
 | Servicio | Carpeta | Puerto | BD | Tablas |

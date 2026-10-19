@@ -21,9 +21,9 @@
                                 <p class="mb-2">
                                     <strong><i class="fas fa-user-circle me-1"></i> Nombre:</strong><br>
                                     {% if venta and venta.cliente_nombres %}
-                                        <span class="fs-6 fs-md-5">{{ venta.cliente_nombres }} {{ venta.cliente_apellidos or '' }}</span>
+                                        <span class="fs-6 fs-md-5">{{ (venta.cliente_nombres or '') }} {{ venta.cliente_apellidos or '' }}</span>
                                     {% else %}
-                                        <span class="fs-6 fs-md-5">{{ cliente.nombres if cliente else 'No registrado' }} {{ cliente.apellidos if cliente else '' }}</span>
+                                        <span class="fs-6 fs-md-5">{{ (cliente.nombres if cliente else 'No registrado') or '' }} {{ (cliente.apellidos if cliente else '') or '' }}</span>
                                     {% endif %}
                                 </p>
                                 <p class="mb-2">
@@ -118,6 +118,11 @@
                                                 </div>
                                             {% endif %}
                                         </div>
+                                    {% elif pedido.reporto_no_recibido %}
+                                        <div class="alert alert-danger mb-0 py-2">
+                                            <i class="fas fa-exclamation-triangle me-2"></i><strong>Reportaste que no recibiste el pedido.</strong>
+                                            <small class="text-muted d-block">Te contactaremos pronto. No necesitas volver a reportarlo.</small>
+                                        </div>
                                     {% else %}
                                         <p class="mb-2">
                                             <strong><i class="fas fa-truck me-1"></i> Constancia de entrega:</strong><br>
@@ -151,12 +156,6 @@
                                                 <i class="fas fa-times-circle me-1"></i>No recibí mi pedido
                                             </button>
                                         </form>
-                                    {% endif %}
-                                    {% if pedido.reporto_no_recibido %}
-                                    <div class="alert alert-danger mb-0 py-2">
-                                        <i class="fas fa-exclamation-triangle me-2"></i><strong>Reportaste que no recibiste el pedido.</strong>
-                                        <small class="text-muted d-block">Te contactaremos pronto.</small>
-                                    </div>
                                     {% endif %}
                                 </div>
                                 {% endif %}

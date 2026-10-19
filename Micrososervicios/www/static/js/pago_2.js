@@ -329,6 +329,8 @@ async function confirmarPedido(){
             let aviso='';
             if(data.correo_enviado){
                 aviso='<br><br>📧 El comprobante fue enviado a tu correo';
+            }else if(data.sms_enviado){
+                aviso='<br><br>📱 El comprobante fue enviado por SMS a tu celular';
             }else if(waUrl){
                 aviso='<br><br>💬 Para recibir tu comprobante, abre WhatsApp y toca <b>Enviar</b>. El mensaje ya está listo.';
             }else{

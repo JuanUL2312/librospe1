@@ -56,6 +56,11 @@
                             <h6 class="text-muted mb-1 small">Pedidos Pendientes</h6>
                             <h3 class="mb-0 text-warning fs-5 fs-md-4">{{ pedidos_pendientes }}</h3>
                             <small class="text-muted d-block">{{ pedidos_en_proceso }} en proceso</small>
+                            {% if pedidos_no_recibidos %}
+                            <a href="/pedidos?reporte=1" class="badge bg-danger d-block mt-1 text-decoration-none">
+                                <i class="fas fa-exclamation-triangle me-1"></i>{{ pedidos_no_recibidos }} no recibido(s)
+                            </a>
+                            {% endif %}
                         </div>
                         <div class="bg-warning-light"><i class="fas fa-truck fa-1x fa-md-2x text-warning"></i></div>
                     </div>

@@ -19,6 +19,38 @@
         const nombresInput = document.getElementById('nombresInput');
         const apellidosInput = document.getElementById('apellidosInput');
 
+        // Sombrea (y bloquea) los campos de nombre/apellidos cuando el dato
+        // viene de RENIEC, para que se vea que NO se pueden editar.
+        function aplicarBloqueoNombre(bloquear, mensajeHint, esError) {
+            [nombresInput, apellidosInput].forEach(function(campo) {
+                if (!campo) return;
+                campo.readOnly = !!bloquear;
+                campo.classList.toggle('campo-bloqueado', !!bloquear);
+            });
+            const hint = document.getElementById('nombresHint');
+            if (hint && mensajeHint) {
+                hint.textContent = mensajeHint;
+                hint.classList.remove('text-muted', 'text-success', 'text-warning');
+                hint.classList.add(esError ? 'text-warning' : (bloquear ? 'text-success' : 'text-muted'));
+            }
+        }
+
+        // true si los nombres actuales vienen de RENIEC (no escritos a mano).
+        var nombreDesdeReniec = false;
+        if (nombresInput) {
+            nombresInput.addEventListener('input', function () { nombreDesdeReniec = false; });
+        }
+        if (apellidosInput) {
+            apellidosInput.addEventListener('input', function () { nombreDesdeReniec = false; });
+        }
+        // Limpia los nombres auto-completados (no los escritos a mano).
+        function limpiarNombresAutoCompletados() {
+            if (!nombreDesdeReniec) return;
+            if (nombresInput) nombresInput.value = '';
+            if (apellidosInput) apellidosInput.value = '';
+            nombreDesdeReniec = false;
+        }
+
         function cambiarTipoDocumentoRegistro() {
             const esCE = tipoDocSel && tipoDocSel.value === 'CE';
             if (!numeroDocInput) return;
@@ -26,36 +58,38 @@
                 numeroDocLabel.textContent = 'Carnet de Extranjería *';
                 numeroDocInput.placeholder = '9 caracteres (letras y números)';
                 numeroDocInput.maxLength = 9;
-                if (nombresInput) { nombresInput.readOnly = false; nombresInput.placeholder = 'Ingrese nombres'; }
-                if (apellidosInput) { apellidosInput.readOnly = false; apellidosInput.placeholder = 'Ingrese apellidos'; }
+                if (nombresInput) nombresInput.placeholder = 'Ingrese nombres';
+                if (apellidosInput) apellidosInput.placeholder = 'Ingrese apellidos';
+                aplicarBloqueoNombre(false, 'Carnet de Extranjería: ingrese los nombres manualmente.');
             } else {
                 numeroDocLabel.textContent = 'DNI *';
                 numeroDocInput.placeholder = '12345678';
                 numeroDocInput.maxLength = 8;
-                if (nombresInput) { nombresInput.readOnly = true; nombresInput.placeholder = 'Se autocompletará con DNI'; }
-                if (apellidosInput) { apellidosInput.readOnly = true; apellidosInput.placeholder = 'Se autocompletará con DNI'; }
+                if (nombresInput) nombresInput.placeholder = 'Se autocompletará con DNI';
+                if (apellidosInput) apellidosInput.placeholder = 'Se autocompletará con DNI';
+                aplicarBloqueoNombre(true, 'Ingresa DNI para cargar nombres automáticamente.');
             }
             numeroDocInput.value = '';
             if (nombresInput) nombresInput.value = '';
             if (apellidosInput) apellidosInput.value = '';
+            nombreDesdeReniec = false;
         }
 
         async function consultarDniCliente() {
             const esCE = tipoDocSel && tipoDocSel.value === 'CE';
             if (esCE) {
-                if (nombresInput) nombresInput.readOnly = false;
-                if (apellidosInput) apellidosInput.readOnly = false;
+                aplicarBloqueoNombre(false, 'Carnet de Extranjería: ingrese los nombres manualmente.');
                 return;
             }
             const val = numeroDocInput ? numeroDocInput.value.trim() : '';
             if (val.length !== 8 || !/^\d{8}$/.test(val)) {
-                if (nombresInput) { nombresInput.value = ''; nombresInput.readOnly = true; }
-                if (apellidosInput) { apellidosInput.value = ''; apellidosInput.readOnly = true; }
+                if (nombresInput) nombresInput.value = '';
+                if (apellidosInput) apellidosInput.value = '';
+                aplicarBloqueoNombre(true, 'Ingresa DNI para cargar nombres automáticamente.');
                 return;
             }
             const loading = document.getElementById('docLoading');
             const errorDiv = document.getElementById('docError');
-            const hint = document.getElementById('nombresHint');
             if (loading) loading.style.display = 'block';
             if (errorDiv) errorDiv.style.display = 'none';
             try {
@@ -63,19 +97,21 @@
                 const data = await res.json();
                 if (loading) loading.style.display = 'none';
                 if (data.success && data.nombres) {
-                    if (nombresInput) { nombresInput.value = data.nombres; nombresInput.readOnly = true; }
-                    if (apellidosInput) { apellidosInput.value = data.apellidos || ''; apellidosInput.readOnly = true; }
-                    if (hint) hint.textContent = 'Nombre cargado desde RENIEC (no editable).';
+                    if (nombresInput) nombresInput.value = data.nombres;
+                    if (apellidosInput) apellidosInput.value = data.apellidos || '';
+                    nombreDesdeReniec = true;
+                    // Nombre encontrado en RENIEC: se sombrea y no se puede editar.
+                    aplicarBloqueoNombre(true, 'Nombre cargado desde RENIEC (no editable).');
                 } else {
-                    if (nombresInput) { nombresInput.readOnly = false; nombresInput.placeholder = 'No encontrado, ingrese manualmente'; }
-                    if (apellidosInput) { apellidosInput.readOnly = false; apellidosInput.placeholder = 'No encontrado, ingrese manualmente'; }
-                    if (hint) hint.textContent = 'No se encontró en RENIEC, puedes editar manualmente.';
+                    limpiarNombresAutoCompletados();
+                    if (nombresInput) nombresInput.placeholder = 'No encontrado, ingrese manualmente';
+                    if (apellidosInput) apellidosInput.placeholder = 'No encontrado, ingrese manualmente';
+                    aplicarBloqueoNombre(false, 'No se encontró en RENIEC, puedes editar manualmente.', true);
                     if (errorDiv) { errorDiv.style.display='block'; errorDiv.textContent='⚠️ DNI no encontrado, ingrese nombres manualmente.'; }
                 }
             } catch(e) {
                 if (loading) loading.style.display='none';
-                if (nombresInput) nombresInput.readOnly = false;
-                if (apellidosInput) apellidosInput.readOnly = false;
+                aplicarBloqueoNombre(false, 'No se pudo consultar RENIEC, ingrese los nombres manualmente.', true);
             }
         }
 
@@ -89,15 +125,16 @@
                 if ((esCE && this.value.length === 9) || (!esCE && this.value.length === 8)) {
                     consultarDniCliente();
                 } else if (!esCE && this.value.length < 8) {
-                    if (nombresInput) { nombresInput.value=''; nombresInput.readOnly=true; }
-                    if (apellidosInput) { apellidosInput.value=''; apellidosInput.readOnly=true; }
+                    if (nombresInput) nombresInput.value = '';
+                    if (apellidosInput) apellidosInput.value = '';
+                    nombreDesdeReniec = false;
+                    aplicarBloqueoNombre(true, 'Ingresa DNI para cargar nombres automáticamente.');
                 }
             });
             numeroDocInput.addEventListener('blur', consultarDniCliente);
         }
-        // Inicializa readonly para DNI
-        if (nombresInput) nombresInput.readOnly = true;
-        if (apellidosInput) apellidosInput.readOnly = true;
+        // Inicializa readonly (sombreado) para DNI
+        aplicarBloqueoNombre(true, 'Ingresa DNI para cargar nombres automáticamente.');
 
         // --- Ubigeo: departamento -> provincia -> distrito ---
         // La plantilla nueva fija Departamento (JUNIN) y Provincia (HUANCAYO) como

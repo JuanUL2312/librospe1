@@ -239,6 +239,16 @@
                                         S/. {{ "%.2f"|format(pedido.total) }}
                                     </td>
                                 </tr>
+                                {% if pedido.tipo_entrega == 'delivery' %}
+                                <tr class="table-info">
+                                    <td colspan="3" class="text-end fw-bold">
+                                        <i class="fas fa-hand-holding-dollar me-1"></i>Monto recibido (productos):
+                                    </td>
+                                    <td class="text-end fw-bold">
+                                        S/. {{ "%.2f"|format(pedido.subtotal or 0) }}
+                                    </td>
+                                </tr>
+                                {% endif %}
                             </tfoot>
                         </table>
                     </div>

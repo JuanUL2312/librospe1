@@ -24,14 +24,14 @@
                             <label class="field-label">Nombres <span class="text-danger">*</span></label>
                             <div class="field-value readonly">
                                 <i class="fas fa-user me-2 text-muted"></i>
-                                <span id="nombresDisplay">{{ cliente.nombres if cliente else '' }}</span>
+                                <span id="nombresDisplay">{{ (cliente.nombres if cliente else '') or '' }}</span>
                             </div>
                         </div>
                         <div class="col-6">
                             <label class="field-label">Apellidos <span class="text-danger">*</span></label>
                             <div class="field-value readonly">
                                 <i class="fas fa-user me-2 text-muted"></i>
-                                <span id="apellidosDisplay">{{ cliente.apellidos if cliente else '' }}</span>
+                                <span id="apellidosDisplay">{{ (cliente.apellidos if cliente else '') or '' }}</span>
                             </div>
                         </div>
                     </div>
@@ -40,7 +40,7 @@
                     <div class="mb-3 mt-2">
                         <label class="field-label">¿Dónde quieres recibir tu comprobante? <span class="text-danger">*</span></label>
                         <div class="row g-2 mt-1">
-                            <div class="col-6">
+                            <div class="col-6 col-md-4">
                                 <div class="radio-card active" id="cardCompCorreo" onclick="seleccionarDestinoComprobante('correo')">
                                     <input type="radio" name="prefComprobante" value="correo" checked>
                                     <div>
@@ -49,7 +49,16 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-6">
+                            <div class="col-6 col-md-4">
+                                <div class="radio-card" id="cardCompSms" onclick="seleccionarDestinoComprobante('sms')">
+                                    <input type="radio" name="prefComprobante" value="sms">
+                                    <div>
+                                        <div class="radio-label">📱 SMS</div>
+                                        <div class="radio-sub">Te llega el mensaje</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-4">
                                 <div class="radio-card" id="cardCompWhatsApp" onclick="seleccionarDestinoComprobante('whatsapp')">
                                     <input type="radio" name="prefComprobante" value="whatsapp">
                                     <div>
@@ -66,7 +75,7 @@
                         <div class="col-12 col-md-6">
                             <label class="field-label" id="labelEmail">Email <span class="text-danger">*</span></label>
                             <input type="email" id="clienteEmail" class="field-value editable w-100" 
-                                   value="{{ cliente.correo if cliente else '' }}"
+                                   value="{{ (cliente.correo if cliente else '') or '' }}"
                                    placeholder="tucorreo@ejemplo.com">
                         </div>
                         <div class="col-12 col-md-6">
@@ -85,7 +94,7 @@
                                     <option value="+1">🇺🇸 +1</option>
                                 </select>
                                 <input type="tel" id="clienteTelefono" class="field-value editable flex-grow-1"
-                                       value="{{ cliente.telefono if cliente else '' }}"
+                                       value="{{ (cliente.telefono if cliente else '') or '' }}"
                                        placeholder="987654321">
                             </div>
                         </div>

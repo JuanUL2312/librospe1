@@ -27,6 +27,23 @@ def _nombre_base_datos(bind_key):
     return get_service_engine(bind_key).url.database
 
 
+def _estado_mensajeria():
+    """Estado del agente de mensajes (RabbitMQ) y del outbox de respaldo."""
+    try:
+        from mensajeria import estado as estado_mensajeria
+        info = estado_mensajeria()
+        return {
+            "broker": "conectado" if info.get("broker") else (
+                "sin configurar" if not info.get("broker_configurado", True) else "no disponible"),
+            "eventos_publicados": info.get("publicados", 0),
+            "pendientes_outbox": info.get("en_outbox", 0),
+            "ultimo_evento": info.get("ultimo_evento"),
+            "ultimo_error": (info.get("ultimo_error") or "")[:120],
+        }
+    except Exception as e:
+        return {"broker": "error", "detalle": str(e)[:120]}
+
+
 @monitor_bp.route("/health", methods=["GET"])
 def api_health():
     """Verificar el estado de los microservicios y sus BDs."""
@@ -52,6 +69,7 @@ def api_health():
                 for servicio, cfg in TABLAS_SERVICIOS.items()
             },
             "services": estado_servicios,
+            "agente_mensajes": _estado_mensajeria(),
             "timestamp": datetime.now().isoformat()
         })
     except Exception as e:

@@ -144,5 +144,27 @@ def eliminar(uid):
         return jsonify({"error":str(e)}),500
 
 
+def _aplicar_evento(tipo, datos):
+    """Aplica un evento recibido del agente de mensajes (RabbitMQ)."""
+    try:
+        if tipo == "producto.alerta_stock":
+            # El servicio de usuarios recibe las alertas para avisar al personal.
+            print(f"[usuarios] alerta de stock: {datos.get('nombre')} "
+                  f"({datos.get('cantidad')} disponibles, minimo {datos.get('stock_minimo')})")
+            return True
+        if tipo == "cliente.registrado":
+            print(f"[usuarios] cliente registrado: {datos.get('email')}")
+            return True
+        return True
+    except Exception as e:
+        print(f"[usuarios] error aplicando el evento '{tipo}': {e}")
+        return False
+
+
 if __name__ == "__main__":
+    try:
+        from rabbit_consumidor import iniciar_consumidor
+        iniciar_consumidor("usuarios", _aplicar_evento)
+    except Exception as e:
+        print(f"[usuarios] no se pudo iniciar el consumidor de eventos: {e}")
     app.run(host="0.0.0.0", port=8003)

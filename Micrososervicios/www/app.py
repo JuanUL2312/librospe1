@@ -1,8 +1,9 @@
-﻿import os
+import os
 import sys
 import time
 import hmac
 import json
+import re
 from pathlib import Path
 from urllib.parse import quote, quote_plus
 from urllib.request import Request, urlopen
@@ -15,11 +16,32 @@ from functools import wraps
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, text, or_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import scoped_session
+try:
+    from sqlalchemy.sql.elements import TextClause
+except ImportError:  # SQLAlchemy < 2.0
+    from sqlalchemy.sql import TextClause
 
 # Paquete de microservicios (blueprints independientes: comercial, inventario, monitor)
 from microservicios import register_microservicios
 # Integración SUNAT (modos: simulado | beta | produccion via SUNAT_MODE)
 from sunat_service import emitir_comprobante
+# Envío de SMS al cliente (comprobante) - proveedor configurable en .env
+from sms_service import (
+    componer_texto as componer_texto_sms,
+    enviar_sms,
+    hay_proveedor as hay_proveedor_sms,
+)
+# Agente de mensajes (RabbitMQ): publica los eventos del dominio para que los
+# microservicios actualicen sus propias bases sin copiar tablas por SQL.
+from mensajeria import (
+    estado as estado_mensajeria,
+    procesar_outbox,
+    publicar_evento,
+)
+# Consumidor: en alwaysdata todo corre en un solo proceso, asi que el gateway
+# consume los eventos de las colas y refresca las copias locales.
+from consumidor_copias import iniciar_consumidor_copias
 import secrets
 import smtplib
 from email.mime.text import MIMEText
@@ -79,10 +101,13 @@ DB_USER = os.environ.get("DB_USER")
 DB_PASSWORD = os.environ.get("DB_PASSWORD")
 DB_HOST = os.environ.get("DB_HOST")
 DB_NAME = os.environ.get("DB_NAME")
+DB_PORT = os.environ.get("DB_PORT", "").strip()
 if not all((DB_USER, DB_PASSWORD, DB_HOST, DB_NAME)):
     raise RuntimeError("Faltan variables de conexión de base de datos")
+# Puerto opcional (3306 por defecto); útil para entornos de prueba.
+_host_puerto = f"{DB_HOST}:{DB_PORT}" if DB_PORT else DB_HOST
 app.config["SQLALCHEMY_DATABASE_URI"] = (
-    f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"
+    f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{_host_puerto}/{DB_NAME}"
 )
 
 # =============================================
@@ -108,7 +133,7 @@ MS_CONFIG = {
     "clientes":   os.environ.get("MS_CLIENTES_DB", _ms_config.get("clientes", DB_NAME)),
 }
 app.config["SQLALCHEMY_BINDS"] = {
-    servicio: f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{quote_plus(db_nombre)}"
+    servicio: f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{_host_puerto}/{quote_plus(db_nombre)}"
     for servicio, db_nombre in MS_CONFIG.items()
 }
 
@@ -135,11 +160,102 @@ EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 EMAIL_FROM = os.environ.get("EMAIL_FROM", EMAIL_USER)
 
 
+# =============================================
+# ENRUTADO DEL SQL CRUDO AL MICROSERVICIO CORRESPONDIENTE
+# =============================================
+# Cada tabla vive en la base del microservicio dueno (ventas, inventario,
+# usuarios, clientes). MySQL no puede unir tablas de bases distintas, asi que
+# las consultas SQL crudas (text(...)) se enrutan solas segun la tabla que
+# mencionan: asi el codigo sigue usando los mismos nombres de tabla.
+TABLAS_POR_SERVICIO = {
+    "ventas": [
+        "ventas", "pedidos", "detalle_pedido", "cajas", "cupones", "pagos",
+        "ajustes_pago", "resenas", "comercial_pedidos", "comercial_ventas",
+        "comercial_detalle_pedido", "movimientos_caja", "inventario_diario",
+        "movimientos_stock", "vista_comercial",
+    ],
+    "inventario": [
+        "productos", "categorias", "proveedores", "conteos_stock",
+        "inventario_productos", "inventario_categorias", "inventario_proveedores",
+    ],
+    "usuarios": [
+        "usuarios_sistema", "roles", "permisos", "rol_permisos",
+        "intentos_login", "bloqueos", "auditoria",
+        "configuracion_sistema", "cambios_configuracion",
+    ],
+    "clientes": [
+        "clientes", "ruc_empresas", "departamentos", "provincias", "distritos",
+    ],
+}
+
+# Regex precompiladas: tabla -> microservicio
+_PATRONES_SERVICIO = []
+for _servicio, _tablas in TABLAS_POR_SERVICIO.items():
+    for _tabla in _tablas:
+        _PATRONES_SERVICIO.append((re.compile(r"\b" + re.escape(_tabla) + r"\b"), _servicio))
+
+_sql_ambiguos = set()
+
+
+def _servicio_de_sql(sql):
+    """Microservicio dueno de las tablas que menciona el SQL (o None)."""
+    if not sql:
+        return None
+    texto = str(sql).lower()
+    servicios = {servicio for patron, servicio in _PATRONES_SERVICIO if patron.search(texto)}
+    if len(servicios) == 1:
+        return servicios.pop()
+    if len(servicios) > 1:
+        _sql_ambiguos.add(str(sql)[:120])
+        print(f"⚠️ SQL con tablas de varios microservicios: {str(sql)[:120]}")
+    return None
+
+
+def _motor_de(servicio):
+    """Engine SQLAlchemy del bind de un microservicio (o None)."""
+    try:
+        return db.get_engine(bind=servicio)
+    except Exception:
+        try:
+            return db.engines.get(servicio)
+        except Exception:
+            return None
+
+
+class SesionEnrutada:
+    """Proxy de la sesion que enruta el SQL crudo a la base de su microservicio.
+
+    Las consultas ORM ya usan el bind del modelo (__bind_key__); este proxy
+    cubre las consultas escritas a mano (text(...)).
+    """
+
+    def __init__(self, sesion):
+        object.__setattr__(self, "_sesion", sesion)
+
+    def execute(self, statement, params=None, **kwargs):
+        if "bind_arguments" not in kwargs and isinstance(statement, TextClause):
+            servicio = _servicio_de_sql(getattr(statement, "text", ""))
+            if servicio:
+                motor = _motor_de(servicio)
+                if motor is not None:
+                    kwargs["bind_arguments"] = {"bind": motor}
+        return self._sesion.execute(statement, params, **kwargs)
+
+    def __getattr__(self, nombre):
+        return getattr(self._sesion, nombre)
+
+    def __call__(self, *args, **kwargs):
+        # Flask-SQLAlchemy hace session() para obtener la sesion del ambito.
+        return self._sesion(*args, **kwargs)
+
+
 db = SQLAlchemy(app)
+db.session = SesionEnrutada(db.session)
 bcrypt = Bcrypt(app)
 
 class Bloqueo(db.Model):
     __tablename__ = "bloqueos"
+    __bind_key__ = "usuarios"
     id = db.Column(db.Integer, primary_key=True)
     tipo_usuario = db.Column(db.Enum('sistema', 'cliente'), nullable=False)
     usuario_sistema_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=True)
@@ -155,6 +271,7 @@ class Bloqueo(db.Model):
 
 class IntentosLogin(db.Model):
     __tablename__ = "intentos_login"
+    __bind_key__ = "usuarios"
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(150))
     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=True)  # ← NUEVO
@@ -169,6 +286,7 @@ class IntentosLogin(db.Model):
 
 class Proveedor(db.Model):
     __tablename__ = "proveedores"
+    __bind_key__ = "inventario"
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(150), nullable=False)
@@ -179,6 +297,7 @@ class Proveedor(db.Model):
 
 class Producto(db.Model):
     __tablename__ = "productos"
+    __bind_key__ = "inventario"
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(150), nullable=False)
     descripcion = db.Column(db.Text)
@@ -198,12 +317,12 @@ class Producto(db.Model):
     estado = db.Column(db.Integer, default=1)
     id_categoria = db.Column(db.Integer, db.ForeignKey("categorias.id_categoria"), nullable=True)
     
-    ventas = db.relationship("Venta", back_populates="producto")
     proveedor = db.relationship("Proveedor", back_populates="productos")
     categoria_rel = db.relationship("Categoria", back_populates="productos")  
 
 class UsuarioSistema(db.Model):
     __tablename__ = "usuarios_sistema"
+    __bind_key__ = "usuarios"
     id = db.Column(db.Integer, primary_key=True)
     correo = db.Column(db.String(150), unique=True, nullable=False)
     nombres = db.Column(db.String(100), nullable=False)
@@ -214,10 +333,10 @@ class UsuarioSistema(db.Model):
     rol = db.Column(db.String(20), nullable=False)  # ← Mantener para compatibilidad
     documento = db.Column(db.String(20), nullable=True)  # DNI o Carnet de Extranjería
     debe_cambiar_clave = db.Column(db.Integer, default=0)  # 1 = debe cambiar la contraseña al entrar
-    ventas = db.relationship("Venta", back_populates="vendedor")
 
 class Categoria(db.Model):
     __tablename__ = "categorias"
+    __bind_key__ = "inventario"
     id_categoria = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(50), nullable=False)
     descripcion = db.Column(db.Text)
@@ -226,6 +345,7 @@ class Categoria(db.Model):
     productos = db.relationship("Producto", back_populates="categoria_rel") 
 class Venta(db.Model):
     __tablename__ = "ventas"
+    __bind_key__ = "ventas"
     id = db.Column(db.Integer, primary_key=True)
     producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=False)
     vendedor_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
@@ -249,9 +369,9 @@ class Venta(db.Model):
     metodo_pago = db.Column(db.String(20), default="efectivo")
     monto_recibido = db.Column(db.Numeric(10,2), nullable=True)
     vuelto = db.Column(db.Numeric(10,2), nullable=True)
-    producto = db.relationship("Producto", back_populates="ventas")
-    vendedor = db.relationship("UsuarioSistema", back_populates="ventas")
-    cliente = db.relationship("Cliente", back_populates="ventas")
+    # El producto vive en el microservicio de inventario, pero la venta
+    # necesita su precio/nombre: se usa la copia local (misma base).
+    producto = db.relationship("ProductoEnVentas")
 
     @property
     def proveedor(self):
@@ -265,6 +385,7 @@ class Venta(db.Model):
 
 class Caja(db.Model):
     __tablename__ = "cajas"
+    __bind_key__ = "ventas"
     id = db.Column(db.Integer, primary_key=True)
     usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
     monto_inicial = db.Column(db.Numeric(10,2), default=0)
@@ -274,10 +395,13 @@ class Caja(db.Model):
     monto_real = db.Column(db.Numeric(10,2), nullable=True)
     diferencia = db.Column(db.Numeric(10,2), nullable=True)
     estado = db.Column(db.String(20), default="abierta")
-    usuario = db.relationship("UsuarioSistema")
+    # El usuario del sistema vive en el microservicio de usuarios: se usa la
+    # copia local (misma base) para poder mostrar su nombre.
+    usuario = db.relationship("UsuarioEnVentas")
 
 class Auditoria(db.Model):
     __tablename__ = "auditoria"
+    __bind_key__ = "usuarios"
     id = db.Column(db.Integer, primary_key=True)
     usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=True)
     accion = db.Column(db.String(50), nullable=False)
@@ -288,6 +412,7 @@ class Auditoria(db.Model):
 class ConteoStock(db.Model):
     """Conteo ciclico de inventario: registro fisico vs sistema + ajuste auditado."""
     __tablename__ = "conteos_stock"
+    __bind_key__ = "inventario"
     id = db.Column(db.Integer, primary_key=True)
     producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=False)
     usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
@@ -298,23 +423,27 @@ class ConteoStock(db.Model):
     observacion = db.Column(db.String(300), nullable=True)
     fecha = db.Column(db.DateTime, default=datetime.now)
     producto = db.relationship("Producto")
-    usuario = db.relationship("UsuarioSistema")
+    # El usuario vive en el microservicio de usuarios: copia local.
+    usuario = db.relationship("UsuarioEnInventario")
 
 
 class Permiso(db.Model):
     __tablename__ = "permisos"
+    __bind_key__ = "usuarios"
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(50), nullable=False, unique=True)
     descripcion = db.Column(db.String(200), nullable=True)
 
 class RolPermiso(db.Model):
     __tablename__ = "rol_permisos"
+    __bind_key__ = "usuarios"
     id = db.Column(db.Integer, primary_key=True)
     rol_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
     permiso_id = db.Column(db.Integer, db.ForeignKey("permisos.id"), nullable=False)
 
 class Cliente(db.Model):
     __tablename__ = "clientes"
+    __bind_key__ = "clientes"
     id = db.Column(db.Integer, primary_key=True)
     dni = db.Column(db.String(8))
     ruc = db.Column(db.String(11), nullable=True)
@@ -333,10 +462,12 @@ class Cliente(db.Model):
     token_recuperacion = db.Column(db.String(100), nullable=True)
     token_expiracion = db.Column(db.DateTime, nullable=True)
     estado = db.Column(db.Integer, default=1)  # ← AGREGAR campo estado
-    pedidos = db.relationship("Pedido", back_populates="cliente")
-    ventas = db.relationship("Venta", back_populates="cliente")
+    # NOTA: la relacion con Pedido/Venta se elimino al separar los datos por
+    # microservicio (el pedido vive en la base de ventas y MySQL no puede
+    # unir tablas de bases distintas). Se consulta por id cuando hace falta.
 class Rol(db.Model):
     __tablename__ = "roles"
+    __bind_key__ = "usuarios"
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(50), nullable=False)
     descripcion = db.Column(db.Text, nullable=True)
@@ -344,6 +475,7 @@ class Rol(db.Model):
 
 class Departamento(db.Model):
     __tablename__ = "departamentos"
+    __bind_key__ = "clientes"
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(100), nullable=False)
     ubigeo = db.Column(db.String(2), nullable=True)
@@ -351,6 +483,7 @@ class Departamento(db.Model):
 
 class Provincia(db.Model):
     __tablename__ = "provincias"
+    __bind_key__ = "clientes"
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(100), nullable=False)
     ubigeo = db.Column(db.String(4), nullable=True)
@@ -360,6 +493,7 @@ class Provincia(db.Model):
 
 class Distrito(db.Model):
     __tablename__ = "distritos"
+    __bind_key__ = "clientes"
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(150), nullable=False)
     ubigeo = db.Column(db.String(6), nullable=True)
@@ -369,6 +503,7 @@ class Distrito(db.Model):
 
 class Pedido(db.Model):
     __tablename__ = "pedidos"
+    __bind_key__ = "ventas"
     id = db.Column(db.Integer, primary_key=True)
     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"))
     fecha_pedido = db.Column(db.DateTime, default=datetime.now)
@@ -397,11 +532,11 @@ class Pedido(db.Model):
     confirmado_por = db.Column(db.String(100), nullable=True)
     cliente_confirmo = db.Column(db.Integer, default=0)
     fecha_confirmacion_cliente = db.Column(db.DateTime, nullable=True)
-    cliente = db.relationship("Cliente", back_populates="pedidos")
     detalles = db.relationship("DetallePedido", back_populates="pedido")
 
 class DetallePedido(db.Model):
     __tablename__ = "detalle_pedido"
+    __bind_key__ = "ventas"
     id = db.Column(db.Integer, primary_key=True)
     pedido_id = db.Column(db.Integer, db.ForeignKey("pedidos.id"))
     producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"))
@@ -409,10 +544,10 @@ class DetallePedido(db.Model):
     precio_unitario = db.Column(db.Float)
     subtotal = db.Column(db.Float)
     pedido = db.relationship("Pedido", back_populates="detalles")
-    producto = db.relationship("Producto")
 
 class RucEmpresa(db.Model):
     __tablename__ = "ruc_empresas"
+    __bind_key__ = "clientes"
     id = db.Column(db.Integer, primary_key=True)
     ruc = db.Column(db.String(11), unique=True, nullable=False)
     razon_social = db.Column(db.String(200), nullable=False)
@@ -1186,6 +1321,22 @@ def registrar_auditoria(accion, modulo, detalle=""):
     except Exception:
         db.session.rollback()
 
+
+def _emitir_evento(tipo, datos, origen="gateway"):
+    """Publica un evento del dominio en el agente de mensajes (RabbitMQ).
+
+    Nunca interrumpe la operacion: si el broker no esta disponible, el evento
+    queda en el outbox (eventos_pendientes) y el cron lo reintenta.
+    """
+    try:
+        ok, detalle = publicar_evento(tipo, datos, origen)
+        if ok:
+            print(f"📨 Evento '{tipo}' publicado en el agente de mensajes")
+        else:
+            print(f"📥 Evento '{tipo}' en el outbox ({str(detalle)[:100]})")
+    except Exception as e:
+        print(f"⚠️ Error publicando el evento '{tipo}': {e}")
+
 def rango_periodo(periodo):
     """Devuelve (fecha_inicio, fecha_fin) según el período seleccionado."""
     hoy = datetime.now().date()
@@ -1205,6 +1356,14 @@ def verificar_stock_bajo_y_notificar():
         bajos = Producto.query.filter(Producto.cantidad <= Producto.stock_minimo).all()
         if not bajos:
             return
+        # Evento de dominio: el microservicio de inventario publica la
+        # alerta y los demas servicios actualizan su copia.
+        for p in bajos:
+            _emitir_evento("producto.alerta_stock", {
+                "id": p.id, "nombre": p.nombre,
+                "cantidad": int(p.cantidad or 0),
+                "stock_minimo": int(p.stock_minimo or 0),
+            })
         admins = UsuarioSistema.query.filter_by(rol="administrador").all()
         destinatarios = [a.correo for a in admins if a.correo]
         if not destinatarios:
@@ -3308,6 +3467,13 @@ def guardar_producto():
             print(f"WARN dual-write inventario_productos: {e}")
 
         registrar_auditoria("CREAR", "productos", f"Se creó el producto: {nuevo.nombre}")
+        # Evento de dominio: los demas microservicios actualizan su copia.
+        _emitir_evento("producto.actualizado", {
+            "id": nuevo.id, "nombre": nuevo.nombre, "precio": float(nuevo.precio or 0),
+            "cantidad": int(nuevo.cantidad or 0), "stock_minimo": int(nuevo.stock_minimo or 0),
+            "categoria_id": nuevo.id_categoria, "proveedor_id": nuevo.proveedor_id,
+            "estado": 1,
+        })
         flash("✅ Producto creado exitosamente", "success")
         return redirect(url_for("productos"))
         
@@ -3376,6 +3542,16 @@ def actualizar_producto(id):
         
         db.session.commit()
         registrar_auditoria("EDITAR", "productos", f"Se actualizó el producto: {producto_obj.nombre}")
+        # Evento de dominio: los demas microservicios actualizan su copia.
+        _emitir_evento("producto.actualizado", {
+            "id": producto_obj.id, "nombre": producto_obj.nombre,
+            "precio": float(producto_obj.precio or 0),
+            "cantidad": int(producto_obj.cantidad or 0),
+            "stock_minimo": int(producto_obj.stock_minimo or 0),
+            "categoria_id": producto_obj.id_categoria,
+            "proveedor_id": producto_obj.proveedor_id,
+            "estado": 1,
+        })
         verificar_stock_bajo_y_notificar()
         verificar_stock_maximo_y_notificar()
         flash("✅ Producto actualizado exitosamente", "success")
@@ -4670,18 +4846,18 @@ def ventas_fragmento():
 @login_required
 def ver_comprobante(venta_id):
     venta = db.session.query(Venta,
-                              Producto.nombre.label("producto_nombre"),
-                              Producto.precio,
-                              UsuarioSistema.nombres.label("vendedor_nombres"),
-                              UsuarioSistema.apellidos.label("vendedor_apellidos"),
-                              Cliente.correo.label("cliente_email_db"),
-                              Cliente.nombres.label("cliente_nombres_db"),
-                              Cliente.apellidos.label("cliente_apellidos_db")
-                             ).join(Producto, Venta.producto_id == Producto.id)\
-                              .outerjoin(UsuarioSistema, Venta.vendedor_id == UsuarioSistema.id)\
-                              .outerjoin(Cliente, or_(Venta.cliente_documento == Cliente.dni,
-                                                      Venta.cliente_documento == Cliente.ruc,
-                                                      Venta.cliente_documento == Cliente.ce))\
+                              ProductoEnVentas.nombre.label("producto_nombre"),
+                              ProductoEnVentas.precio,
+                              UsuarioEnVentas.nombres.label("vendedor_nombres"),
+                              UsuarioEnVentas.apellidos.label("vendedor_apellidos"),
+                              ClienteEnVentas.correo.label("cliente_email_db"),
+                              ClienteEnVentas.nombres.label("cliente_nombres_db"),
+                              ClienteEnVentas.apellidos.label("cliente_apellidos_db")
+                             ).join(ProductoEnVentas, Venta.producto_id == ProductoEnVentas.id)\
+                              .outerjoin(UsuarioEnVentas, Venta.vendedor_id == UsuarioEnVentas.id)\
+                              .outerjoin(ClienteEnVentas, or_(Venta.cliente_documento == ClienteEnVentas.dni,
+                                                      Venta.cliente_documento == ClienteEnVentas.ruc,
+                                                      Venta.cliente_documento == ClienteEnVentas.ce))\
                               .filter(Venta.id == venta_id).first()
     
     if not venta:
@@ -4704,12 +4880,12 @@ def comprobante_pdf(venta_id):
     from reportlab.lib.styles import getSampleStyleSheet
 
     venta = db.session.query(Venta,
-                              Producto.nombre.label("producto_nombre"),
-                              Producto.precio,
-                              UsuarioSistema.nombres.label("vendedor_nombres"),
-                              UsuarioSistema.apellidos.label("vendedor_apellidos")
-                             ).join(Producto, Venta.producto_id == Producto.id)\
-                              .outerjoin(UsuarioSistema, Venta.vendedor_id == UsuarioSistema.id)\
+                              ProductoEnVentas.nombre.label("producto_nombre"),
+                              ProductoEnVentas.precio,
+                              UsuarioEnVentas.nombres.label("vendedor_nombres"),
+                              UsuarioEnVentas.apellidos.label("vendedor_apellidos")
+                             ).join(ProductoEnVentas, Venta.producto_id == ProductoEnVentas.id)\
+                              .outerjoin(UsuarioEnVentas, Venta.vendedor_id == UsuarioEnVentas.id)\
                               .filter(Venta.id == venta_id).first()
     if not venta:
         flash("❌ Venta no encontrada", "danger")
@@ -4797,15 +4973,15 @@ def ver_ventas():
         ventas_lista = (
             db.session.query(
                 Venta.id,
-                func.concat(UsuarioSistema.nombres, " ", UsuarioSistema.apellidos).label("vendedor"),
-                Producto.nombre.label("producto"),
+                func.concat(UsuarioEnVentas.nombres, " ", UsuarioEnVentas.apellidos).label("vendedor"),
+                ProductoEnVentas.nombre.label("producto"),
                 Venta.cantidad,
                 Venta.fecha_venta,
-                Producto.precio,
-                (Venta.cantidad * Producto.precio).label("subtotal"),
+                ProductoEnVentas.precio,
+                (Venta.cantidad * ProductoEnVentas.precio).label("subtotal"),
             )
-            .join(Producto, Venta.producto_id == Producto.id)
-            .outerjoin(UsuarioSistema, Venta.vendedor_id == UsuarioSistema.id)
+            .join(ProductoEnVentas, Venta.producto_id == ProductoEnVentas.id)
+            .outerjoin(UsuarioEnVentas, Venta.vendedor_id == UsuarioEnVentas.id)
             .filter(func.date(Venta.fecha_venta) == fecha_obj)
             .order_by(Venta.id.asc())
             .all()
@@ -4843,7 +5019,7 @@ def ver_productos_proveedor():
                 Producto.cantidad,
                 func.count(Venta.id).label("total_ventas"),
             )
-            .outerjoin(Venta, Producto.id == Venta.producto_id)
+            .outerjoin(VentaEnInventario, Producto.id == VentaEnInventario.producto_id)
             .filter(Producto.proveedor_id == proveedor_id)
             .group_by(Producto.id, Producto.nombre, Producto.cantidad)
             .all()
@@ -4908,12 +5084,12 @@ def productos_top():
             Producto.id,
             Producto.nombre,
             Producto.precio,
-            func.sum(Venta.cantidad).label("total_vendido"),
+            func.sum(VentaEnInventario.cantidad).label("total_vendido"),
         )
-        .join(Venta)
-        .filter(func.date(Venta.fecha_venta) == datetime.now().date())
+        .join(VentaEnInventario)
+        .filter(func.date(VentaEnInventario.fecha_venta) == datetime.now().date())
         .group_by(Producto.id)
-        .order_by(func.sum(Venta.cantidad).desc())
+        .order_by(func.sum(VentaEnInventario.cantidad).desc())
         .limit(10)
         .all()
     )
@@ -5016,6 +5192,18 @@ def venta_rapida():
                             f"Venta rápida POS #{venta_ids[0]} - {len(venta_ids)} item(s) - "
                             f"Total: S/ {total_general:.2f} ({metodo_pago})"
                             + (f" - idem:{clave_idem}" if clave_idem else ""))
+        # Evento de dominio: el microservicio de inventario descuenta stock.
+        for item, venta in zip(items, venta_ids):
+            _emitir_evento("venta.registrada", {
+                "venta_id": venta,
+                "producto_id": item["id"],
+                "cantidad": int(item["cantidad"]),
+                "precio": float(item["precio"]),
+                "total": total_general,
+                "tipo_comprobante": "boleta",
+                "numero_comprobante": numero_pos,
+                "metodo_pago": metodo_pago,
+            })
         try:
             verificar_stock_bajo_y_notificar()
             verificar_stock_maximo_y_notificar()
@@ -5085,9 +5273,9 @@ def api_productos_recomendados():
                 Producto.imagen,
                 func.coalesce(func.sum(Venta.cantidad), 0).label("vendidos"),
             )
-            .outerjoin(Venta, Venta.producto_id == Producto.id)
+            .outerjoin(VentaEnInventario, VentaEnInventario.producto_id == Producto.id)
             .group_by(Producto.id)
-            .order_by(func.sum(Venta.cantidad).desc(), Producto.destacado.desc())
+            .order_by(func.sum(VentaEnInventario.cantidad).desc(), Producto.destacado.desc())
             .limit(10)
             .all()
         )
@@ -5254,6 +5442,15 @@ def registro_cliente():
                     body = resp.read().decode("utf-8")
                     # 201 creado
                     flash("✅ Registro exitoso", "success")
+                    # Evento de dominio: ventas actualiza su copia del cliente.
+                    _emitir_evento("cliente.registrado", {
+                        "email": payload["email"],
+                        "nombres": payload["nombres"],
+                        "apellidos": payload["apellidos"],
+                        "telefono": payload["telefono"],
+                        "tipo_documento": payload["tipo_documento"],
+                        "numero_documento": payload["numero_documento"],
+                    })
                     return redirect(url_for("login_cliente"))
             except HTTPError as he:
                 err_body = he.read().decode("utf-8", errors="replace")
@@ -5304,6 +5501,15 @@ def registro_cliente():
                     }, bind_arguments={"bind": engine_clientes})
                     db.session.commit()
                     flash("✅ Registro exitoso", "success")
+                    # Evento de dominio: ventas actualiza su copia del cliente.
+                    _emitir_evento("cliente.registrado", {
+                        "email": payload["email"],
+                        "nombres": payload["nombres"],
+                        "apellidos": payload["apellidos"],
+                        "telefono": payload["telefono"],
+                        "tipo_documento": payload["tipo_documento"],
+                        "numero_documento": payload["numero_documento"],
+                    })
                     return redirect(url_for("login_cliente"))
                 except Exception as e2:
                     db.session.rollback()
@@ -5547,7 +5753,16 @@ def resetear_contrasena(token):
 
 @app.route("/carrito")
 def ver_carrito():
-    return render_template("carrito.html")
+    # Punto de la libreria (mismo origen que /delivery/mapa). El mapa del
+    # carrito lo usa como vista por defecto y para saber de que zona es la
+    # tienda al calcular el costo de envio.
+    lat_tienda = os.environ.get("MAPA_TIENDA_LAT")
+    lng_tienda = os.environ.get("MAPA_TIENDA_LNG")
+    tienda = None
+    if lat_tienda and lng_tienda and _coordenadas_validas(lat_tienda, lng_tienda):
+        tienda = {"lat": float(lat_tienda), "lng": float(lng_tienda),
+                  "nombre": os.environ.get("MAPA_TIENDA_NOMBRE", "Librería Salesiana")}
+    return render_template("carrito.html", tienda=tienda)
 
 @app.route("/checkout")
 @login_required_cliente
@@ -5604,6 +5819,14 @@ def confirmar_recepcion_pedido(pedido_id):
         if is_ajax:
             return jsonify({"success": False, "error": "Ya confirmaste la recepción de este pedido"}), 400
         flash("✅ Ya habías confirmado la recepción de este pedido", "info")
+        return redirect(url_for("mis_pedidos"))
+
+    if pedido.reporto_no_recibido:
+        # El cliente ya reportó que NO lo recibió: no puede confirmar después.
+        msg = "Ya reportaste que no recibiste el pedido. La tienda te contactará."
+        if is_ajax:
+            return jsonify({"success": False, "error": msg}), 400
+        flash(f"ℹ️ {msg}", "info")
         return redirect(url_for("mis_pedidos"))
 
     # La foto de la entrega es OBLIGATORIA: es la constancia de que el cliente recibió.
@@ -5666,6 +5889,14 @@ def reportar_no_recibido(pedido_id):
         msg = "Ya confirmaste la recepción de este pedido"
         if is_ajax:
             return jsonify({"success": False, "error": msg}), 400
+        flash(f"ℹ️ {msg}", "info")
+        return redirect(url_for("mis_pedidos"))
+
+    if pedido.reporto_no_recibido:
+        # Ya lo reportó antes: no se vuelve a notificar a la tienda.
+        msg = "Ya reportaste que no recibiste el pedido. Te contactaremos pronto."
+        if is_ajax:
+            return jsonify({"success": True, "message": msg}), 200
         flash(f"ℹ️ {msg}", "info")
         return redirect(url_for("mis_pedidos"))
 
@@ -5872,6 +6103,10 @@ def crear_pedido():
         cargo_contraentrega_pedido = float(data.get("cargo_contraentrega") or 0)
         metodo_pago_pedido = (data.get("metodo_pago") or "").strip() or None
         distrito_pedido = (data.get("distrito") or "").strip() or None
+        # En los pedidos DELIVERY el pago se recibe al momento de la entrega:
+        # el monto recibido de cada venta es el precio total de los productos
+        # comprados (antes quedaba NULL porque el pago aún no se registraba).
+        es_delivery = data["tipo_entrega"] == "delivery"
 
         pedido = Pedido(
             cliente_id=session["cliente_id"],
@@ -5945,6 +6180,10 @@ def crear_pedido():
                 cliente_direccion_fiscal=cliente_direccion_fiscal,  # ← NUEVO: dirección fiscal
                 cliente_razon_social=cliente_razon_social,          # ← NUEVO: razón social
                 cliente_id=cliente_obj.id if cliente_obj else None,
+                metodo_pago=metodo_pago_pedido or "efectivo",
+                # Delivery: monto recibido = precio total de los productos.
+                monto_recibido=subtotal if es_delivery else None,
+                vuelto=0 if es_delivery else None,
             )
             db.session.add(venta)
             
@@ -5976,6 +6215,23 @@ def crear_pedido():
         
         db.session.commit()
         
+        # Evento de dominio: el microservicio de inventario descuenta el stock
+        # y el de ventas actualiza sus copias al recibirlo por el agente de
+        # mensajes (si no hay broker, queda en el outbox y lo reintenta el cron).
+        _emitir_evento("pedido.creado", {
+            "pedido_id": pedido.id,
+            "cliente_id": pedido.cliente_id,
+            "tipo_entrega": pedido.tipo_entrega,
+            "distrito": pedido.distrito_entrega,
+            "total": float(pedido.total or 0),
+            "items": [
+                {"id": it["id"], "cantidad": int(it["cantidad"]),
+                 "precio": float(it["precio"]),
+                 "nombre": it.get("nombre", "")}
+                for it in data.get("items", [])
+            ],
+        })
+
         print(f"\n✅ PEDIDO #{pedido.id} COMPLETADO")
         print(f"   Cliente: {cliente_nombres} {cliente_apellidos}")
         print(f"   Documento: '{cliente_documento}'")
@@ -5985,10 +6241,10 @@ def crear_pedido():
             print(f"   Dirección Fiscal: '{cliente_direccion_fiscal}'")
         
         # ============================================
-        # 5. ENTREGA DEL COMPROBANTE: correo o WhatsApp
+        # 5. ENTREGA DEL COMPROBANTE: correo, SMS o WhatsApp
         # ============================================
         # Si el cliente no tiene correo (o no es válido), el comprobante
-        # se ofrece por WhatsApp al celular registrado.
+        # se ofrece por SMS o por WhatsApp al celular registrado.
         etiq_comp = {"boleta": "Boleta de venta", "factura": "Factura", "nota": "Nota de venta"}.get(tipo_comp, "Comprobante")
         texto_wa = (
             f"📚 Librería Salesiana Don Bosco\n"
@@ -5999,14 +6255,33 @@ def crear_pedido():
         )
         # El cliente elige dónde recibir el comprobante:
         #   correo   -> se envía el PDF por email
+        #   sms      -> se envía un SMS al celular registrado
         #   whatsapp -> se entrega el enlace al celular
         # Si no eligió, o el canal elegido no está disponible, se usa el que haya.
         preferencia = (cliente_data.get("preferencia_comprobante", "") or "").strip().lower()
         correo_disponible = bool(cliente_email and "@" in cliente_email)
         wa_disponible = enlace_whatsapp(cliente_telefono, "x") is not None
-        print(f"📬 Preferencia del cliente: '{preferencia}' (correo={correo_disponible}, whatsapp={wa_disponible})")
+        sms_disponible = hay_proveedor_sms() and bool(cliente_telefono)
+        print(f"📬 Preferencia del cliente: '{preferencia}' (correo={correo_disponible}, sms={sms_disponible}, whatsapp={wa_disponible})")
 
-        if preferencia == "whatsapp":
+        # --- SMS: solo si el cliente lo pidió y hay proveedor configurado ---
+        sms_enviado = False
+        sms_detalle = ""
+        if preferencia == "sms" and sms_disponible:
+            enlace_comprobante = f"{request.host_url.rstrip('/')}/mis-pedidos"
+            texto_sms = componer_texto_sms(
+                etiq_comp, numero_comprobante,
+                (cliente_nombres + " " + cliente_apellidos).strip() or "Cliente",
+                float(data["total"]), enlace_comprobante)
+            sms_enviado, sms_detalle = enviar_sms(cliente_telefono, texto_sms)
+            if sms_enviado:
+                print(f"📱 SMS enviado a {cliente_telefono}: {texto_sms[:60]}...")
+            else:
+                print(f"⚠️ No se pudo enviar el SMS a {cliente_telefono}: {sms_detalle}")
+
+        if preferencia == "sms":
+            enviar_por_correo = (not sms_enviado) and correo_disponible
+        elif preferencia == "whatsapp":
             enviar_por_correo = (not wa_disponible) and correo_disponible
         else:
             enviar_por_correo = correo_disponible
@@ -6032,7 +6307,7 @@ def crear_pedido():
                 print(f"⚠️ Error al enviar correo: {e}")
 
         whatsapp_url = None
-        if not correo_enviado:
+        if not correo_enviado and not sms_enviado:
             whatsapp_url = enlace_whatsapp(cliente_telefono, texto_wa)
             if whatsapp_url:
                 print(f"💬 Comprobante disponible por WhatsApp a {cliente_telefono}")
@@ -6043,6 +6318,8 @@ def crear_pedido():
             "numero_comprobante": numero_comprobante,
             "tipo_comprobante": tipo_comp,
             "correo_enviado": correo_enviado,
+            "sms_enviado": sms_enviado,
+            "sms_detalle": sms_detalle,
             "whatsapp_url": whatsapp_url,
         })
         
@@ -6089,6 +6366,8 @@ def ver_pedidos():
     estado_filter = request.args.get('estado', '').strip()
     fecha_desde = request.args.get('fecha_desde', '').strip()
     fecha_hasta = request.args.get('fecha_hasta', '').strip()
+    # Solo los pedidos que el cliente reportó como NO recibidos.
+    solo_reportes = request.args.get('reporte', '').strip().lower() in ('1', 'true', 'si', 'sí')
     
     # ============================================
     # CONTADORES CORRECTOS
@@ -6109,6 +6388,11 @@ def ver_pedidos():
         "SELECT COUNT(*) FROM pedidos WHERE estado IN ('confirmado', 'preparando', 'enviado', 'listo_tienda')"
     )).scalar() or 0
     
+    # Reportes del cliente: "No recibí mi pedido" (aún sin resolver).
+    pedidos_no_recibidos = db.session.execute(text(
+        "SELECT COUNT(*) FROM pedidos WHERE reporto_no_recibido = 1"
+    )).scalar() or 0
+    
     # ============================================
     # CONSULTA CON FILTROS
     # ============================================
@@ -6119,11 +6403,12 @@ def ver_pedidos():
         Pedido.total,
         Pedido.tipo_entrega,
         Pedido.direccion_entrega,
-        Cliente.nombres.label("cliente_nombres"),
-        Cliente.apellidos.label("cliente_apellidos"),
-        Cliente.correo.label("cliente_email"),
-        Cliente.telefono.label("cliente_telefono"),
-    ).join(Cliente, Pedido.cliente_id == Cliente.id)
+        Pedido.reporto_no_recibido,
+        ClienteEnVentas.nombres.label("cliente_nombres"),
+        ClienteEnVentas.apellidos.label("cliente_apellidos"),
+        ClienteEnVentas.correo.label("cliente_email"),
+        ClienteEnVentas.telefono.label("cliente_telefono"),
+    ).join(ClienteEnVentas, Pedido.cliente_id == ClienteEnVentas.id)
     
     # Aplicar filtros
     if search:
@@ -6142,6 +6427,10 @@ def ver_pedidos():
     else:
         # Si no hay filtro de estado, excluir cancelados
         query = query.filter(Pedido.estado != 'cancelado')
+    
+    # Solo los pedidos reportados por el cliente como NO recibidos.
+    if solo_reportes:
+        query = query.filter(Pedido.reporto_no_recibido == 1)
     
     if fecha_desde:
         try:
@@ -6173,6 +6462,7 @@ def ver_pedidos():
             "cliente_nombre_completo": f"{p.cliente_nombres or ''} {p.cliente_apellidos or ''}".strip(),
             "cliente_email": p.cliente_email,
             "cliente_telefono": p.cliente_telefono,
+            "reporto_no_recibido": p.reporto_no_recibido,
         })
     
     # ============================================
@@ -6189,11 +6479,13 @@ def ver_pedidos():
                           pedidos_pendientes=pedidos_pendientes,
                           pedidos_completados=pedidos_completados,
                           pedidos_en_proceso=pedidos_en_proceso,
+                          pedidos_no_recibidos=pedidos_no_recibidos,
                           es_admin=es_admin,
                           search=search,
                           estado_filter=estado_filter,
                           fecha_desde=fecha_desde,
                           fecha_hasta=fecha_hasta,
+                          solo_reportes=solo_reportes,
                           estados=estados_lista,
                           datetime=datetime)
 
@@ -6386,7 +6678,7 @@ def delivery_ubicar(pedido_id):
 @login_required
 def detalle_pedido(pedido_id):
     pedido = Pedido.query.get_or_404(pedido_id)
-    detalles = db.session.query(DetallePedido, Producto.nombre.label("producto_nombre")).join(Producto).filter(DetallePedido.pedido_id == pedido_id).all()
+    detalles = db.session.query(DetallePedido, ProductoEnVentas.nombre.label("producto_nombre")).join(ProductoEnVentas).filter(DetallePedido.pedido_id == pedido_id).all()
     cliente = Cliente.query.get(pedido.cliente_id)
     # Buscar venta asociada (opcional, solo si existe)
     venta = Venta.query.filter_by(pedido_id=pedido_id).first()
@@ -6947,6 +7239,8 @@ def dashboard():
     
     pedidos_pendientes = Pedido.query.filter(Pedido.estado == 'pendiente').count()
     pedidos_en_proceso = Pedido.query.filter(Pedido.estado.in_(['confirmado', 'preparando', 'enviado'])).count()
+    # Reportes del cliente: "No recibí mi pedido" (aún sin resolver).
+    pedidos_no_recibidos = Pedido.query.filter(Pedido.reporto_no_recibido == 1).count()
     
     total_clientes = Cliente.query.count()
     hace_7_dias = datetime.now() - timedelta(days=7)
@@ -7055,10 +7349,10 @@ def dashboard():
     # Top productos - CORREGIDO (SIN IMAGEN)
     top_productos = db.session.query(
         Producto.nombre,
-        func.sum(Venta.cantidad).label('total_vendido')
-    ).join(Venta).filter(
-        func.date(Venta.fecha_venta) >= hace_30_dias.date()
-    ).group_by(Producto.id).order_by(func.sum(Venta.cantidad).desc()).limit(5).all()
+        func.sum(VentaEnInventario.cantidad).label('total_vendido')
+    ).join(VentaEnInventario).filter(
+        func.date(VentaEnInventario.fecha_venta) >= hace_30_dias.date()
+    ).group_by(Producto.id).order_by(func.sum(VentaEnInventario.cantidad).desc()).limit(5).all()
     
     # Stock (usando umbrales configurables)
     stock_bajo = Producto.query.filter(Producto.cantidad > 0, Producto.cantidad <= Producto.stock_minimo).order_by(Producto.cantidad.asc()).limit(10).all()
@@ -7201,6 +7495,7 @@ def dashboard():
                           cantidad_ventas_mes=cantidad_ventas_mes,
                           pedidos_pendientes=pedidos_pendientes,
                           pedidos_en_proceso=pedidos_en_proceso,
+                          pedidos_no_recibidos=pedidos_no_recibidos,
                           total_clientes=total_clientes,
                           clientes_nuevos=clientes_nuevos,
                           ventas_por_dia=ventas_por_dia,
@@ -7331,7 +7626,7 @@ def cliente_detalle_pedido(pedido_id):
         return redirect(url_for("mis_pedidos"))
     
 
-    detalles = db.session.query(DetallePedido, Producto.nombre.label("producto_nombre")).join(Producto).filter(DetallePedido.pedido_id == pedido_id).all()
+    detalles = db.session.query(DetallePedido, ProductoEnVentas.nombre.label("producto_nombre")).join(ProductoEnVentas).filter(DetallePedido.pedido_id == pedido_id).all()
     
 
     cliente = Cliente.query.get(pedido.cliente_id)
@@ -7367,6 +7662,44 @@ def cliente_detalle_pedido(pedido_id):
                           cliente=cliente, 
                           venta=venta)
 
+
+
+# =============================================
+# AGENTE DE MENSAJES (RabbitMQ)
+# El gateway publica los eventos del dominio; los microservicios los consumen.
+# Si el broker no esta disponible, los eventos quedan en el outbox
+# (eventos_pendientes) y este endpoint los reintenta (lo invoca el cron).
+# =============================================
+
+@app.route("/api/eventos/estado")
+@login_required
+def api_eventos_estado():
+    """Estado del agente de mensajes y de la cola de respaldo (outbox)."""
+    if session.get("rol") != "administrador":
+        return jsonify({"success": False, "error": "Solo administradores"}), 403
+    try:
+        from mensajeria import pendientes_outbox
+        return jsonify({
+            "success": True,
+            "agente_mensajes": estado_mensajeria(),
+            "pendientes": len(pendientes_outbox(50)),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/eventos/procesar", methods=["POST"])
+@login_required
+def api_eventos_procesar():
+    """Reintenta publicar en el broker los eventos que estan en el outbox."""
+    if session.get("rol") != "administrador":
+        return jsonify({"success": False, "error": "Solo administradores"}), 403
+    try:
+        enviados, fallidos = procesar_outbox(200)
+        return jsonify({"success": True, "enviados": enviados, "fallidos": fallidos,
+                        "agente_mensajes": estado_mensajeria()})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # =============================================
@@ -7532,7 +7865,141 @@ def admin_clientes_activar(cid):
 # =============================================
 register_microservicios(app, db, login_required)
 
+# Consumidor de eventos del agente de mensajes (hilos en segundo plano).
+# Se arranca al importar la app: en alwaysdata el gateway es el unico proceso
+# y es quien mantiene al dia las copias locales de los microservicios.
+try:
+    iniciar_consumidor_copias()
+except Exception as _e:  # pragma: no cover
+    print(f"[consumidor] no se pudo arrancar: {_e}")
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
 application = app
+class ProductoEnVentas(db.Model):
+    """Copia local de Producto en el microservicio de ventas.
+
+    Permite hacer JOIN dentro de la misma base (MySQL no puede
+    unir tablas de bases distintas). Se mantiene al dia con el
+    agente de mensajes (evento producto.actualizado / cliente.registrado).
+    """
+    __tablename__ = "productos"
+    __bind_key__ = "ventas"
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(150), nullable=False)
+    descripcion = db.Column(db.Text)
+    cantidad = db.Column(db.Integer, default=0)
+    stock_minimo = db.Column(db.Integer, default=5)
+    stock_maximo = db.Column(db.Integer, default=100)
+    proveedor_id = db.Column(db.Integer, db.ForeignKey("proveedores.id"), nullable=True)
+    precio = db.Column(db.Numeric(10,2), default=0.0)
+    costo = db.Column(db.Numeric(10,2), nullable=True)  # precio de compra (solo admin)
+    imagen = db.Column(db.String(255))
+    destacado = db.Column(db.Integer, default=0)
+    precio_oferta = db.Column(db.Numeric(10,2), nullable=True) 
+    codigo_barras = db.Column(db.String(50), nullable=True)
+    # La columna existe en la tabla productos (BD_Libros.sql) pero faltaba en el
+    # modelo: /inventario y /stock-bajo filtran por ella y reventaban con
+    # AttributeError. Sin esto ninguna de las dos rutas carga.
+    estado = db.Column(db.Integer, default=1)
+    id_categoria = db.Column(db.Integer, db.ForeignKey("categorias.id_categoria"), nullable=True)
+
+class UsuarioEnVentas(db.Model):
+    """Copia local de UsuarioSistema en el microservicio de ventas.
+
+    Permite hacer JOIN dentro de la misma base (MySQL no puede
+    unir tablas de bases distintas). Se mantiene al dia con el
+    agente de mensajes (evento producto.actualizado / cliente.registrado).
+    """
+    __tablename__ = "usuarios_sistema"
+    __bind_key__ = "ventas"
+    id = db.Column(db.Integer, primary_key=True)
+    correo = db.Column(db.String(150), unique=True, nullable=False)
+    nombres = db.Column(db.String(100), nullable=False)
+    apellidos = db.Column(db.String(100), nullable=False)
+    clave = db.Column(db.String(255), nullable=False)
+    estado = db.Column(db.Integer, default=1)
+    rol_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
+    rol = db.Column(db.String(20), nullable=False)  # ← Mantener para compatibilidad
+    documento = db.Column(db.String(20), nullable=True)  # DNI o Carnet de Extranjería
+    debe_cambiar_clave = db.Column(db.Integer, default=0)  # 1 = debe cambiar la contraseña al entrar
+
+class ClienteEnVentas(db.Model):
+    """Copia local de Cliente en el microservicio de ventas.
+
+    Permite hacer JOIN dentro de la misma base (MySQL no puede
+    unir tablas de bases distintas). Se mantiene al dia con el
+    agente de mensajes (evento producto.actualizado / cliente.registrado).
+    """
+    __tablename__ = "clientes"
+    __bind_key__ = "ventas"
+    id = db.Column(db.Integer, primary_key=True)
+    dni = db.Column(db.String(8))
+    ruc = db.Column(db.String(11), nullable=True)
+    ce = db.Column(db.String(9), nullable=True)  # ← Carnet de Extranjería (persona natural)
+    nombres = db.Column(db.String(100), nullable=False)
+    apellidos = db.Column(db.String(100), nullable=False)
+    correo = db.Column(db.String(150), unique=True, nullable=False)  # ← CAMBIADO de email a correo
+    telefono = db.Column(db.String(15))
+    direccion = db.Column(db.Text)
+    departamento = db.Column(db.String(100), nullable=True)
+    provincia = db.Column(db.String(100), nullable=True)
+    distrito = db.Column(db.String(150), nullable=True)
+    clave = db.Column(db.String(255), nullable=False)
+    fecha_registro = db.Column(db.DateTime, default=datetime.now)
+    puntos = db.Column(db.Integer, default=0)
+    token_recuperacion = db.Column(db.String(100), nullable=True)
+    token_expiracion = db.Column(db.DateTime, nullable=True)
+    estado = db.Column(db.Integer, default=1)  # ← AGREGAR campo estado
+
+class VentaEnInventario(db.Model):
+    """Copia local de Venta en el microservicio de inventario.
+
+    Permite el JOIN producto<->venta dentro de la base de inventario.
+    """
+    __tablename__ = "ventas"
+    __bind_key__ = "inventario"
+    id = db.Column(db.Integer, primary_key=True)
+    producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=False)
+    vendedor_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
+    fecha_venta = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    cantidad = db.Column(db.Integer, default=1)
+    tipo_comprobante = db.Column(db.String(20), default="boleta")
+    numero_comprobante = db.Column(db.String(50), nullable=True)
+    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=True)
+    pedido_id = db.Column(db.Integer, nullable=True)
+    estado = db.Column(db.Integer, default=1)
+    # Datos de facturación del cliente (boleta/factura)
+    cliente_nombres = db.Column(db.String(100), nullable=True)
+    cliente_apellidos = db.Column(db.String(100), nullable=True)
+    cliente_documento = db.Column(db.String(20), nullable=True)
+    cliente_tipo_documento = db.Column(db.String(30), nullable=True)  # RUC | DNI | Carnet de Extranjería
+    cliente_telefono = db.Column(db.String(20), nullable=True)
+    cliente_email = db.Column(db.String(150), nullable=True)
+    cliente_direccion = db.Column(db.Text, nullable=True)
+    cliente_direccion_fiscal = db.Column(db.Text, nullable=True)
+    cliente_razon_social = db.Column(db.String(200), nullable=True)
+    metodo_pago = db.Column(db.String(20), default="efectivo")
+    monto_recibido = db.Column(db.Numeric(10,2), nullable=True)
+    vuelto = db.Column(db.Numeric(10,2), nullable=True)
+
+
+
+class UsuarioEnInventario(db.Model):
+    """Copia local de UsuarioSistema en el microservicio de inventario.
+
+    Permite mostrar el usuario que realizo el conteo de stock.
+    """
+    __tablename__ = "usuarios_sistema"
+    __bind_key__ = "inventario"
+    id = db.Column(db.Integer, primary_key=True)
+    correo = db.Column(db.String(150), unique=True, nullable=False)
+    nombres = db.Column(db.String(100), nullable=False)
+    apellidos = db.Column(db.String(100), nullable=False)
+    clave = db.Column(db.String(255), nullable=False)
+    estado = db.Column(db.Integer, default=1)
+    rol_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
+    rol = db.Column(db.String(20), nullable=False)  # ← Mantener para compatibilidad
+    documento = db.Column(db.String(20), nullable=True)  # DNI o Carnet de Extranjería
+    debe_cambiar_clave = db.Column(db.Integer, default=0)  # 1 = debe cambiar la contraseña al entrar

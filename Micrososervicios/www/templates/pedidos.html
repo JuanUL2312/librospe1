@@ -62,31 +62,54 @@
                         <i class="fas fa-times"></i>
                     </a>
                 </div>
+                <div class="col-12 d-flex align-items-center gap-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="reporte" value="1" id="filtroReporte"
+                               {% if solo_reportes %}checked{% endif %}>
+                        <label class="form-check-label small fw-bold text-danger" for="filtroReporte">
+                            <i class="fas fa-exclamation-triangle me-1"></i>Solo pedidos reportados como NO recibidos
+                        </label>
+                    </div>
+                    {% if solo_reportes %}
+                    <span class="badge bg-danger">
+                        Filtro activo: {{ pedidos|length }} pedido(s) con reporte
+                    </span>
+                    {% endif %}
+                </div>
             </form>
         </div>
     </div>
 
     <!-- ESTADÍSTICAS RÁPIDAS -->
     <div class="row g-2 g-md-3 mb-4">
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md">
+            <a href="{{ url_for('ver_pedidos', reporte='1') if pedidos_no_recibidos else url_for('ver_pedidos') }}"
+               class="text-decoration-none d-block" title="Ver solo los pedidos reportados como NO recibidos">
+                <div class="card border-0 shadow-sm bg-danger text-white text-center py-2 py-md-3">
+                    <h3 class="mb-0 fs-4 fs-md-3" id="noRecibidosPedidos">{{ pedidos_no_recibidos|default(0) }}</h3>
+                    <small class="small">🚨 No recibidos</small>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-md">
             <div class="card border-0 shadow-sm bg-primary text-white text-center py-2 py-md-3">
                 <h3 class="mb-0 fs-4 fs-md-3" id="totalPedidos">{{ total_pedidos|default(pedidos|length) }}</h3>
                 <small class="small">Total Pedidos</small>
             </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md">
             <div class="card border-0 shadow-sm bg-warning text-dark text-center py-2 py-md-3">
                 <h3 class="mb-0 fs-4 fs-md-3" id="pendientesPedidos">{{ pedidos_pendientes|default(pedidos|selectattr('estado', 'equalto', 'pendiente')|list|length) }}</h3>
                 <small class="small">Pendientes</small>
             </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md">
             <div class="card border-0 shadow-sm bg-success text-white text-center py-2 py-md-3">
                 <h3 class="mb-0 fs-4 fs-md-3" id="completadosPedidos">{{ pedidos_completados|default(pedidos|selectattr('estado', 'equalto', 'entregado')|list|length + pedidos|selectattr('estado', 'equalto', 'recogido')|list|length) }}</h3>
                 <small class="small">Completados</small>
             </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md">
             <div class="card border-0 shadow-sm bg-info text-white text-center py-2 py-md-3">
                 <h3 class="mb-0 fs-4 fs-md-3" id="procesoPedidos">{{ pedidos_en_proceso|default(pedidos|selectattr('estado', 'equalto', 'confirmado')|list|length + pedidos|selectattr('estado', 'equalto', 'preparando')|list|length + pedidos|selectattr('estado', 'equalto', 'enviado')|list|length + pedidos|selectattr('estado', 'equalto', 'listo_tienda')|list|length) }}</h3>
                 <small class="small">En proceso</small>
@@ -127,7 +150,7 @@
                 <tbody id="tablaPedidos">
                     {% if pedidos %}
                     {% for pedido in pedidos %}
-                    <tr class="pedido-row" id="pedido-{{ pedido.id }}">
+                    <tr class="pedido-row {% if pedido.reporto_no_recibido %}table-danger{% endif %}" id="pedido-{{ pedido.id }}">
                         <td class="fw-bold text-center">#{{ pedido.id }}</td>
                         <td class="small">{{ pedido.fecha_pedido.strftime('%d/%m/%Y %H:%M') if pedido.fecha_pedido else 'N/A' }}</td>
                         <td>
@@ -135,6 +158,11 @@
                                 <strong class="text-primary small">{{ pedido.cliente_nombre_completo }}</strong>
                                 <small class="text-muted">{{ pedido.cliente_email }}</small>
                                 <small class="text-muted">{{ pedido.cliente_telefono or 'Sin teléfono' }}</small>
+                                {% if pedido.reporto_no_recibido %}
+                                <span class="badge bg-danger mt-1">
+                                    <i class="fas fa-exclamation-triangle me-1"></i>NO RECIBIDO
+                                </span>
+                                {% endif %}
                             </div>
                         </td>
                         <td class="fw-bold text-success fs-6 fs-md-5 text-center">S/. {{ "%.2f"|format(pedido.total) }}</td>

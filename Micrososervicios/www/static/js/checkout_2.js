@@ -9,17 +9,19 @@ var tipoEntrega = 'recojo';
 var costoEnvio = 0;
 var ubigeoCliente = null;
 var datosDni = null; // nombre real desde RENIEC (APIPERU) al ingresar DNI
-var preferenciaComprobante = 'correo'; // correo | whatsapp (dónde recibir el comprobante)
+var preferenciaComprobante = 'correo'; // correo | sms | whatsapp (dónde recibir el comprobante)
 
 // ============================================
-// DÓNDE RECIBIR EL COMPROBANTE (correo / WhatsApp)
+// DÓNDE RECIBIR EL COMPROBANTE (correo / SMS / WhatsApp)
 // ============================================
 function seleccionarDestinoComprobante(pref) {
     preferenciaComprobante = pref;
 
     var cardCorreo = document.getElementById('cardCompCorreo');
+    var cardSms = document.getElementById('cardCompSms');
     var cardWa = document.getElementById('cardCompWhatsApp');
     if (cardCorreo) cardCorreo.classList.toggle('active', pref === 'correo');
+    if (cardSms) cardSms.classList.toggle('active', pref === 'sms');
     if (cardWa) cardWa.classList.toggle('active', pref === 'whatsapp');
     document.querySelectorAll('input[name="prefComprobante"]').forEach(function(el) {
         el.checked = el.value === pref;
@@ -34,7 +36,8 @@ function seleccionarDestinoComprobante(pref) {
             : '<span class="text-muted small">(opcional)</span>');
     }
     if (labTel) {
-        labTel.innerHTML = 'Teléfono ' + (pref === 'whatsapp'
+        // El teléfono es obligatorio para SMS y para WhatsApp.
+        labTel.innerHTML = 'Teléfono ' + (pref === 'sms' || pref === 'whatsapp'
             ? '<span class="text-danger">*</span>'
             : '<span class="text-muted small">(opcional)</span>');
     }
@@ -570,6 +573,10 @@ function procesarPago() {
     if (preferenciaComprobante === 'whatsapp') {
         if (!telValido) {
             mensajeContacto = 'Ingresa un teléfono celular válido (ej. 987654321) para recibir tu comprobante por WhatsApp';
+        }
+    } else if (preferenciaComprobante === 'sms') {
+        if (!telValido) {
+            mensajeContacto = 'Ingresa un teléfono celular válido (ej. 987654321) para recibir tu comprobante por SMS';
         }
     } else {
         if (!emailValido) {

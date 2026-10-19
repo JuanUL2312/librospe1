@@ -2,129 +2,262 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "LibrosPE - Patrón arquitectónico MVC",
+    "title": "LibrosPE - Arquitectura de Microservicios",
     "output": "arquitectura-ms.html",
     "quality_profile": "showcase"
   },
   "components": [
     {
-      "id": "usuario",
+      "id": "cliente",
       "type": "external",
-      "label": "Usuario",
-      "sublabel": "Navegador web",
-      "pos": [40, 230],
-      "size": [140, 70]
+      "label": "Cliente",
+      "sublabel": "Navegador / Móvil",
+      "pos": [30, 265],
+      "size": [140, 54]
     },
     {
-      "id": "controlador",
+      "id": "snmp",
+      "type": "external",
+      "label": "SNMP",
+      "sublabel": "alerta stock bajo",
+      "pos": [30, 95],
+      "size": [140, 54]
+    },
+    {
+      "id": "gateway",
       "type": "backend",
-      "label": "Controlador",
-      "sublabel": "app.py - Flask",
+      "label": "API Gateway (Flask)",
+      "sublabel": "www/:8000",
+      "tag": "docker: gateway",
       "brand": "flask",
-      "pos": [340, 60],
-      "size": [200, 78]
+      "pos": [225, 265],
+      "size": [170, 54]
     },
     {
-      "id": "modelo",
+      "id": "rabbitmq",
+      "type": "messagebus",
+      "label": "RabbitMQ",
+      "sublabel": "exchange librospe.eventos",
+      "tag": "docker: librospe-rabbitmq",
+      "pos": [225, 90],
+      "size": [170, 76]
+    },
+    {
+      "id": "inventario",
       "type": "backend",
-      "label": "Modelo",
-      "sublabel": "SQLAlchemy - reglas de negocio",
-      "brand": "flask",
-      "pos": [680, 60],
-      "size": [200, 78]
+      "label": "Inventario",
+      "sublabel": "servicio-inventario :8001",
+      "pos": [510, 95],
+      "size": [150, 54]
     },
     {
-      "id": "base_datos",
+      "id": "db_inventario",
       "type": "database",
-      "label": "Base de datos",
-      "sublabel": "MySQL (MariaDB)",
-      "brand": "mysql",
-      "pos": [980, 240],
-      "size": [170, 90]
+      "label": "librospe_ms_inventario",
+      "sublabel": "productos, categorías, proveedores",
+      "tag": "docker: inventario",
+      "pos": [710, 84],
+      "size": [200, 76]
     },
     {
-      "id": "vista",
-      "type": "frontend",
-      "label": "Vista",
-      "sublabel": "Jinja2 - HTML5 / CSS3 / Bootstrap",
-      "pos": [340, 430],
-      "size": [260, 78]
+      "id": "ventas",
+      "type": "backend",
+      "label": "Ventas",
+      "sublabel": "servicio-ventas :8002",
+      "pos": [510, 195],
+      "size": [150, 54]
+    },
+    {
+      "id": "db_ventas",
+      "type": "database",
+      "label": "librospe_ms_ventas",
+      "sublabel": "pedidos, detalle, ventas",
+      "tag": "docker: ventas",
+      "pos": [710, 184],
+      "size": [200, 76]
+    },
+    {
+      "id": "usuarios",
+      "type": "backend",
+      "label": "Usuarios",
+      "sublabel": "servicio-usuarios :8003",
+      "pos": [510, 295],
+      "size": [150, 54]
+    },
+    {
+      "id": "db_usuarios",
+      "type": "database",
+      "label": "librospe_ms_usuarios",
+      "sublabel": "usuarios_sistemas, roles",
+      "tag": "docker: usuarios",
+      "pos": [710, 284],
+      "size": [200, 76]
+    },
+    {
+      "id": "clientes",
+      "type": "backend",
+      "label": "Clientes",
+      "sublabel": "servicio-clientes :8004",
+      "pos": [510, 395],
+      "size": [150, 54]
+    },
+    {
+      "id": "db_clientes",
+      "type": "database",
+      "label": "librospe_ms_clientes",
+      "sublabel": "tabla clientes",
+      "tag": "docker: clientes",
+      "pos": [710, 384],
+      "size": [200, 76]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "LibrosPE (Docker Compose / uWSGI)",
+      "wraps": ["gateway", "rabbitmq", "inventario", "db_inventario", "ventas", "db_ventas", "usuarios", "db_usuarios", "clientes", "db_clientes"],
+      "pad": 28
     }
   ],
   "connections": [
     {
-      "id": "solicita",
-      "from": "usuario",
-      "to": "controlador",
-      "label": "solicita",
+      "id": "http",
+      "from": "cliente",
+      "to": "gateway",
+      "label": "HTTP",
       "variant": "emphasis"
     },
     {
-      "id": "manipula",
-      "from": "controlador",
-      "to": "modelo",
-      "label": "manipula"
+      "id": "trap",
+      "from": "snmp",
+      "to": "rabbitmq",
+      "label": "trap SNMP",
+      "variant": "bus",
+      "fromSide": "top",
+      "toSide": "top",
+      "via": [[100, 46], [310, 46]]
     },
     {
-      "id": "consulta",
-      "from": "modelo",
-      "to": "base_datos",
-      "label": "realiza consulta",
-      "labelDx": -64
+      "id": "publica",
+      "from": "gateway",
+      "to": "rabbitmq",
+      "label": "publica eventos",
+      "variant": "bus",
+      "fromSide": "top",
+      "toSide": "bottom"
     },
     {
-      "id": "respuesta",
-      "from": "base_datos",
-      "to": "modelo",
-      "label": "devuelve la respuesta",
-      "labelDx": 64
+      "id": "rest-inventario",
+      "from": "gateway",
+      "to": "inventario",
+      "label": "REST"
     },
     {
-      "id": "notifica",
-      "from": "modelo",
-      "to": "controlador",
-      "label": "notifica",
-      "labelDx": -18,
-      "labelDy": 26
+      "id": "rest-ventas",
+      "from": "gateway",
+      "to": "ventas",
+      "label": "REST"
     },
     {
-      "id": "datos",
-      "from": "controlador",
-      "to": "vista",
-      "label": "datos",
-      "fromSide": "bottom",
-      "toSide": "top"
+      "id": "rest-usuarios",
+      "from": "gateway",
+      "to": "usuarios",
+      "label": "REST"
     },
     {
-      "id": "responde",
-      "from": "vista",
-      "to": "usuario",
-      "label": "responde visualmente"
+      "id": "rest-clientes",
+      "from": "gateway",
+      "to": "clientes",
+      "label": "REST"
+    },
+    {
+      "id": "cola-inventario",
+      "from": "rabbitmq",
+      "to": "inventario",
+      "label": "cola",
+      "variant": "bus"
+    },
+    {
+      "id": "cola-ventas",
+      "from": "rabbitmq",
+      "to": "ventas",
+      "label": "cola",
+      "variant": "bus"
+    },
+    {
+      "id": "cola-usuarios",
+      "from": "rabbitmq",
+      "to": "usuarios",
+      "label": "cola",
+      "variant": "bus"
+    },
+    {
+      "id": "cola-clientes",
+      "from": "rabbitmq",
+      "to": "clientes",
+      "label": "cola",
+      "variant": "bus"
+    },
+    {
+      "id": "sql-inventario",
+      "from": "inventario",
+      "to": "db_inventario",
+      "label": "SQL"
+    },
+    {
+      "id": "sql-ventas",
+      "from": "ventas",
+      "to": "db_ventas",
+      "label": "SQL"
+    },
+    {
+      "id": "sql-usuarios",
+      "from": "usuarios",
+      "to": "db_usuarios",
+      "label": "SQL"
+    },
+    {
+      "id": "sql-clientes",
+      "from": "clientes",
+      "to": "db_clientes",
+      "label": "SQL"
+    },
+    {
+      "id": "validar-stock",
+      "from": "ventas",
+      "to": "inventario",
+      "label": "validar-stock (HTTP + t-service-token)",
+      "variant": "alert",
+      "fromSide": "top",
+      "toSide": "bottom"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "Controlador",
+      "title": "API Gateway (Flask)",
       "items": [
-        "app.py define las rutas y recibe las solicitudes del usuario",
-        "Manipula el modelo y prepara la vista con los datos"
+        "www/:8000 recibe el HTTP del cliente y enruta por REST a cada microservicio",
+        "Publica los eventos del dominio en RabbitMQ (exchange librospe.eventos)",
+        "Corre en el contenedor Docker gateway (docker compose + uWSGI)"
       ]
     },
     {
       "dot": "emerald",
-      "title": "Modelo",
+      "title": "Microservicios",
       "items": [
-        "Modelos SQLAlchemy: productos, categorías, usuarios y pedidos",
-        "Realiza consultas a MySQL y devuelve los resultados"
+        "Inventario :8001, Ventas :8002, Usuarios :8003 y Clientes :8004",
+        "Cada uno consume su cola propia en RabbitMQ (librospe.<servicio>)",
+        "Ventas valida el stock con Inventario (HTTP + t-service-token)"
       ]
     },
     {
       "dot": "violet",
-      "title": "Vista",
+      "title": "Base de datos por servicio",
       "items": [
-        "Plantillas Jinja2 con HTML5, CSS3 y Bootstrap",
-        "Responde visualmente al usuario con los datos recibidos"
+        "Un esquema MySQL por microservicio, sin SQL cruzado entre ellos",
+        "Cada base de datos pertenece al contenedor Docker de su servicio",
+        "El agente de mensajes es RabbitMQ; SNMP publica la alerta de stock bajo"
       ]
     }
   ]

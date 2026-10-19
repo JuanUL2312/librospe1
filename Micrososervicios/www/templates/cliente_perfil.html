@@ -15,11 +15,11 @@
                     <div class="row g-3">
                         <div class="col-12 col-md-6">
                             <label class="form-label">Nombres</label>
-                            <input type="text" name="nombres" class="form-control" value="{{ cliente.nombres }}" required>
+                            <input type="text" name="nombres" class="form-control" value="{{ (cliente.nombres or '') }}" required>
                         </div>
                         <div class="col-12 col-md-6">
                             <label class="form-label">Apellidos</label>
-                            <input type="text" name="apellidos" class="form-control" value="{{ cliente.apellidos }}" required>
+                            <input type="text" name="apellidos" class="form-control" value="{{ (cliente.apellidos or '') }}" required>
                         </div>
                     </div>
 

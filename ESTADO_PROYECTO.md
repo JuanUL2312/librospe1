@@ -1,194 +1,146 @@
 # Estado del proyecto — traspaso entre PCs
 
-Actualizado: 2026-10-16. Rama `main`. Último commit local: `998987f` ("mapa 1").
+Actualizado: 2026-10-20. Rama `main`.
+
+## Arquitectura actual (microservicios)
+
+| Componente | Dónde | Puerto | Base de datos |
+|---|---|---|---|
+| **Gateway** (tienda completa, 136 rutas) | `www/` | 8000 |_bind por modelo_ |
+| Inventario | `servicio-inventario/` | 8001 | `librospe_ms_inventario` |
+| Ventas | `servicio-ventas/` | 8002 | `librospe_ms_ventas` |
+| Usuarios | `servicio-usuarios/` | 8003 | `librospe_ms_usuarios` |
+| Clientes | `servicio-clientes/` | 8004 | `librospe_ms_clientes` |
+| **Agente de mensajes** | RabbitMQ (alwaysdata) | 5672 | vhost `librospe_ra` |
+
+> **`librospe_db` (la base central) fue ELIMINADA.** Cada tabla vive en la
+> base de su microservicio. El gateway sigue siendo un solo proceso uWSGI
+> (alwaysdata) y reparte el trabajo por *bind* de SQLAlchemy:
+> cada modelo declara su `__bind_key__` y el SQL crudo se enruta solo a la
+> base correcta (`SesionEnrutada` en `www/app.py`).
+
+### Copias locales (por qué existen)
+
+MySQL no puede unir tablas de bases distintas. Para los JOIN que el panel
+necesita (venta → producto → proveedor, pedido → cliente), cada servicio
+guarda en **su propia base** una copia de las claves foraneas que usa:
+
+| Copia | Dueño |
+|---|---|
+| `ms_ventas.productos / categorias / proveedores` | `ms_inventario` |
+| `ms_ventas.usuarios_sistema / roles` | `ms_usuarios` |
+| `ms_ventas.clientes` | `ms_clientes` |
+| `ms_inventario.usuarios_sistema` | `ms_usuarios` |
+| `ms_inventario.ventas` | `ms_ventas` |
+
+Se mantienen al día con el **agente de mensajes (RabbitMQ)** en tiempo real y,
+como red de seguridad, con el cron horario `~/sincronizar_completo.sh`
+(que usa `~/sincronizar_copias.sql`).
+
+En el código, los modelos espejo son `ProductoEnVentas`, `UsuarioEnVentas`,
+`ClienteEnVentas`, `VentaEnInventario`, `UsuarioEnInventario`.
 
 ## Tareas
 
 | Tarea | Estado |
 |---|---|
-| Categorías CRUD | ✅ cerrado y desplegado |
-| Logo `LogoSalesiano.png` | ✅ 181 KB, **visible en producción** |
-| Inventario con valuación | ✅ desplegado y verificado (admin ve la columna "Costo") |
-| `/stock-bajo` | ✅ desplegado y verificado |
-| Delivery con mapa (Leaflet + OpenStreetMap) | ✅ implementado y desplegado; `MAPA_TIENDA_LAT/LNG` ya configurados en `~/.env` |
-| `/perfil` staff | ✅ existe y responde 200 |
-| Bug 503 en `/api/comercial/validar-stock` (autollamada HTTP) | ✅ corregido en código y **desplegado**; falta reiniciar la app para que se cargue |
-| Espejos y pedidos basura en `librospe_db` | ✅ limpiado (ver "Limpieza 2026-10-16") |
-| Conf. uWSGI: `SECRET_KEY` duplicada y `static-map` erróneo | ⚠️ pendiente: `~/admin/config/uwsgi/1037421.conf` es de **root**; hay que editarlo en el panel |
+| Migración de `librospe_db` a los 4 microservicios | ✅ hecho y verificado |
+| `librospe_db` eliminada | ✅ (panel alwaysdata) |
+| Modelos con `__bind_key__` + enrutado del SQL crudo | ✅ |
+| Modelos espejo (copias locales) | ✅ |
+| Agente de mensajes RabbitMQ | ✅ desplegado y probado E2E |
+| Reportes de "no recibido" (badge, contador, filtro) | ✅ |
+| SMS al cliente (comprobante por mensaje de texto) | ⚠️ falta `SMS_PROVIDER` en el `.env` |
+| Mapas por distrito + detección del distrito al marcar el pin | ✅ |
+| **Reiniciar la app** (panel) para que corra el consumidor de eventos | ⏳ pendiente |
+| Cron `*/10 * * * * /home/librospe/procesar_eventos.sh` (panel) | ⏳ pendiente |
+| `SECRET_KEY` fuerte en el `.env` + quitarlo del `uwsgi.conf` | ⏳ pendiente (ver Seguridad) |
+| Cambiar la contraseña de SSH/MySQL/RabbitMQ | ⏳ pendiente (ver Seguridad) |
 
-Al retomar, en este orden:
-
-1. **Panel alwaysdata → Web > Sites > librospe > Restart.** Es lo único que recarga
-   el código nuevo y `~/.env` (uWSGI levanta bajo demanda y se apaga tras ~30 min
-   de inactividad; ver "Estado de producción").
-2. En la **configuración uWSGI del sitio** (panel): quitar la línea
-   `env = SECRET_KEY=...` y corregir `static-map` a `/home/librospe/www/static`.
-3. Verificar `GET /api/comercial/validar-stock/11/1` (con sesión admin) →
-   200 en menos de 1 s (ya no 503 a los 5 s).
-
-## Estado de producción (verificado 2026-10-16)
+## Estado de producción (verificado 2026-10-20)
 
 Servidor alwaysdata — `https://librospe.alwaysdata.net`
 
-- `/api/health` → HTTP 200, version 3.0, los 4 microservicios `active`.
-- Páginas públicas y de admin (con sesión) verificadas: `/productos`, `/inventario`,
-  `/stock-bajo`, `/perfil`, `/categorias`, `/dashboard`, `/auditoria`,
-  `/reportes/ventas_por_ubicacion`, `/delivery/mapa` → todas 200.
-- Código desplegado byte a byte igual al repo (md5 de `app.py`, `wsgi.py`,
-  `passenger_wsgi.py`, `ms_config.json` y los `microservicios/*.py`).
-- Sincronización (cron horario) verificada: `~/sincronizar.sh` corre con rc=0 y
-  todas las tablas quedan en `pendientes = 0`.
+- `/api/health` → HTTP 200, los 4 microservicios `active`.
+- 16/16 páginas del panel verificadas con 200 (dashboard, productos, ventas,
+  pedidos, inventario, stock-bajo, caja, auditoría, usuarios, microservicios,
+  reportes, mapa de delivery, comprobante, detalle de pedido, catálogo, carrito).
+- **Escrituras verificadas**: producto → `ms_inventario`, cliente →
+  `ms_clientes`, venta + pedido → `ms_ventas` (con stock descontado en
+  inventario). `librospe_db` no recibe ni una fila.
+- **RabbitMQ**: `amqp://librospe:<clave>@rabbitmq-librospe.alwaysdata.net:5672/librospe_ra`
+  → evento `producto.actualizado` publicado, consumido por el gateway y
+  copias locales al día; las 4 colas quedan en 0.
+- Cron horario de sincronización: `pendientes = 0` en las 8 copias.
 
-### Cómo se recarga la app en alwaysdata (importante)
+## ⏳ Pendiente inmediato: reiniciar la app
 
-El proxy de alwaysdata **arranca uWSGI bajo demanda** y lo detiene tras ~30 min
-de inactividad (evidencia en `~/admin/logs/sites/YYYY/sites-YYYY-MM-DD.log`:
-"Upstream stopped (reason: idle)"). Por lo tanto:
+El proceso uWSGI en memoria puede tener el código anterior. Se reinicia desde
+el panel: **Web > Sites > librospe > Restart**.
 
-- `touch ~/www/tmp/restart.txt` **no** reinicia uWSGI (comprobado).
-- Desde SSH **no** se puede reiniciar: los procesos viven en otro namespace
-  (`ps aux` solo ve la propia sesión) y `sudo` está bloqueado
-  ("no new privileges").
-- **Única vía: panel de alwaysdata → Web > Sites > librospe > Restart.**
-- Efecto colateral útil: si se dejan de hacer peticiones >30 min, el upstream se
-  apaga solo y la siguiente petición lo arranca ya con el código nuevo.
+> `touch ~/www/tmp/restart.txt` **no** reinicia uWSGI (comprobado). El proxy
+> de alwaysdata manda SIGHUP en algunos momentos, pero no es fiable. La
+> única vía es el panel.
 
-### Conf. uWSGI del sitio (`~/admin/config/uwsgi/1037421.conf`)
+## Seguridad (pendiente)
 
-Archivo propiedad de **root**, no editable por SSH/SFTP: hay que editarlo en el
-panel. Dos problemas detectados:
+1. **El `SECRET_KEY` real está en el `uwsgi.conf`** (propiedad de root, no
+   editable por SSH):
+   `env = SECRET_KEY=Librospe@2024#ClaveUltraSecreta!`
+   Esa línea **tiene prioridad** sobre el `.env` (la app usa
+   `os.environ.setdefault`). Para cambiarlo:
+   - primero agregar al `.env`: `SECRET_KEY=<64 hex aleatorios>`;
+   - luego quitar la línea `env = SECRET_KEY=...` del `uwsgi.conf` (panel).
+2. La contraseña de **SSH, MySQL y RabbitMQ es la misma** y está escrita en
+   claro en este repositorio de trabajo: **cámbiala en los tres sitios**.
+3. `~/sincronizar_completo.sh` tenía la clave escrita en claro → ya se
+   corrigió (lee `DB_PASSWORD` del `.env`).
+4. El `.env` **nunca** debe subirse a git (está en `.gitignore`).
 
-- `env = SECRET_KEY=Librospe@2024#ClaveUltraSecreta!` — la clave está en claro en
-  el conf y **tiene prioridad** sobre la de `~/.env` (la app usa
-  `os.environ.setdefault`). Al quitarla, la app toma `SECRET_KEY` de `~/.env`
-  (ya se dejó una clave aleatoria de 64 hex).
-- `static-map = /static/=/home/librospe/home/librospe/www/static` — la ruta está
-  duplicada; debe ser `/home/librospe/www/static`.
+## Requisitos del entorno
 
-## Limpieza 2026-10-16 (producción)
+- Python 3.13, `pip install -r Micrososervicios/requirements.txt`
+- Pruebas: `pip install -r Micrososervicios/requirements-dev.txt` y
+  `python -m pytest Micrososervicios/tests -q`
+  (las pruebas que necesitan MySQL usan las variables `TEST_DB_*`).
+- CI: `.github/workflows/ci.yml` (pruebas + sintaxis + `docker compose config`).
 
-Respaldo previo en `~/backups/2026-10-16-fixes/`:
+## Cómo se recarga la app en alwaysdata
 
-- `librospe_db.sql` (dump completo) y `librospe_ms_ventas.sql` (dump completo).
-- `1037421.conf.bak`, `env.bak` y los `*.py.bak` originales de `microservicios/`.
+- `alwaysdata` es hosting compartido: **un solo proceso uWSGI** por sitio.
+- El proxy inicia el upstream bajo demanda y lo detiene tras ~30 min de
+  inactividad. Si se deja de hacer peticiones >30 min, el siguiente arranque
+  ya carga el código nuevo.
+- Despliegue: `Micrososervicios/deploy.ps1` (SFTP por clave SSH; la clave
+  ya está autorizada en el servidor desde 2026-10-19) o `rsync` manual.
 
-Cambios aplicados:
+## Comandos útiles en el servidor
 
-1. **Espejos eliminados en `librospe_db`** (el gateway ya lee de los binds):
-   `comercial_pedidos`, `comercial_detalle_pedido`, `comercial_ventas`,
-   `inventario_productos` (los otros 2 del script no existían). `librospe_db`
-   pasó de 33 a 29 tablas. `sincronizar.sql` solo escribe en `librospe_ms_*`,
-   así que el cron no se ve afectado.
-2. **3 pedidos basura** (ids 21, 41, 43; carrito vacío, total 0.00, tipo recojo,
-   sin detalle ni ventas ni pagos) borrados de `librospe_db.pedidos` y de
-   `librospe_ms_ventas.comercial_pedidos` → quedan 72 en ambas.
-3. `~/.env`: se añadieron `MAPA_TIENDA_LAT/LNG/NOMBRE`, `MAPA_USER_AGENT` y
-   `SERVICE_TOKEN`. **Ojo:** los valores con espacios o paréntesis van **entre
-   comillas**, porque `sincronizar.sh` hace `source ~/.env` con `set -e`
-   (un valor sin comillas rompía el cron). `SECRET_KEY` pasó de un placeholder
-   a una clave aleatoria de 64 hex.
+```bash
+tail -f ~/admin/logs/uwsgi/1037421.log    # log de la app (print)
+tail -f ~/admin/logs/sites/2026/*.log     # log del proxy (SIGHUP, idle)
+tail -f ~/admin/logs/http/2026/*.log       # accesos
+tail -f ~/sincronizacion.log              # sincronizacion de copias
+bash ~/sincronizar_completo.sh            # forzar la sincronizacion
+bash ~/procesar_eventos.sh                # reintentar el outbox
+```
 
-### Bug 503 de `validar-stock` — arreglado en código
+## Estructura de bases (dueño de cada tabla)
 
-`routes_comercial._consultar_inventario` hace HTTP a `MS_INVENTARIO_URL`, que en
-producción apunta a la propia app. Con `processes = 1`, el único worker quedaba
-esperando su propia respuesta → 503 a los 5 s (timeout).
+- `librospe_ms_inventario`: productos, categorias, proveedores, conteos_stock
+  (+ copias: usuarios_sistema, ventas)
+- `librospe_ms_ventas`: ventas, pedidos, detalle_pedido, cajas, cupones,
+  pagos, ajustes_pago, resenas (+ copias: productos, categorias, proveedores,
+  usuarios_sistema, roles, clientes)
+- `librospe_ms_usuarios`: usuarios_sistema, roles, permisos, rol_permisos,
+  intentos_login, bloqueos, auditoria, configuracion_sistema,
+  cambios_configuracion
+- `librospe_ms_clientes`: clientes, ruc_empresas, departamentos, provincias,
+  distritos
 
-Fix (commit local pendiente de push): nueva función
-`microservicios.es_llamada_a_si_mismo(url)` detecta cuándo la URL destino es esta
-misma app (mismo host y puerto, tolerando el esquema http/https detrás del
-proxy); en ese caso `_consultar_inventario` resuelve el stock **en proceso**
-(reutilizando `routes_inventario.verificar_stock`) y responde en milisegundos.
-Con servicios realmente separados (local en 8001-8004) se sigue usando
-HTTP + `X-Service-Token`.
+## Cosas que quedaron a medias en la sesión anterior
 
-### Base `librospe_monolito`
-
-Sigue existiendo pero el usuario MySQL `librospe` **no tiene privilegios** sobre
-ella (`Access denied`), así que no se puede inspeccionar ni borrar desde aquí.
-
-## Logo — comprimir antes de desplegar
-
-`www/static/img/LogoSalesiano.png` pesa **1085 KB** (1254×1254 px) y ya está en
-el repo. En los templates se usa a **44 px de alto** en los navbars
-(`base.html`, `base_cliente.html`) y como imagen de tarjeta en la landing
-(`index.html`), así que el tamaño original es innecesario.
-
-Medición real con Pillow sobre el archivo del repo:
-
-| Opción | Peso |
-|---|---|
-| original 1254 px | 1085 KB |
-| 512 px, `optimize=True` | **181 KB** |
-
-Reduce 6× sin pérdida visible a esa escala. Basta con redimensionar a 512 px
-guardando como PNG; **no hay que cambiar el nombre ni los templates**.
-Recomendado: hacerlo antes del deploy para no subir 1 MB por despliegue.
-
-## Limpieza de datos demo
-
-`Micrososervicios/limpiar_datos_demo.sql` — vacía clientes, pedidos y ventas,
-deja solo `admin@mail.com` en `usuarios_sistema` y reinicia los `AUTO_INCREMENT`
-en 1.
-
-Tres cosas que hacen fácil equivocarse:
-
-1. **El cron resucita los clientes.** Corre `0 * * * * sincronizar_completo.sh`.
-   Para clientes, `librospe_ms_clientes` es la BD dueña y se copia hacia
-   `librospe_db`. Hay que borrar en **las dos**, o una hora después vuelven.
-2. **Arrastra el historial.** `pedidos` y `ventas` tienen FK hacia `clientes`;
-   no se pueden vaciar los clientes sin borrarlos. El archivo incluye al final
-   una variante "anular en lugar de borrar" si se quiere conservar las ventas.
-3. **Salvaguarda anti lockout.** Si `admin@mail.com` no existe, el script no
-   borra ningún usuario en vez de dejarlos sin acceso al sistema.
-
-Ejecutar el **paso 0 primero** (debe devolver 1 fila con el admin) y hacer
-respaldo antes.
-
-## Entorno del PC anterior (este)
-
-- ❌ **No hay `.env`**, solo `.env.example`. `app.py` lanza `RuntimeError` sin
-  `SECRET_KEY`, así que la app no arranca localmente.
-- ❌ **No hay clave SSH** (`~/.ssh/id_ed25519` no existe).
-- ❌ **No hay Python en el PATH**, pero sí Anaconda en
-  `C:\ProgramData\Anaconda3\python.exe` (Python 3.13.5, Pillow 11.1.0,
-  SQLAlchemy 2.0.39, Flask 3.1.0, PyMySQL). `deploy.ps1` lo detecta por su glob.
-- ✅ Red llega al servidor: MySQL 3306 y SSH 22 responden.
-
-**En el otro PC hacen falta el `.env` y el acceso SSH/MySQL.**
-
-## Notas sobre `deploy.ps1`
-
-- Crea `.venv-live` e instala `paramiko` si faltan (usa Anaconda3 si no hay
-  Python en el PATH).
-- Genera la clave SSH si no existe, y si la clave aún no está autorizada en el
-  servidor **pide la contraseña de alwaysdata de forma interactiva**
-  (`Read-Host`). La primera vez no se puede ejecutar desatendido.
-- Al terminar hay que **reiniciar la app a mano** en el panel de alwaysdata
-  (Web > Sites > librospe > Restart): `tmp/restart.txt` no reinicia uWSGI.
-
-## ESTRUCTURA de bases (para futuros borrados)
-
-`librospe_db` (principal) + `librospe_ms_clientes`, `librospe_ms_usuarios`,
-`librospe_ms_ventas`, `librospe_ms_inventario`.
-
-Quién es dueño de qué (según `sincronizar.sql`):
-
-- `clientes` → dueño `librospe_ms_clientes`, se copia hacia la principal.
-- `usuarios_sistema` → dueño `librospe_db`, se copia hacia el microservicio.
-
-FK que bloquean borrados en `librospe_db`:
-
-| Tabla | Referencia |
-|---|---|
-| `pedidos` | `cliente_id` → `clientes` |
-| `ventas` | `cliente_id` → `clientes`, `vendedor_id` → `usuarios_sistema` |
-| `cajas` | `usuario_id` → `usuarios_sistema` |
-| `intentos_login` | `cliente_id`, `usuario_sistema_id` |
-| `bloqueos` | `cliente_id`, `usuario_sistema_id` |
-| `auditoria` | `usuario_id` → `usuarios_sistema` |
-
-Las tablas `comercial_pedidos` / `comercial_detalle_pedido` / `comercial_ventas`
-en `librospe_ms_ventas` **no tienen FK**, pero guardan copia de los datos del
-cliente (nombres, DNI, correo, dirección), así que también hay que limpiarlas
-para no dejar datos personales sueltos.
+- `Monilitico/` y `Monilitico.zip` (el monolito viejo) siguen en el repo.
+- Los 5 `.temp_*.py` (scripts de un solo uso) siguen versionados.
+- `arquitectura-ms.html` / `arquitectura-ms.archify.json` (el diagrama) se
+  regeneraron con la arquitectura de microservicios.

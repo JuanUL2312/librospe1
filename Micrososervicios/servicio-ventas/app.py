@@ -163,5 +163,57 @@ def crear_venta():
         return jsonify({"error": str(e)}), 500
 
 
+def _aplicar_evento(tipo, datos):
+    """Aplica un evento recibido del agente de mensajes (RabbitMQ).
+
+    - producto.actualizado: actualiza la copia local del producto.
+    - cliente.registrado: actualiza la copia local del cliente.
+    - pedido.creado / venta.registrada: deja registro en el servicio.
+    """
+    try:
+        if tipo == "producto.actualizado":
+            db.session.execute(text("""
+                UPDATE productos SET nombre = COALESCE(:nombre, nombre),
+                                    precio = COALESCE(:precio, precio)
+                WHERE id = :id
+            """), {"nombre": datos.get("nombre"), "precio": datos.get("precio"),
+                   "id": datos.get("id")})
+            db.session.commit()
+            return True
+        if tipo == "cliente.registrado":
+            # Copia local del cliente (si la tabla aun no existe en este
+            # servicio, el evento se responde OK para no re-encolarlo).
+            try:
+                db.session.execute(text("""
+                    INSERT INTO clientes (nombres, apellidos, correo, telefono, estado)
+                    VALUES (:n, :a, :c, :t, 1)
+                    ON DUPLICATE KEY UPDATE
+                        nombres = VALUES(nombres), apellidos = VALUES(apellidos),
+                        telefono = VALUES(telefono)
+                """), {
+                    "n": datos.get("nombres"), "a": datos.get("apellidos"),
+                    "c": datos.get("email"), "t": datos.get("telefono"),
+                })
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                print(f"[ventas] sin copia local de clientes ({str(e)[:90]})")
+            return True
+        if tipo in ("pedido.creado", "venta.registrada"):
+            print(f"[ventas] evento '{tipo}' recibido "
+                  f"(pedido {datos.get('pedido_id')}, total {datos.get('total')})")
+            return True
+        return True
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ventas] error aplicando el evento '{tipo}': {e}")
+        return False
+
+
 if __name__ == "__main__":
+    try:
+        from rabbit_consumidor import iniciar_consumidor
+        iniciar_consumidor("ventas", _aplicar_evento)
+    except Exception as e:
+        print(f"[ventas] no se pudo iniciar el consumidor de eventos: {e}")
     app.run(host="0.0.0.0", port=8002)
