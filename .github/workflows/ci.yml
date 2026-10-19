@@ -64,7 +64,15 @@ jobs:
           TEST_DB_PORT: "3306"
           TEST_DB_USER: root
           TEST_DB_PASSWORD: dev
-        run: python -m pytest Micrososervicios/tests -q --color=always
+        run: |
+          set +e
+          python -m pytest Micrososervicios/tests -q --tb=short 2>&1 | tee /tmp/pytest.log
+          codigo=${PIPESTATUS[0]}
+          echo "----- resumen de fallos -----"
+          grep -E "^(FAILED|ERROR)|^(E ) " /tmp/pytest.log | head -30 | while IFS= read -r l; do
+            echo "::error::$l"
+          done
+          exit $codigo
 
   contenedor:
     runs-on: ubuntu-latest
