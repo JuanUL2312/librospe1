@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "LibrosPE - Arquitectura de microservicios",
+    "output": "arquitectura-microservicios.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "flujo-principal",
+        "label": "Flujo principal",
+        "focus": ["cliente", "gateway", "ventas", "inventario", "db_ventas", "db_inventario"],
+        "note": "Del navegador al gateway y del servicio de ventas al de inventario."
+      },
+      {
+        "id": "database-per-service",
+        "label": "Base de datos por servicio",
+        "focus": ["db_gateway", "db_inventario", "db_ventas", "db_usuarios", "db_clientes"],
+        "note": "Cada servicio posee su propia BD MySQL; no hay SQL cruzado."
+      },
+      {
+        "id": "comunicacion-interna",
+        "label": "Comunicación interna",
+        "focus": ["gateway", "inventario", "ventas", "usuarios", "clientes", "smtp"],
+        "note": "REST + X-Service-Token entre servicios y alertas por correo."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "cliente",
+      "type": "external",
+      "label": "Cliente",
+      "sublabel": "Navegador / Móvil",
+      "pos": [40, 260],
+      "size": [120, 60]
+    },
+    {
+      "id": "gateway",
+      "type": "backend",
+      "label": "API Gateway (Flask)",
+      "sublabel": "www/ :8000",
+      "tag": "90 rutas + UI",
+      "pos": [240, 256],
+      "size": [150, 64]
+    },
+    {
+      "id": "db_gateway",
+      "type": "database",
+      "label": "librospe_db",
+      "sublabel": "vista agregada",
+      "pos": [240, 96],
+      "size": [150, 52]
+    },
+    {
+      "id": "inventario",
+      "type": "backend",
+      "label": "Inventario",
+      "sublabel": "servicio-inventario :8001",
+      "pos": [540, 60],
+      "size": [170, 56]
+    },
+    {
+      "id": "db_inventario",
+      "type": "database",
+      "label": "librospe_ms_inventario",
+      "sublabel": "productos, categorías, proveedores",
+      "pos": [800, 60],
+      "size": [180, 56]
+    },
+    {
+      "id": "ventas",
+      "type": "backend",
+      "label": "Ventas",
+      "sublabel": "servicio-ventas :8002",
+      "pos": [540, 170],
+      "size": [170, 56]
+    },
+    {
+      "id": "db_ventas",
+      "type": "database",
+      "label": "librospe_ms_ventas",
+      "sublabel": "pedidos, detalle, ventas",
+      "pos": [800, 170],
+      "size": [180, 56]
+    },
+    {
+      "id": "usuarios",
+      "type": "backend",
+      "label": "Usuarios",
+      "sublabel": "servicio-usuarios :8003",
+      "pos": [540, 280],
+      "size": [170, 56]
+    },
+    {
+      "id": "db_usuarios",
+      "type": "database",
+      "label": "librospe_ms_usuarios",
+      "sublabel": "usuarios_sistema, roles",
+      "pos": [800, 280],
+      "size": [180, 56]
+    },
+    {
+      "id": "clientes",
+      "type": "backend",
+      "label": "Clientes",
+      "sublabel": "servicio-clientes :8004",
+      "pos": [540, 390],
+      "size": [170, 56]
+    },
+    {
+      "id": "db_clientes",
+      "type": "database",
+      "label": "librospe_ms_clientes",
+      "sublabel": "tabla clientes",
+      "pos": [800, 390],
+      "size": [180, 56]
+    },
+    {
+      "id": "smtp",
+      "type": "external",
+      "label": "SMTP",
+      "sublabel": "alerta stock bajo",
+      "pos": [40, 60],
+      "size": [120, 56]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "LibrosPE (Docker Compose / uWSGI)",
+      "wraps": ["gateway", "db_gateway", "inventario", "db_inventario", "ventas", "db_ventas", "usuarios", "db_usuarios", "clientes", "db_clientes"],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {
+      "id": "cliente-gateway",
+      "from": "cliente",
+      "to": "gateway",
+      "label": "HTTP",
+      "variant": "emphasis"
+    },
+    {
+      "id": "gw-sql",
+      "from": "gateway",
+      "to": "db_gateway",
+      "label": "SQL (bind agregado)"
+    },
+    {
+      "id": "gw-inventario",
+      "from": "gateway",
+      "to": "inventario",
+      "label": "REST",
+      "labelAt": [500, 88]
+    },
+    {
+      "id": "gw-ventas",
+      "from": "gateway",
+      "to": "ventas",
+      "label": "REST",
+      "labelAt": [500, 198]
+    },
+    {
+      "id": "gw-usuarios",
+      "from": "gateway",
+      "to": "usuarios",
+      "label": "REST",
+      "labelAt": [500, 308]
+    },
+    {
+      "id": "gw-clientes",
+      "from": "gateway",
+      "to": "clientes",
+      "label": "REST",
+      "labelAt": [500, 418]
+    },
+    {
+      "id": "inv-sql",
+      "from": "inventario",
+      "to": "db_inventario",
+      "label": "SQL"
+    },
+    {
+      "id": "ven-sql",
+      "from": "ventas",
+      "to": "db_ventas",
+      "label": "SQL"
+    },
+    {
+      "id": "usu-sql",
+      "from": "usuarios",
+      "to": "db_usuarios",
+      "label": "SQL"
+    },
+    {
+      "id": "cli-sql",
+      "from": "clientes",
+      "to": "db_clientes",
+      "label": "SQL"
+    },
+    {
+      "id": "ventas-inventario",
+      "from": "ventas",
+      "to": "inventario",
+      "label": "validar-stock (HTTP + X-Service-Token)",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "inv-smtp",
+      "from": "inventario",
+      "to": "smtp",
+      "label": "email",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "top",
+      "via": [[625, 28], [100, 28]]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "API Gateway",
+      "items": [
+        "App Flask en www/ (:8000) con la tienda completa",
+        "Rutas /api/* + vista agregada en librospe_db"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Database-per-service",
+      "items": [
+        "4 microservicios, cada uno con su propia BD MySQL",
+        "Sin SQL cruzado; cron cada hora replica datos entre BDs"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Comunicación",
+      "items": [
+        "REST síncrono + X-Service-Token (ventas valida stock en inventario)",
+        "En producción: un solo proceso uWSGI; local: 5 procesos",
+        "Alerta de stock bajo por correo SMTP"
+      ]
+    }
+  ]
+}

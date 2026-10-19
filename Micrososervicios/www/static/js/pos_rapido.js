@@ -267,38 +267,103 @@
         busqueda.focus();
     });
 
-    // ---------- Cobrar ----------
+    // ---------- Cobrar (con cola offline y reintentos) ----------
+    var CLAVE_COLA = 'pos_cola_ventas';
+
+    function leerCola() {
+        try { return JSON.parse(localStorage.getItem(CLAVE_COLA) || '[]'); }
+        catch (e) { return []; }
+    }
+    function guardarCola(cola) {
+        localStorage.setItem(CLAVE_COLA, JSON.stringify(cola));
+        pintarCola();
+    }
+    function pintarCola() {
+        var btn = document.getElementById('posColaOffline');
+        var num = document.getElementById('posColaOfflineNum');
+        if (!btn) return;
+        var n = leerCola().length;
+        num.textContent = String(n);
+        btn.style.display = n > 0 ? '' : 'none';
+    }
+    function claveUnica() {
+        try {
+            if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+        } catch (e) { /* sin crypto */ }
+        return Date.now() + '-' + Math.random().toString(16).slice(2);
+    }
+
+    function enviarVenta(venta, alFinalizar) {
+        fetch('/api/ventas/rapida', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                items: venta.items,
+                metodo_pago: venta.metodo_pago,
+                monto_recibido: venta.monto_recibido,
+                clave_idempotencia: venta.clave
+            })
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (data) { alFinalizar(null, data); })
+            .catch(function (err) { alFinalizar(err || new Error('red'), null); });
+    }
+
+    function enCola(clave) {
+        return leerCola().some(function (v) { return v.clave === clave; });
+    }
+
+    function reintentarCola() {
+        var cola = leerCola();
+        if (!cola.length) return;
+        cola.slice().forEach(function (venta) {
+            enviarVenta(venta, function (err, data) {
+                if (err) return; // sigue sin conexión: permanece en cola
+                if (data && data.caja_cerrada) {
+                    // Caja cerrada: es transitorio, se queda en cola hasta abrir caja.
+                    return;
+                }
+                var restantes = leerCola().filter(function (v) { return v.clave !== venta.clave; });
+                guardarCola(restantes);
+                if (data && data.success) {
+                    // El stock local YA se descontó al cobrar (venta diferida);
+                    // aqui solo se confirma y se retira de la cola.
+                    renderProductos();
+                } else if (data && !data.success) {
+                    alertStock({ nombre: 'Venta offline rechazada: ' + (data.error || 'error') }, 0);
+                }
+            });
+        });
+    }
+
     btnCobrar.addEventListener('click', function () {
         if (cobrando) return;
         var items = ticket.map(function (it) {
             return { id: it.id, nombre: it.nombre, cantidad: it.cantidad };
         });
         var monto = metodoPago === 'efectivo' ? (parseFloat(montoRecibido.value) || 0) : null;
+        var venta = {
+            clave: claveUnica(),
+            items: items,
+            metodo_pago: metodoPago,
+            monto_recibido: monto,
+            fecha: Date.now()
+        };
 
         cobrando = true;
         btnCobrar.disabled = true;
         btnCobrar.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Procesando...';
 
-        fetch('/api/ventas/rapida', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                items: items,
-                metodo_pago: metodoPago,
-                monto_recibido: monto
-            })
-        })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                cobrando = false;
-                btnCobrar.innerHTML = '<i class="fas fa-check-circle me-2"></i>COBRAR';
-                if (!data.success) {
-                    btnCobrar.disabled = false;
-                    alertStock({ nombre: data.error || 'Error' }, 0);
-                    return;
+        enviarVenta(venta, function (err, data) {
+            cobrando = false;
+            btnCobrar.innerHTML = '<i class="fas fa-check-circle me-2"></i>COBRAR';
+            if (err) {
+                // Sin red: guardar en cola y descontar stock local (venta diferida)
+                if (!enCola(venta.clave)) {
+                    var cola = leerCola();
+                    cola.push(venta);
+                    guardarCola(cola);
                 }
-                // Actualizar stock local
-                var ventaTotal = data.total;
                 items.forEach(function (it) {
                     var p = PRODUCTOS.find(function (x) { return x.id === it.id; });
                     if (p) p.cantidad = Math.max(0, p.cantidad - it.cantidad);
@@ -306,15 +371,34 @@
                 ticket = [];
                 renderTicket();
                 renderProductos();
-                mostrarExito(data, ventaTotal);
-            })
-            .catch(function (err) {
-                cobrando = false;
-                btnCobrar.innerHTML = '<i class="fas fa-check-circle me-2"></i>COBRAR';
                 btnCobrar.disabled = false;
-                alertStock({ nombre: 'Error de conexión: ' + err }, 0);
-            });
+                alertStock({ nombre: 'Sin conexión: venta GUARDADA y se enviará sola al volver la red' }, 0);
+                return;
+            }
+            btnCobrar.disabled = false;
+            if (!data.success) {
+                // Caja cerrada: no descontar stock ni cobrar (el servidor lo bloqueó).
+                alertStock({ nombre: data.error || 'Error' }, 0);
+                return;
+            }
+            // Actualizar stock local (si es duplicado, ya se descontó antes)
+            var ventaTotal = data.total;
+            if (!data.duplicado) {
+                items.forEach(function (it) {
+                    var p = PRODUCTOS.find(function (x) { return x.id === it.id; });
+                    if (p) p.cantidad = Math.max(0, p.cantidad - it.cantidad);
+                });
+            }
+            ticket = [];
+            renderTicket();
+            renderProductos();
+            mostrarExito(data, ventaTotal);
+        });
     });
+
+    window.addEventListener('online', reintentarCola);
+    document.getElementById('posColaOffline').addEventListener('click', reintentarCola);
+    pintarCola();
 
     function mostrarExito(data, total) {
         document.getElementById('posOverlayTotal').textContent = fmt(total);

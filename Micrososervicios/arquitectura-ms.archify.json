@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "LibrosPE - Patrón arquitectónico MVC",
+    "output": "arquitectura-ms.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "usuario",
+      "type": "external",
+      "label": "Usuario",
+      "sublabel": "Navegador web",
+      "pos": [40, 230],
+      "size": [140, 70]
+    },
+    {
+      "id": "controlador",
+      "type": "backend",
+      "label": "Controlador",
+      "sublabel": "app.py - Flask",
+      "brand": "flask",
+      "pos": [340, 60],
+      "size": [200, 78]
+    },
+    {
+      "id": "modelo",
+      "type": "backend",
+      "label": "Modelo",
+      "sublabel": "SQLAlchemy - reglas de negocio",
+      "brand": "flask",
+      "pos": [680, 60],
+      "size": [200, 78]
+    },
+    {
+      "id": "base_datos",
+      "type": "database",
+      "label": "Base de datos",
+      "sublabel": "MySQL (MariaDB)",
+      "brand": "mysql",
+      "pos": [980, 240],
+      "size": [170, 90]
+    },
+    {
+      "id": "vista",
+      "type": "frontend",
+      "label": "Vista",
+      "sublabel": "Jinja2 - HTML5 / CSS3 / Bootstrap",
+      "pos": [340, 430],
+      "size": [260, 78]
+    }
+  ],
+  "connections": [
+    {
+      "id": "solicita",
+      "from": "usuario",
+      "to": "controlador",
+      "label": "solicita",
+      "variant": "emphasis"
+    },
+    {
+      "id": "manipula",
+      "from": "controlador",
+      "to": "modelo",
+      "label": "manipula"
+    },
+    {
+      "id": "consulta",
+      "from": "modelo",
+      "to": "base_datos",
+      "label": "realiza consulta",
+      "labelDx": -64
+    },
+    {
+      "id": "respuesta",
+      "from": "base_datos",
+      "to": "modelo",
+      "label": "devuelve la respuesta",
+      "labelDx": 64
+    },
+    {
+      "id": "notifica",
+      "from": "modelo",
+      "to": "controlador",
+      "label": "notifica",
+      "labelDx": -18,
+      "labelDy": 26
+    },
+    {
+      "id": "datos",
+      "from": "controlador",
+      "to": "vista",
+      "label": "datos",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "responde",
+      "from": "vista",
+      "to": "usuario",
+      "label": "responde visualmente"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Controlador",
+      "items": [
+        "app.py define las rutas y recibe las solicitudes del usuario",
+        "Manipula el modelo y prepara la vista con los datos"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Modelo",
+      "items": [
+        "Modelos SQLAlchemy: productos, categorías, usuarios y pedidos",
+        "Realiza consultas a MySQL y devuelve los resultados"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Vista",
+      "items": [
+        "Plantillas Jinja2 con HTML5, CSS3 y Bootstrap",
+        "Responde visualmente al usuario con los datos recibidos"
+      ]
+    }
+  ]
+}

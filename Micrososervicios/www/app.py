@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import time
 import hmac
@@ -18,6 +18,8 @@ from sqlalchemy.exc import IntegrityError
 
 # Paquete de microservicios (blueprints independientes: comercial, inventario, monitor)
 from microservicios import register_microservicios
+# Integración SUNAT (modos: simulado | beta | produccion via SUNAT_MODE)
+from sunat_service import emitir_comprobante
 import secrets
 import smtplib
 from email.mime.text import MIMEText
@@ -282,6 +284,22 @@ class Auditoria(db.Model):
     modulo = db.Column(db.String(50), nullable=False)
     detalle = db.Column(db.Text, nullable=True)
     fecha = db.Column(db.DateTime, default=datetime.now)
+
+class ConteoStock(db.Model):
+    """Conteo ciclico de inventario: registro fisico vs sistema + ajuste auditado."""
+    __tablename__ = "conteos_stock"
+    id = db.Column(db.Integer, primary_key=True)
+    producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
+    cantidad_sistema = db.Column(db.Integer, nullable=False)
+    cantidad_contada = db.Column(db.Integer, nullable=False)
+    diferencia = db.Column(db.Integer, nullable=False)  # contada - sistema
+    ajustado = db.Column(db.Integer, default=0)         # 1 = ya se aplico al stock
+    observacion = db.Column(db.String(300), nullable=True)
+    fecha = db.Column(db.DateTime, default=datetime.now)
+    producto = db.relationship("Producto")
+    usuario = db.relationship("UsuarioSistema")
+
 
 class Permiso(db.Model):
     __tablename__ = "permisos"
@@ -1213,6 +1231,68 @@ def verificar_stock_bajo_y_notificar():
     except Exception as e:
         print(f"❌ Error notificando stock bajo: {e}")
 
+# Productos ya avisados por sobreabasto (evita repetir el correo en cada venta).
+_ALERTADAS_STOCK_MAX = set()
+
+def verificar_stock_maximo_y_notificar():
+    """Correo al administrador cuando el stock SUPERA el máximo configurado.
+
+    Alerta "activa" (frente al máximo) para frenar compras innecesarias:
+    se avisa solo en el cruce de umbral (una vez por episodio) y se vuelve a
+    avisar si el producto baja del máximo y vuelve a superarlo.
+    """
+    try:
+        excesos = Producto.query.filter(
+            Producto.stock_maximo.isnot(None),
+            Producto.cantidad >= Producto.stock_maximo
+        ).all()
+        ids_actuales = {p.id for p in excesos}
+        # Limpiar avisos de productos que ya normalizaron su stock.
+        for pid in list(_ALERTADAS_STOCK_MAX):
+            if pid not in ids_actuales:
+                _ALERTADAS_STOCK_MAX.discard(pid)
+        nuevas = [p for p in excesos if p.id not in _ALERTADAS_STOCK_MAX]
+        if not nuevas:
+            return
+        admins = UsuarioSistema.query.filter_by(rol="administrador").all()
+        destinatarios = [a.correo for a in admins if a.correo]
+        if not destinatarios:
+            return
+        lineas = "".join(
+            f"<li><b>{p.nombre}</b>: {p.cantidad} unidades "
+            f"(máximo {p.stock_maximo} — excedente {p.cantidad - p.stock_maximo})</li>"
+            for p in nuevas
+        )
+        asunto = "📦 Alerta de stock máximo (sobreabasto) - Librería Salesiana"
+        html_cuerpo = (
+            f"<h3>Productos por encima del stock máximo</h3>"
+            f"<p>Considere pausar compras de estos productos para evitar sobreabasto:</p>"
+            f"<ul>{lineas}</ul>"
+        )
+        _enviar_correo_html(asunto, html_cuerpo, destinatarios)
+        for p in nuevas:
+            _ALERTADAS_STOCK_MAX.add(p.id)
+    except Exception as e:
+        print(f"❌ Error notificando stock máximo: {e}")
+
+def _enviar_correo_html(asunto, html, destinatarios):
+    """Envío de correo HTML reutilizable (SMTP del entorno)."""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    if not destinatarios:
+        return
+    msg = MIMEMultipart()
+    msg['From'] = EMAIL_FROM or EMAIL_USER
+    msg['To'] = ", ".join(destinatarios)
+    msg['Subject'] = asunto
+    msg.attach(MIMEText(html, 'html'))
+    server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
+    server.starttls()
+    server.login(EMAIL_USER, EMAIL_PASSWORD)
+    server.send_message(msg)
+    server.quit()
+
 def generar_comprobante_html(venta, producto, precio, cantidad, total, vendedor_nombre=""):
     titulo = "LIBRERÍA SALESIANA DON BOSCO"
     gracias = "¡Gracias por su compra! Que Dios lo bendiga."
@@ -1406,9 +1486,16 @@ def generar_comprobante_pdf(tipo_comprobante, numero_comprobante, fecha, cliente
     elementos.append(detalle)
     elementos.append(Spacer(1, 12))
 
-    # Autorización SUNAT simulada (mismo criterio que /comprobante/<id>/pdf)
-    codigo_autorizacion = f"{numero_comprobante} | {secrets.token_hex(8).upper()}"
-    autorizacion = Table([["AUTORIZACIÓN SUNAT (SIMULADA)"], [codigo_autorizacion]], colWidths=[170*mm])
+    # Autorización SUNAT (SUNAT_MODE: simulado | beta | produccion)
+    sunat = emitir_comprobante({
+        "tipo_comprobante": tipo_comprobante,
+        "serie_numero": numero_comprobante,
+        "cliente_documento": documento,
+        "cliente_nombre": cliente_nombre,
+        "productos": productos,
+    })
+    codigo_autorizacion = sunat["autorizacion"]
+    autorizacion = Table([[sunat["rotulo"]], [codigo_autorizacion]], colWidths=[170*mm])
     autorizacion.setStyle(TableStyle([
         ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#16A34A')),
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F0FDF4')),
@@ -2888,6 +2975,12 @@ def stock_bajo():
         estado_stock = "agotado" if cantidad == 0 else "bajo"
         faltan = max(smin - cantidad, 0)
         costo = float(p.costo or 0)
+        # Sugerencia de compra: llevar hasta stock_maximo si esta definido;
+        # si no, al menos reponer hasta el minimo.
+        if p.stock_maximo is not None:
+            sugerencia = max(p.stock_maximo - cantidad, 0)
+        else:
+            sugerencia = faltan
         filas.append({
             "producto": p,
             "cantidad": cantidad,
@@ -2897,6 +2990,7 @@ def stock_bajo():
             "costo_unitario": costo,
             "costo_reposicion": faltan * costo,
             "tiene_costo": p.costo is not None,
+            "sugerencia": sugerencia,
         })
 
     if solo_agotados:
@@ -2917,14 +3011,76 @@ def stock_bajo():
     categorias_lista = Categoria.query.filter_by(activo=True)\
         .order_by(Categoria.nombre.asc()).all()
 
+    # Sugerencia de compra agrupada por proveedor (ordenada por unidades).
+    compras_map = {}
+    for f in filas:
+        if f["sugerencia"] <= 0:
+            continue
+        prov = f["producto"].proveedor
+        clave = prov.id if prov else 0
+        if clave not in compras_map:
+            compras_map[clave] = {
+                "proveedor": prov.nombre if prov else "Sin proveedor",
+                "contacto": (prov.contacto or prov.email or "") if prov else "",
+                "productos": 0,
+                "unidades": 0,
+                "costo_estimado": 0.0,
+            }
+        g = compras_map[clave]
+        g["productos"] += 1
+        g["unidades"] += f["sugerencia"]
+        g["costo_estimado"] += f["sugerencia"] * f["costo_unitario"]
+    compras_por_proveedor = sorted(compras_map.values(),
+                                   key=lambda g: (-g["unidades"], g["proveedor"]))
+
     return render_template("stock_bajo.html",
                            filas=filas,
                            totales=totales,
+                           compras_por_proveedor=compras_por_proveedor,
                            categorias_lista=categorias_lista,
                            es_admin=es_admin,
                            categoria_seleccionada=categoria_id,
                            solo_agotados=solo_agotados,
                            busqueda=busqueda)
+
+
+@app.route("/stock-bajo/compras.csv")
+@login_required
+@permiso_requerido("gestionar_productos")
+def stock_bajo_compras_csv():
+    """Exporta la sugerencia de compra agrupada por proveedor (CSV)."""
+    import csv as _csv
+    import io
+    query = Producto.query.filter(Producto.estado == 1)
+    grupos = {}
+    for p in query.order_by(Producto.nombre.asc()).all():
+        cantidad = p.cantidad or 0
+        smin = p.stock_minimo if p.stock_minimo is not None else 5
+        if cantidad > smin:
+            continue
+        sugerencia = (max(p.stock_maximo - cantidad, 0)
+                      if p.stock_maximo is not None else max(smin - cantidad, 0))
+        if sugerencia <= 0:
+            continue
+        prov = p.proveedor
+        nombre = prov.nombre if prov else "Sin proveedor"
+        g = grupos.setdefault(nombre, {"unidades": 0, "costo": 0.0, "items": []})
+        costo_unit = float(p.costo or 0)
+        g["unidades"] += sugerencia
+        g["costo"] += sugerencia * costo_unit
+        g["items"].append(f"{p.nombre} x{sugerencia}"
+                          + (f" (S/ {costo_unit:.2f}/u)" if costo_unit else ""))
+    buf = io.StringIO()
+    escritor = _csv.writer(buf)
+    escritor.writerow(["Proveedor", "Unidades a comprar", "Costo estimado (S/)", "Detalle"])
+    for nombre in sorted(grupos, key=lambda n: -grupos[n]["unidades"]):
+        g = grupos[nombre]
+        escritor.writerow([nombre, g["unidades"], f"{g['costo']:.2f}",
+                           " | ".join(g["items"])])
+    salida = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
+    fecha = datetime.now().strftime("%Y%m%d")
+    return send_file(salida, mimetype="text/csv", as_attachment=True,
+                     download_name=f"sugerencia_compra_{fecha}.csv")
 
 
 @app.route("/stock-bajo/reponer/<int:id>", methods=["POST"])
@@ -2965,6 +3121,94 @@ def reponer_stock(id):
 
     flash(f"✅ Stock de «{producto_obj.nombre}» actualizado a {cantidad} unidades", "success")
     return redirect(url_for("stock_bajo"))
+
+
+@app.route("/conteo")
+@login_required
+@permiso_requerido("gestionar_productos")
+def conteo_stock():
+    """Conteo ciclico de inventario: registro fisico vs sistema y ajuste auditado."""
+    busqueda = (request.args.get("q") or "").strip()
+    query = Producto.query.filter(Producto.estado == 1)
+    if busqueda:
+        like = f"%{busqueda}%"
+        query = query.filter(or_(Producto.nombre.like(like),
+                                 Producto.codigo_barras.like(like)))
+    productos_lista = query.order_by(Producto.nombre.asc()).limit(60).all()
+    conteos = ConteoStock.query.order_by(ConteoStock.fecha.desc()).limit(40).all()
+    pendientes = ConteoStock.query.filter(ConteoStock.ajustado == 0,
+                                          ConteoStock.diferencia != 0).count()
+    return render_template("conteo.html",
+                           productos=productos_lista,
+                           conteos=conteos,
+                           busqueda=busqueda,
+                           pendientes=pendientes)
+
+
+@app.route("/conteo/registrar", methods=["POST"])
+@login_required
+@permiso_requerido("gestionar_productos")
+@csrf_protect
+def conteo_registrar():
+    """Guarda el conteo fisico de un producto (NO modifica el stock aun)."""
+    producto = db.session.get(Producto, request.form.get("producto_id", type=int) or 0)
+    if not producto:
+        flash("❌ Producto no encontrado", "danger")
+        return redirect(url_for("conteo_stock"))
+    contada = request.form.get("cantidad_contada", type=int)
+    if contada is None or contada < 0:
+        flash("❌ Cantidad contada inválida", "danger")
+        return redirect(url_for("conteo_stock"))
+    sistema = producto.cantidad or 0
+    registro = ConteoStock(
+        producto_id=producto.id,
+        usuario_id=session["usuario_id"],
+        cantidad_sistema=sistema,
+        cantidad_contada=contada,
+        diferencia=contada - sistema,
+        observacion=(request.form.get("observacion") or "").strip()[:300] or None,
+    )
+    db.session.add(registro)
+    db.session.commit()
+    registrar_auditoria("CREAR", "conteos_stock",
+                        f"Conteo de «{producto.nombre}»: sistema {sistema}, "
+                        f"contado {contada} (diferencia {contada - sistema:+d})")
+    if contada == sistema:
+        flash(f"✅ Conteo de «{producto.nombre}» registrado: coincide con el sistema", "success")
+    else:
+        flash(f"⚠️ Conteo de «{producto.nombre}» registrado: diferencia "
+              f"{contada - sistema:+d}. Revisa y aplica el ajuste.", "warning")
+    return redirect(url_for("conteo_stock"))
+
+
+@app.route("/conteo/ajustar/<int:conteo_id>", methods=["POST"])
+@login_required
+@permiso_requerido("gestionar_productos")
+@csrf_protect
+def conteo_ajustar(conteo_id):
+    """Aplica al stock un conteo pendiente (accion auditada, una sola vez)."""
+    registro = db.session.get(ConteoStock, conteo_id)
+    if not registro:
+        flash("❌ Conteo no encontrado", "danger")
+        return redirect(url_for("conteo_stock"))
+    if registro.ajustado:
+        flash("ℹ️ Ese conteo ya fue ajustado", "info")
+        return redirect(url_for("conteo_stock"))
+    producto = registro.producto
+    anterior = producto.cantidad or 0
+    producto.cantidad = registro.cantidad_contada
+    registro.ajustado = 1
+    db.session.commit()
+    registrar_auditoria("AJUSTE", "conteos_stock",
+                        f"Ajuste por conteo #{registro.id} de «{producto.nombre}»: "
+                        f"{anterior} -> {producto.cantidad} (físico contado)")
+    try:
+        verificar_stock_bajo_y_notificar()
+        verificar_stock_maximo_y_notificar()
+    except Exception:
+        pass
+    flash(f"✅ Ajuste aplicado a «{producto.nombre}»: {anterior} → {producto.cantidad} unidades", "success")
+    return redirect(url_for("conteo_stock"))
 
 
 @app.route("/productos")
@@ -3133,6 +3377,7 @@ def actualizar_producto(id):
         db.session.commit()
         registrar_auditoria("EDITAR", "productos", f"Se actualizó el producto: {producto_obj.nombre}")
         verificar_stock_bajo_y_notificar()
+        verificar_stock_maximo_y_notificar()
         flash("✅ Producto actualizado exitosamente", "success")
         return redirect(url_for("productos"))
         
@@ -3192,9 +3437,21 @@ def producto_preview(producto_id):
 
 
 
+def _hay_caja_abierta():
+    """True si hay una caja abierta.
+
+    Regla de negocio: con la caja cerrada NO se permite ninguna operacion de
+    venta (nueva venta, POS rapido). Abrir caja habilita las operaciones.
+    """
+    return Caja.query.filter_by(estado="abierta").first() is not None
+
+
 @app.route("/ventas/nueva", methods=["GET", "POST"])
 @login_required
 def venta_nueva():
+    if not _hay_caja_abierta():
+        flash("🔒 Caja cerrada: no se pueden registrar ventas. Abre caja en el módulo de Caja.", "danger")
+        return redirect(url_for("ver_caja"))
     lista_productos = Producto.query.filter(Producto.cantidad > 0).order_by(Producto.nombre).all()
     
     if session.get("rol") == "administrador":
@@ -3319,6 +3576,7 @@ def venta_nueva():
             db.session.commit()
             registrar_auditoria("VENTA", "ventas", f"Venta #{nueva_venta.id} - {producto.nombre} x{cantidad} - Total: S/ {total_venta:.2f} ({metodo_pago})")
             verificar_stock_bajo_y_notificar()
+            verificar_stock_maximo_y_notificar()
             
             print(f"✅ Venta #{nueva_venta.id} registrada - Total: S/. {total_venta:.2f}")
             
@@ -3438,8 +3696,83 @@ def cerrar_caja():
     caja.diferencia = diferencia
     caja.estado = "cerrada"
     db.session.commit()
+
+    # Aviso por correo si el cierre cuadra con diferencia (faltante o sobrante).
+    if diferencia != 0:
+        try:
+            admins = UsuarioSistema.query.filter_by(rol="administrador").all()
+            destinatarios = [a.correo for a in admins if a.correo]
+            cajero = db.session.get(UsuarioSistema, caja.usuario_id)
+            if cajero and getattr(cajero, "correo", None) and cajero.correo not in destinatarios:
+                destinatarios.append(cajero.correo)
+            signo = "Sobrante" if diferencia > 0 else "Faltante"
+            monto_dif = abs(diferencia)
+            html = (
+                f"<h3>Cierre de caja con {signo.lower()}</h3>"
+                f"<p><b>{signo}: S/ {monto_dif:.2f}</b></p>"
+                f"<ul>"
+                f"<li>Turno de: "
+                f"{(cajero.nombres + ' ' + (cajero.apellidos or '')).strip() if cajero else '—'}</li>"
+                f"<li>Apertura: {caja.fecha_apertura.strftime('%d/%m/%Y %H:%M')}</li>"
+                f"<li>Cierre: {caja.fecha_cierre.strftime('%d/%m/%Y %H:%M')}</li>"
+                f"<li>Monto inicial: S/ {float(caja.monto_inicial or 0):.2f}</li>"
+                f"<li>Esperado: S/ {monto_esperado:.2f}</li>"
+                f"<li>Contado: S/ {monto_real:.2f}</li>"
+                f"</ul>"
+                f"<p>Revise el detalle en el módulo de Caja (/caja/historial).</p>"
+            )
+            _enviar_correo_html(
+                f"💰 Cierre de caja con {signo} de S/ {monto_dif:.2f} - Librería Salesiana",
+                html, destinatarios)
+        except Exception as e:
+            print(f"❌ Error notificando diferencia de caja: {e}")
+
     flash(f"✅ Caja cerrada. Esperado: S/. {monto_esperado:.2f} | Real: S/. {monto_real:.2f} | Diferencia: S/. {diferencia:.2f}", "success")
     return redirect(url_for("ver_caja"))
+
+
+@app.route("/caja/historial")
+@login_required
+@permiso_requerido("ver_caja")
+def caja_historial():
+    """Histórico de cierres de caja: diferencias por cajero y turno."""
+    desde_str = request.args.get("desde")
+    hasta_str = request.args.get("hasta")
+    query = Caja.query.filter(Caja.estado == "cerrada")
+    desde = hasta = None
+    if desde_str:
+        try:
+            desde = datetime.strptime(desde_str, "%Y-%m-%d")
+            query = query.filter(Caja.fecha_apertura >= desde)
+        except ValueError:
+            desde = None
+    if hasta_str:
+        try:
+            hasta = datetime.strptime(hasta_str, "%Y-%m-%d") + timedelta(days=1)
+            query = query.filter(Caja.fecha_apertura < hasta)
+        except ValueError:
+            hasta = None
+
+    cajas = query.order_by(Caja.fecha_apertura.desc()).limit(300).all()
+
+    con_diferencia = [c for c in cajas if float(c.diferencia or 0) != 0]
+    faltantes = [c for c in con_diferencia if float(c.diferencia) < 0]
+    sobrantes = [c for c in con_diferencia if float(c.diferencia) > 0]
+    resumen = {
+        "cierres": len(cajas),
+        "con_diferencia": len(con_diferencia),
+        "faltantes": len(faltantes),
+        "sobrantes": len(sobrantes),
+        "suma_faltantes": sum(abs(float(c.diferencia)) for c in faltantes),
+        "suma_sobrantes": sum(float(c.diferencia) for c in sobrantes),
+    }
+
+    return render_template("caja_historial.html",
+                           cajas=cajas,
+                           resumen=resumen,
+                           desde=desde_str if desde else "",
+                           hasta=hasta_str if hasta else "")
+
 
 # ===============================
 # EXPORTAR REPORTES A PDF
@@ -4362,7 +4695,7 @@ def ver_comprobante(venta_id):
 @app.route("/comprobante/<int:venta_id>/pdf")
 @login_required
 def comprobante_pdf(venta_id):
-    """Genera el PDF del comprobante (boleta/factura) con autorización SUNAT simulada."""
+    """Genera el PDF del comprobante (boleta/factura) vía sunat_service (SUNAT_MODE)."""
     from io import BytesIO
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
@@ -4385,10 +4718,18 @@ def comprobante_pdf(venta_id):
     v = venta.Venta
     total = v.cantidad * venta.precio
 
-    # Simulación de autorización SUNAT
+    # Autorización SUNAT (SUNAT_MODE: simulado | beta | produccion)
     serie_numero = v.numero_comprobante or f"B001-{venta_id:06d}"
-    hash_cpe = secrets.token_hex(8).upper()
-    codigo_autorizacion = f"{serie_numero} | {hash_cpe}"
+    sunat = emitir_comprobante({
+        "tipo_comprobante": v.tipo_comprobante,
+        "serie_numero": serie_numero,
+        "cliente_documento": v.cliente_documento,
+        "cliente_nombre": v.cliente_nombre_completo or "",
+        "productos": [{"nombre": venta.producto_nombre,
+                       "cantidad": v.cantidad,
+                       "precio_unitario": venta.precio}],
+    })
+    codigo_autorizacion = sunat["autorizacion"]
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=25*mm, leftMargin=25*mm, topMargin=25*mm, bottomMargin=25*mm)
@@ -4426,8 +4767,8 @@ def comprobante_pdf(venta_id):
     elementos.append(t)
     elementos.append(Spacer(1, 12))
 
-    # Autorización SUNAT simulada
-    autorizacion = Table([["AUTORIZACIÓN SUNAT (SIMULADA)"], [codigo_autorizacion]], colWidths=[180*mm])
+    # Autorización SUNAT según SUNAT_MODE
+    autorizacion = Table([[sunat["rotulo"]], [codigo_autorizacion]], colWidths=[180*mm])
     autorizacion.setStyle(TableStyle([
         ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#16A34A')),
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F0FDF4')),
@@ -4586,13 +4927,42 @@ def productos_top():
         for p in top
     ])
 
+# Cache de idempotencia del POS (clave -> respuesta) para reintentos offline.
+_VENTAS_IDEMPOTENCIA = {}
+
+
 @app.route("/api/ventas/rapida", methods=["POST"])
 @login_required
 def venta_rapida():
     data = request.get_json()
+    # Caja cerrada => bloqueo de operaciones de venta (regla de negocio).
+    if not _hay_caja_abierta():
+        return jsonify({"success": False, "caja_cerrada": True,
+                        "error": "No hay caja abierta: no se pueden registrar ventas."}), 409
     items = data.get("items", [])
     if not items:
         return jsonify({"success": False, "error": "Carrito vacío"})
+    # Idempotencia POS offline: un reintento con la misma clave NUNCA duplica
+    # la venta (la clave original se guarda en memoria y en auditoria).
+    clave_idem = str(data.get("clave_idempotencia") or "").strip()
+    if clave_idem:
+        previa = _VENTAS_IDEMPOTENCIA.get(clave_idem)
+        if previa is not None:
+            respuesta = dict(previa)
+            respuesta["duplicado"] = True
+            return jsonify(respuesta)
+        try:
+            fila = db.session.execute(text(
+                "SELECT detalle FROM auditoria WHERE accion='VENTA' AND modulo='ventas' "
+                "AND detalle LIKE :patron ORDER BY id DESC LIMIT 1"),
+                {"patron": f"%idem:{clave_idem}%"}).first()
+            if fila:
+                return jsonify({"success": True, "duplicado": True, "total": 0.0,
+                                "vuelto": None, "metodo_pago": data.get("metodo_pago", "efectivo"),
+                                "numero_comprobante": None,
+                                "nota": "Venta ya registrada anteriormente"})
+        except Exception:
+            pass
     try:
         for item in items:
             producto = Producto.query.get(item["id"])
@@ -4642,19 +5012,28 @@ def venta_rapida():
             total_general += total
             venta_ids.append(nueva_venta.id)
         db.session.commit()
-        registrar_auditoria("VENTA", "ventas", f"Venta rápida POS #{venta_ids[0]} - {len(venta_ids)} item(s) - Total: S/ {total_general:.2f} ({metodo_pago})")
+        registrar_auditoria("VENTA", "ventas",
+                            f"Venta rápida POS #{venta_ids[0]} - {len(venta_ids)} item(s) - "
+                            f"Total: S/ {total_general:.2f} ({metodo_pago})"
+                            + (f" - idem:{clave_idem}" if clave_idem else ""))
         try:
             verificar_stock_bajo_y_notificar()
+            verificar_stock_maximo_y_notificar()
         except Exception:
             pass
-        return jsonify({
+        respuesta = {
             "success": True,
             "venta_id": venta_ids[0],
             "total": float(total_general),
             "vuelto": round(float(monto_recibido) - float(total_general), 2) if monto_recibido is not None else None,
             "metodo_pago": metodo_pago,
             "numero_comprobante": numero_pos,
-        })
+        }
+        if clave_idem:
+            if len(_VENTAS_IDEMPOTENCIA) > 500:
+                _VENTAS_IDEMPOTENCIA.clear()
+            _VENTAS_IDEMPOTENCIA[clave_idem] = dict(respuesta)
+        return jsonify(respuesta)
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "error": str(e)})
@@ -4667,6 +5046,9 @@ def venta_rapida():
 @app.route("/pos", methods=["GET"])
 @login_required
 def pos_tactil():
+    if not _hay_caja_abierta():
+        flash("🔒 Caja cerrada: abre caja antes de usar el POS rápido.", "danger")
+        return redirect(url_for("ver_caja"))
     lista_productos = Producto.query.filter(Producto.cantidad > 0).order_by(Producto.nombre).all()
     producto_datos = []
     for p in lista_productos:
@@ -5671,6 +6053,30 @@ def crear_pedido():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)})
 
+@app.route("/api/pedidos/nuevos")
+@login_required
+def pedidos_nuevos():
+    """Alertas en vivo del panel: pedidos creados despues del id indicado.
+
+    Usado por static/js/pedidos_alerta.js (polling) para avisar al personal
+    de venta apenas entra un pedido, aunque este alejado del area de atencion.
+    """
+    desde = request.args.get("desde", 0, type=int)
+    filas = db.session.execute(text(
+        "SELECT p.id, p.fecha_pedido, p.total, p.tipo_entrega, p.estado, "
+        "CONCAT(COALESCE(c.nombres, ''), ' ', COALESCE(c.apellidos, '')) AS cliente "
+        "FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id "
+        "WHERE p.id > :desde ORDER BY p.id DESC LIMIT 5"), {"desde": desde}).mappings().all()
+    return jsonify([{
+        "id": f["id"],
+        "cliente": (f["cliente"] or "").strip() or "Cliente",
+        "total": float(f["total"] or 0),
+        "tipo_entrega": f["tipo_entrega"] or "recojo",
+        "estado": f["estado"] or "pendiente",
+        "fecha": f["fecha_pedido"].strftime("%d/%m/%Y %H:%M") if f["fecha_pedido"] else "",
+    } for f in filas])
+
+
 @app.route("/pedidos")
 @login_required
 def ver_pedidos():
@@ -5992,6 +6398,47 @@ def detalle_pedido(pedido_id):
                           cliente=cliente,  # ← PASAR EL CLIENTE
                           venta=venta,      # ← PASAR LA VENTA (opcional)
                           es_admin=es_admin)
+def _registrar_cobro_pedido_en_caja(pedido):
+    """Vincula las ventas de un pedido cobrado en efectivo al turno de caja abierto.
+
+    El dinero entra al cajón al entregar/recoger el pedido: por eso las ventas
+    del pedido se fechan en ese momento y el monto esperado del cierre de caja
+    las incluye. Idempotente: si alguna venta ya cae en el turno, no duplica.
+    Devuelve True si hubo registro (o ya estaba en el turno).
+    """
+    try:
+        caja = Caja.query.filter_by(estado="abierta").first()
+        if not caja:
+            return False
+        ventas = Venta.query.filter(Venta.pedido_id == pedido.id,
+                                    Venta.estado == 1).all()
+        if not ventas:
+            return False
+        en_turno = [v for v in ventas
+                    if v.fecha_venta and v.fecha_venta >= caja.fecha_apertura]
+        metodo = (pedido.metodo_pago or "efectivo")
+        if not en_turno:
+            # Cobro fuera del dia del pedido: el efectivo es de este turno.
+            ahora = datetime.now()
+            for v in ventas:
+                v.fecha_venta = ahora
+                v.metodo_pago = metodo
+        else:
+            for v in ventas:
+                v.metodo_pago = metodo
+        db.session.commit()
+        registrar_auditoria(
+            "COBRO", "caja",
+            f"Cobro en efectivo del pedido #{pedido.id} vinculado a caja #{caja.id}"
+            + ("" if en_turno else
+               f" ({len(ventas)} venta(s) fechadas al momento del cobro)"))
+        return True
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ Error vinculando cobro del pedido {pedido.id} a caja: {e}")
+        return False
+
+
 @app.route("/pedidos/cambiar-estado/<int:pedido_id>", methods=["POST"])
 @login_required
 def cambiar_estado_pedido(pedido_id):
@@ -6032,6 +6479,23 @@ def cambiar_estado_pedido(pedido_id):
     }
     
     if nuevo_estado in estados_validos:
+        # Cobro en efectivo (contra entrega): para entregar/recoger hay que
+        # recibir el dinero, y eso solo es posible con la caja del turno abierta.
+        es_cobro_efectivo = False
+        if nuevo_estado in ("entregado", "recogido"):
+            es_cobro_efectivo = (
+                (pedido.metodo_pago or "").lower() in ("efectivo", "contraentrega")
+                or float(pedido.cargo_contraentrega or 0) > 0
+            )
+            if es_cobro_efectivo and not _hay_caja_abierta():
+                mensaje_error = ("Caja cerrada: abre caja para entregar y cobrar "
+                                 "este pedido (pago contra entrega/en efectivo).")
+                if is_ajax:
+                    return jsonify({"success": False, "error": mensaje_error,
+                                    "caja_cerrada": True}), 409
+                flash(f"❌ {mensaje_error}", "danger")
+                return redirect(url_for("ver_pedidos"))
+
         # Confirmación de entrega: al marcar "entregado" en un delivery se pide quién recibió
         if nuevo_estado == "entregado" and pedido.tipo_entrega == "delivery":
             nombre_recibe = (request.form.get("nombre_recibe") or "").strip()
@@ -6049,6 +6513,11 @@ def cambiar_estado_pedido(pedido_id):
         # Guardar el cambio
         pedido.estado = nuevo_estado
         db.session.commit()
+
+        # Cobro en efectivo confirmado: vincular las ventas del pedido al
+        # turno de caja abierto para que el cierre lo cuadre.
+        if es_cobro_efectivo:
+            _registrar_cobro_pedido_en_caja(pedido)
         
         mensaje = mensajes.get(nuevo_estado, f"✅ Pedido #{pedido_id} actualizado a: {nuevo_estado}")
         

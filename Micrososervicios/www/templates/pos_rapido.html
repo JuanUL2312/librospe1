@@ -15,6 +15,10 @@
             <p class="pos-subtitle">Venta presencial — {{ session.nombre }} <span class="badge bg-warning text-dark ms-1">{{ session.rol }}</span></p>
         </div>
         <div class="pos-header-actions">
+            <button type="button" class="btn btn-outline-danger btn-sm" id="posColaOffline"
+                    style="display:none;" title="Ventas guardadas sin conexión">
+                <i class="fas fa-cloud-upload-alt me-1"></i><span id="posColaOfflineNum">0</span> sin enviar
+            </button>
             <a href="/ventas" class="btn btn-outline-secondary btn-sm"><i class="fas fa-receipt me-1"></i>Ventas</a>
             <a href="/caja" class="btn btn-outline-secondary btn-sm"><i class="fas fa-coins me-1"></i>Caja</a>
         </div>

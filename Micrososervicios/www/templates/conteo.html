@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block titulito %}📋 Conteo cíclico{% endblock %}
+
+{% block contenido %}
+<div class="container-fluid py-3 py-md-4">
+  <div class="row">
+    <div class="col-12">
+
+      <!-- HEADER -->
+      <div class="p-4 p-md-5 mb-4 mb-md-5 text-white position-relative overflow-hidden hover-lift rounded-4"
+        style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 45%, #8b5cf6 100%);">
+        <div class="bg-overlay"></div>
+        <div class="position-relative z-3">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+              <h1 class="h2 fw-extrabold mb-2 text-shadow-primary">
+                <i class="fas fa-clipboard-check me-3 text-white"></i>Conteo cíclico de inventario
+              </h1>
+              <p class="h5 mb-0 opacity-90">
+                <i class="fas fa-scale-balanced me-2"></i>Compara el stock del sistema con el conteo físico
+                {% if pendientes %} · <strong>{{ pendientes }}</strong> ajustes pendientes{% endif %}
+              </p>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              <a href="/inventario" class="btn btn-light btn-lg shadow-lg hover-lift">
+                <i class="fas fa-warehouse me-2"></i>Inventario
+              </a>
+              <a href="/stock-bajo" class="btn btn-warning btn-lg shadow-lg hover-lift">
+                <i class="fas fa-triangle-exclamation me-2"></i>Stock bajo
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MENSAJES FLASH -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      {% for category, message in messages %}
+      <div class="alert alert-{{ category if category in ['success','danger','warning','info'] else 'danger' }} alert-dismissible fade show shadow-sm">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endfor %}
+      {% endif %}
+      {% endwith %}
+
+      <!-- BUSCADOR -->
+      <div class="card shadow-3xl mb-4 border-0">
+        <div class="card-body py-3">
+          <form method="get" action="/conteo" class="row g-2 align-items-center">
+            <div class="col-12 col-md-5">
+              <div class="input-group input-group-sm">
+                <span class="input-group-text bg-white"><i class="fas fa-magnifying-glass"></i></span>
+                <input type="text" name="q" value="{{ busqueda }}" class="form-control"
+                  placeholder="Buscar producto o código de barras…">
+              </div>
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-primary btn-sm">
+                <i class="fas fa-search me-1"></i>Buscar
+              </button>
+            </div>
+            <div class="col-auto">
+              <a href="/conteo" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-rotate-left me-1"></i>Limpiar
+              </a>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- REGISTRAR CONTEO -->
+      <div class="card shadow-3xl mb-4 border-0">
+        <div class="card-header bg-white border-0 pt-3 px-3">
+          <h5 class="fw-bold text-dark mb-0">
+            <i class="fas fa-pen-to-square me-2 text-primary"></i>Registrar conteo
+            <small class="text-muted fw-normal">(solo guarda el dato; el stock se ajusta después)</small>
+          </h5>
+        </div>
+        <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
+          <table class="table table-hover mb-0 align-middle">
+            <thead class="table-dark sticky-top">
+              <tr>
+                <th>Producto</th>
+                <th class="text-center" style="width: 110px;">Stock sistema</th>
+                <th class="text-center" style="width: 140px;">Cantidad contada</th>
+                <th class="text-center" style="width: 80px;">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in productos %}
+              <tr>
+                <td>
+                  <div class="fw-bold">{{ p.nombre }}</div>
+                  {% if p.codigo_barras %}
+                  <small class="text-muted"><i class="fas fa-barcode me-1"></i>{{ p.codigo_barras }}</small>
+                  {% endif %}
+                </td>
+                <td class="text-center fw-bold">{{ p.cantidad if p.cantidad is not none else 0 }}</td>
+                <td>
+                  <form method="post" action="/conteo/registrar" class="d-flex gap-1 justify-content-center">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="producto_id" value="{{ p.id }}">
+                    <input type="number" name="cantidad_contada" min="0" required
+                      class="form-control form-control-sm text-center" style="width: 90px;"
+                      placeholder="0" title="Cantidad contada en almacén">
+                    <button type="submit" class="btn btn-primary btn-sm px-3" title="Guardar conteo">
+                      <i class="fas fa-check"></i>
+                    </button>
+                  </form>
+                </td>
+                <td class="text-center text-muted">
+                  <i class="fas fa-clipboard" title="Registrar este producto en el conteo"></i>
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="4" class="text-center text-muted py-4">
+                  <i class="fas fa-circle-info me-1"></i>No se encontraron productos{% if busqueda %} para «{{ busqueda }}»{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- HISTORIAL DE CONTEOS -->
+      <div class="card shadow-3xl border-0">
+        <div class="card-header bg-white border-0 pt-3 px-3">
+          <h5 class="fw-bold text-dark mb-0">
+            <i class="fas fa-clock-rotate-left me-2 text-secondary"></i>Últimos conteos
+          </h5>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 align-middle">
+            <thead class="table-dark">
+              <tr>
+                <th style="width: 130px;">Fecha</th>
+                <th>Producto</th>
+                <th>Contado por</th>
+                <th class="text-center" style="width: 90px;">Sistema</th>
+                <th class="text-center" style="width: 90px;">Contado</th>
+                <th class="text-center" style="width: 90px;">Diferencia</th>
+                <th class="text-center" style="width: 150px;">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in conteos %}
+              <tr>
+                <td class="small">{{ c.fecha.strftime('%d/%m/%Y %H:%M') if c.fecha else '—' }}</td>
+                <td class="fw-bold">{{ c.producto.nombre if c.producto else '—' }}</td>
+                <td>{{ c.usuario.nombres if c.usuario else '—' }}</td>
+                <td class="text-center">{{ c.cantidad_sistema }}</td>
+                <td class="text-center fw-bold">{{ c.cantidad_contada }}</td>
+                <td class="text-center">
+                  {% if c.diferencia > 0 %}
+                  <span class="badge bg-success">+{{ c.diferencia }}</span>
+                  {% elif c.diferencia < 0 %}
+                  <span class="badge bg-danger">{{ c.diferencia }}</span>
+                  {% else %}
+                  <span class="badge bg-secondary">0</span>
+                  {% endif %}
+                </td>
+                <td class="text-center">
+                  {% if c.ajustado %}
+                  <span class="badge bg-success"><i class="fas fa-check me-1"></i>Ajustado</span>
+                  {% elif c.diferencia == 0 %}
+                  <span class="badge bg-secondary">Sin diferencia</span>
+                  {% else %}
+                  <form method="post" action="/conteo/ajustar/{{ c.id }}" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-warning btn-sm px-2 py-1"
+                      title="Aplicar el conteo al stock (queda auditado)">
+                      <i class="fas fa-scale-balanced me-1"></i>Ajustar
+                    </button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="7" class="text-center text-muted py-4">
+                  <i class="fas fa-circle-info me-1"></i>Aún no hay conteos registrados
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

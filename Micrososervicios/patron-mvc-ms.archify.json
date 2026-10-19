@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Patrón arquitectónico MVC - LibrosPE (microservicios)",
+    "output": "patron-mvc-ms.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "ciclo-mvc",
+        "label": "Ciclo MVC",
+        "focus": ["usuario", "vista", "controlador", "modelo", "bd"],
+        "note": "Del usuario a la vista, el controlador, el modelo y la base de datos."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "usuario",
+      "type": "external",
+      "label": "Usuario",
+      "sublabel": "Navegador / Móvil",
+      "pos": [40, 196],
+      "size": [120, 64]
+    },
+    {
+      "id": "vista",
+      "type": "frontend",
+      "label": "Vista",
+      "sublabel": "Jinja2 · HTML · CSS · Bootstrap",
+      "tag": "templates/",
+      "pos": [230, 192],
+      "size": [170, 72]
+    },
+    {
+      "id": "controlador",
+      "type": "backend",
+      "label": "Controlador (Flask)",
+      "sublabel": "blueprints /api/* + app.py",
+      "tag": "Python 3",
+      "pos": [480, 192],
+      "size": [180, 72]
+    },
+    {
+      "id": "modelo",
+      "type": "backend",
+      "label": "Modelo",
+      "sublabel": "SQLAlchemy ORM (PyMySQL)",
+      "tag": "capa de datos",
+      "pos": [740, 192],
+      "size": [160, 72]
+    },
+    {
+      "id": "bd",
+      "type": "database",
+      "label": "MySQL (MariaDB)",
+      "sublabel": "BD propia por servicio",
+      "pos": [970, 196],
+      "size": [150, 64]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Microservicio Flask (Python 3) - patrón MVC",
+      "wraps": ["vista", "controlador", "modelo"],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "id": "usuario-vista",
+      "from": "usuario",
+      "to": "vista",
+      "label": "HTTP",
+      "variant": "emphasis"
+    },
+    {
+      "id": "vista-controlador",
+      "from": "vista",
+      "to": "controlador",
+      "label": "peticiones"
+    },
+    {
+      "id": "controlador-modelo",
+      "from": "controlador",
+      "to": "modelo",
+      "label": "lectura / escritura",
+      "labelAt": [700, 278]
+    },
+    {
+      "id": "modelo-bd",
+      "from": "modelo",
+      "to": "bd",
+      "label": "SQL"
+    },
+    {
+      "id": "render-vuelta",
+      "from": "controlador",
+      "to": "vista",
+      "label": "render Jinja2",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "top",
+      "via": [[570, 158], [315, 158]]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Dónde vive cada capa",
+      "items": [
+        "Vista: templates/ (Jinja2) del gateway www/",
+        "Controlador: blueprints /api/* y app.py de cada servicio",
+        "Modelo: SQLAlchemy sobre MySQL con bind propio"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "MVC en cada microservicio",
+      "items": [
+        "El gateway (Flask :8000) aplica MVC completo con vistas HTML",
+        "Inventario, Ventas, Usuarios y Clientes (:8001-:8004) aplican Modelo + Controlador exponiendo API JSON"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Stack del proyecto",
+      "items": [
+        "Lenguaje: Python 3 con Flask",
+        "Base de datos: MySQL (MariaDB) con PyMySQL + SQLAlchemy",
+        "Cada servicio con su propia BD: sin SQL cruzado"
+      ]
+    }
+  ]
+}

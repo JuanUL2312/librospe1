@@ -79,6 +79,7 @@
                                 <a href="/pedidos" class="btn-card btn-card-pink" title="Ver Pedidos">
                                     <i class="fas fa-truck"></i>
                                     <span>Pedidos</span>
+                                    <span class="badge bg-danger ms-1" id="contador-pedidos-nuevos" style="display:none;font-size:0.6rem;">0</span>
                                 </a>
                                 <a href="/ventas/nueva" class="btn-card btn-card-emerald" title="Nueva Venta">
                                     <i class="fas fa-cash-register"></i>
@@ -111,6 +112,10 @@
                                 <a href="/stock-bajo" class="btn-card btn-card-red" title="Alertas de stock bajo">
                                     <i class="fas fa-triangle-exclamation"></i>
                                     <span>Stock bajo</span>
+                                </a>
+                                <a href="/conteo" class="btn-card btn-card-blue" title="Conteo cíclico de inventario">
+                                    <i class="fas fa-clipboard-check"></i>
+                                    <span>Conteo</span>
                                 </a>
                                 <a href="/proveedores" class="btn-card btn-card-blue" title="Proveedores">
                                     <i class="fas fa-handshake"></i>
@@ -190,6 +195,8 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <!-- SCRIPTS LOCALES -->
     <script src="{{ url_for('static', filename='js/app.js') }}?v=202610191"></script>
+    <script src="{{ url_for('static', filename='js/pedidos_alerta.js') }}?v=202610191"></script>
+<script src="{{ url_for('static', filename='js/paginar_tablas.js') }}?v=202610192"></script>
     <script src="{{ url_for('static', filename='js/telefono_pais.js') }}?v=202610191"></script>
     {% block extra_js %}{% endblock %}
     <!-- REGISTRO PWA -->

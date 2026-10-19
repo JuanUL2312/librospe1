@@ -63,3 +63,22 @@ GET http://127.0.0.1:8002/validar-stock/1/2
 ## Diferencia con el monolito
 
 Ver `../Monilitico/README.md`: 1 app + 1 BD, sin tokens ni puertos múltiples.
+
+## Facturación SUNAT (3 modos)
+
+`www/sunat_service.py` emite comprobantes según `SUNAT_MODE` en `.env`:
+
+| Modo | Qué hace | Requisitos |
+|---|---|---|
+| `simulado` (default) | Hash local + rótulo "AUTORIZACIÓN SUNAT (SIMULADA)" | ninguno |
+| `beta` | API `facturacion.apisperu.com` contra ambiente de pruebas SUNAT | `FACTURACION_USER/PASS` (plan apisperu, beta sin certificado) |
+| `produccion` | Misma API contra SUNAT producción (XML/CDR reales) | plan apisperu + certificado `.pfx` + usuario SOL secundario |
+
+Si la API falla en `beta`/`produccion`, se hace **fallback automático a
+simulado** para no interrumpir ventas. Pasos de la API: `POST /auth/login` →
+`POST /invoice` → `GET /invoice/status`. Para pasar a producción: crear cuenta
+en apisperu.com, cargar el certificado y clave SOL en su panel y cambiar
+`SUNAT_MODE=produccion`.
+
+La validación de clientes ya funciona en todos los modos: DNI (RENIEC) y RUC
+(SUNAT) vía `API_PERU_TOKEN`.
