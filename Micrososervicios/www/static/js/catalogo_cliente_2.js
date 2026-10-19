@@ -134,14 +134,41 @@ function renderPaginacion(total, actual, totalPaginas) {
     var cont = document.getElementById('paginacion');
     if (!cont) return;
     if (totalPaginas <= 1) { cont.innerHTML = ''; return; }
-    // Dots a la izquierda, flechas a la derecha como en la imagen
-    var dots = '';
-    for (var p = 1; p <= totalPaginas; p++) {
-        var active = p === actual ? 'background:#0d6efd; width:12px; height:12px;' : 'background:#cbd5e1; width:8px; height:8px;';
-        dots += '<button onclick="cambiarPagina(' + p + '); return false;" style="' + active + ' border:none; border-radius:50%; display:inline-block; margin:0 4px; cursor:pointer; vertical-align:middle;" aria-label="Página ' + p + '"></button>';
+
+    function btnPagina(n) {
+        var esActiva = n === actual;
+        var estilo = 'min-width:42px; height:42px; border:1.5px solid #0d6efd; border-radius:6px; font-weight:600; cursor:pointer; margin-right:6px; display:inline-block; ';
+        estilo += esActiva ? 'background:#0d6efd; color:#fff;' : 'background:#fff; color:#0d6efd;';
+        return '<button class="btn btn-sm" style="' + estilo + '"' + (esActiva ? ' aria-current="page"' : '') + ' onclick="cambiarPagina(' + n + '); return false;">' + n + '</button>';
     }
+
+    // Números de página (con "…" si hay muchas)
+    var numeros = [];
+    if (totalPaginas <= 7) {
+        for (var i = 1; i <= totalPaginas; i++) numeros.push(i);
+    } else {
+        var desde = 2, hasta = totalPaginas - 1;
+        if (actual <= 2) { hasta = 3; }
+        else if (actual >= totalPaginas - 1) { desde = totalPaginas - 2; }
+        else { desde = actual - 1; hasta = actual + 1; }
+        numeros.push(1);
+        if (desde > 2) numeros.push('…');
+        for (var j = desde; j <= hasta; j++) numeros.push(j);
+        if (hasta < totalPaginas - 1) numeros.push('…');
+        numeros.push(totalPaginas);
+    }
+
+    var centro = '';
+    for (var k = 0; k < numeros.length; k++) {
+        if (numeros[k] === '…') {
+            centro += '<span style="display:inline-block; min-width:26px; text-align:center; color:#64748b; font-weight:600;">…</span>';
+        } else {
+            centro += btnPagina(numeros[k]);
+        }
+    }
+
     var html = '<div class="d-flex justify-content-between align-items-center mt-4 flex-wrap gap-2">';
-    html += '<div>' + dots + '</div>';
+    html += '<div>' + centro + '</div>';
     html += '<div class="d-flex gap-2">';
     html += '<button class="btn btn-outline-primary" style="width:42px; height:42px; border:1.5px solid #0d6efd; border-radius:6px; background:#fff; color:#0d6efd;" ' + (actual === 1 ? 'disabled' : '') + ' onclick="cambiarPagina(' + (actual - 1) + '); return false;"><i class="fas fa-arrow-left"></i></button>';
     html += '<button class="btn btn-outline-primary" style="width:42px; height:42px; border:1.5px solid #0d6efd; border-radius:6px; background:#fff; color:#0d6efd;" ' + (actual === totalPaginas ? 'disabled' : '') + ' onclick="cambiarPagina(' + (actual + 1) + '); return false;"><i class="fas fa-arrow-right"></i></button>';
