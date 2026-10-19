@@ -44,6 +44,17 @@
             window.addEventListener('resize', ajustarNavH);
 
             // ============================================
+            // MENU LATERAL: MARCAR LA PAGINA ACTUAL
+            // ============================================
+            document.querySelectorAll('.admin-dashboard-grid a[href]').forEach(function(a) {
+                try {
+                    if (a.getAttribute('href') && new URL(a.href, location.origin).pathname === location.pathname) {
+                        a.classList.add('active');
+                    }
+                } catch (e) { /* href invalido */ }
+            });
+
+            // ============================================
             // EFECTO DE SOMBRA AL HACER SCROLL
             // ============================================
             const panel = document.getElementById('panelSalesiano');
