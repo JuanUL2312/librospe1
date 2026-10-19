@@ -50,6 +50,14 @@ jobs:
             node --check "$f"
           done
 
+      - name: Preparar la base de datos de pruebas
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_PORT: "3306"
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: dev
+        run: python Micrososervicios/tests/preparar_base_test.py
+
       - name: Ejecutar las pruebas
         env:
           TEST_DB_HOST: 127.0.0.1
