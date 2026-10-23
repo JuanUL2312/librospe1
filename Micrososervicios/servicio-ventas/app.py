@@ -122,8 +122,9 @@ def crear_pedido():
             "total": data.get("total",0), "direccion_entrega": data.get("direccion_entrega"),
             "tipo_entrega": data.get("tipo_entrega"), "nota": data.get("nota")
         })
-        db.session.commit()
+        # Antes del commit (misma transaccion/conexion): LAST_INSERT_ID() es por-conexion.
         nid = db.session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        db.session.commit()
         # Detalles si vienen
         for det in data.get("detalles", []):
             db.session.execute(text("""
@@ -155,8 +156,9 @@ def crear_venta():
             "vendedor_id": data["vendedor_id"], "cliente_id": data.get("cliente_id"),
             "tipo_comprobante": data.get("tipo_comprobante","boleta"), "numero_comprobante": data.get("numero_comprobante")
         })
-        db.session.commit()
+        # Antes del commit (misma transaccion/conexion): LAST_INSERT_ID() es por-conexion.
         nid = db.session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        db.session.commit()
         return jsonify({"ok": True, "id": nid}), 201
     except Exception as e:
         db.session.rollback()
@@ -216,4 +218,4 @@ if __name__ == "__main__":
         iniciar_consumidor("ventas", _aplicar_evento)
     except Exception as e:
         print(f"[ventas] no se pudo iniciar el consumidor de eventos: {e}")
-    app.run(host="0.0.0.0", port=8002)
+    app.run(host="127.0.0.1", port=8002)

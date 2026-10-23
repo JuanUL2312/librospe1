@@ -14,7 +14,7 @@ Los archivos de configuración del servidor son:
 - `www/wsgi.py` y `www/passenger_wsgi.py` → punto de entrada WSGI
 - `www/.htaccess` → configuración de Passenger
 - `www/venv/` → entorno virtual **Linux** del servidor
-- `restart.sh` → reinicia la app (toca `www/tmp/restart.txt`)
+- `restart.sh` → toca `www/tmp/restart.txt` (solo sirve si el sitio corre bajo Passenger; con uWSGI el reinicio es desde el panel de alwaysdata)
 
 La base de datos y el email se configuran en `.env` (no se sube a Git).
 
@@ -29,9 +29,9 @@ git clone https://github.com/JuanUL2312/librospe1.git librospe1
 #    (conserva venv/ y .env del servidor)
 rsync -a --exclude 'venv' --exclude '.env' librospe1/www/ ~/www/
 
-# 3) Reiniciar Passenger
-mkdir -p ~/www/tmp
-touch ~/www/tmp/restart.txt
+# 3) Reiniciar la app: con uWSGI el reinicio es desde el panel de
+#    alwaysdata (Web > Sites > tu sitio > Restart). touch restart.txt
+#    solo funciona en sitios Passenger.
 ```
 
 > NO usar `rsync --delete`: borraría `~/www/venv/`. Tampoco sobrescribir `~/www/.env`
@@ -69,12 +69,26 @@ python -m venv .venv-live
 .venv-live\Scripts\pip install -r requirements.txt
 ```
 
+## 🧪 Pruebas (pytest)
+
+La suite está en `tests/` y cubre las 6 categorías:
+
+```bash
+.venv-live\Scripts\python -m pytest                 # toda la suite
+.venv-live\Scripts\python -m pytest -m unitarias    # sin red ni BD
+.venv-live\Scripts\python -m pytest -m resiliencia  # caída de servicios -> 503
+```
+
+Los fixtures levantan solos los microservicios (8001-8004) y el gateway
+(8000) si no están corriendo, y solo detienen los procesos que ellos
+arrancaron. Las categorías que escriben en la BD usan filas de prueba que
+se eliminan al final.
+
 ## 🔄 Sincronización de microservicios
 
-- `sincronizar.sh` → ejecuta `sincronizar.sql` (sincroniza pedidos, productos y proveedores)
+- `sincronizar_completo.sh` → ejecuta `sincronizar.sql` y registra todo en `sincronizacion.log`
 - `verificar_sincronizacion.sh` → muestra el estado de sincronización
-- `programar_sincronizacion.sh` → agenda el job cada hora vía cron
-- `sincronizar_completo.sh` → versión con log
+- `programar_sincronizacion.sh` → agenda el job cada hora vía cron (en alwaysdata se usa el cron del panel)
 
 ## 🗺️ Ubigeo (departamento, provincia y distrito)
 

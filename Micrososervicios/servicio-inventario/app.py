@@ -87,8 +87,9 @@ def crear_producto():
             "codigo_barras": data.get("codigo_barras"), "estado": int(data.get("estado",1)), "stock_minimo": int(data.get("stock_minimo",5)),
             "stock_maximo": int(data.get("stock_maximo",100)), "costo": data.get("costo")
         })
-        db.session.commit()
+        # Antes del commit (misma transaccion/conexion): LAST_INSERT_ID() es por-conexion.
         nid = db.session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        db.session.commit()
         return jsonify({"ok": True, "id": nid}), 201
     except Exception as e:
         db.session.rollback()
@@ -148,8 +149,9 @@ def crear_proveedor():
             "nombre": data["nombre"], "email": data["email"], "contacto": data["contacto"],
             "empresa": data.get("empresa", data["nombre"]), "ruc_empresa_id": data.get("ruc_empresa_id"), "estado": int(data.get("estado",1))
         })
-        db.session.commit()
+        # Antes del commit (misma transaccion/conexion): LAST_INSERT_ID() es por-conexion.
         nid = db.session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        db.session.commit()
         return jsonify({"ok": True, "id": nid}), 201
     except Exception as e:
         db.session.rollback()
@@ -289,4 +291,4 @@ if __name__ == "__main__":
         iniciar_consumidor("inventario", _aplicar_evento)
     except Exception as e:
         print(f"[inventario] no se pudo iniciar el consumidor de eventos: {e}")
-    app.run(host="0.0.0.0", port=8001)
+    app.run(host="127.0.0.1", port=8001)

@@ -114,8 +114,10 @@ def crear():
             "departamento": departamento, "provincia": provincia, "distrito": distrito,
             "clave": hashed
         })
-        db.session.commit()
+        # Antes del commit y en la MISMA transaccion: LAST_INSERT_ID() es
+        # por-conexion y tras el commit el pool puede entregar otra conexion.
         nuevo_id = db.session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        db.session.commit()
         return jsonify({"ok": True, "id": nuevo_id, "correo": email}), 201
     except Exception as e:
         db.session.rollback()
@@ -188,10 +190,35 @@ def ubicacion():
     return jsonify([dict(r) for r in rows])
 
 
+@app.route("/validar-credenciales", methods=["POST"])
+def validar_credenciales():
+    """Uso interno (gateway API con JWT): valida correo+clave de un CLIENTE de la tienda."""
+    if not _verifica_token():
+        return jsonify({"error": "Token invalido"}), 401
+    data = request.get_json(silent=True) or {}
+    correo = (data.get("correo") or data.get("email") or "").strip().lower()
+    clave = str(data.get("clave") or "")
+    if not correo or not clave:
+        return jsonify({"error": "correo y clave requeridos"}), 400
+    fila = db.session.execute(text("""
+        SELECT id, clave, nombres, apellidos, correo, estado
+        FROM clientes WHERE LOWER(correo) = :correo
+    """), {"correo": correo}).mappings().first()
+    if not fila or not fila["clave"] or not bcrypt.check_password_hash(fila["clave"], clave):
+        return jsonify({"error": "Credenciales invalidas"}), 401
+    if not fila["estado"]:
+        return jsonify({"error": "Cliente deshabilitado"}), 403
+    nombre = f"{fila['nombres'] or ''} {fila['apellidos'] or ''}".strip()
+    return jsonify({
+        "id": fila["id"], "correo": fila["correo"], "rol": "cliente",
+        "nombre": nombre, "nombres": fila["nombres"], "apellidos": fila["apellidos"],
+    }), 200
+
+
 def _aplicar_evento(tipo, datos):
     """Aplica un evento recibido del agente de mensajes (RabbitMQ)."""
     try:
-        if tipo in ("cliente.registrado", "cliente.actualizado"):
+        if tipo == "cliente.registrado":
             # Este servicio es el dueno de los datos de clientes: verifica
             # que el cliente quedo registrado.
             correo = datos.get("email")
@@ -214,4 +241,4 @@ if __name__ == "__main__":
         iniciar_consumidor("clientes", _aplicar_evento)
     except Exception as e:
         print(f"[clientes] no se pudo iniciar el consumidor de eventos: {e}")
-    app.run(host="0.0.0.0", port=8004)
+    app.run(host="127.0.0.1", port=8004)

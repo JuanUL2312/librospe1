@@ -15,7 +15,6 @@ Nunca lanza excepciones: cualquier fallo se registra y se degrada al outbox.
 """
 import json
 import os
-import time
 from datetime import datetime
 
 # ------------------------------------------------------------------
@@ -28,15 +27,12 @@ COLAS = {
     "usuarios": os.environ.get("AMQP_COLA_USUARIOS", "librospe.usuarios"),
     "clientes": os.environ.get("AMQP_COLA_CLIENTES", "librospe.clientes"),
 }
-# Eventos -> servicios que los consumen
+# Eventos -> servicios que los consumen (solo los que se emiten realmente)
 EVENTOS = {
     "pedido.creado": ["inventario", "ventas"],
     "venta.registrada": ["inventario", "ventas"],
     "producto.actualizado": ["ventas", "inventario"],
-    "stock.actualizado": ["ventas", "inventario"],
     "cliente.registrado": ["ventas", "usuarios"],
-    "cliente.actualizado": ["ventas"],
-    "usuario.actualizado": ["ventas", "inventario"],
     "producto.alerta_stock": ["usuarios", "ventas"],
 }
 
@@ -209,6 +205,10 @@ def _publicar_en_broker(tipo, datos, origen="gateway"):
         pika = _pika()
         canal = conexion.channel()
         canal.exchange_declare(exchange=EXCHANGE, exchange_type="topic", durable=True)
+        # Confirmacion del broker: hay que activarla ANTES de publicar, para que
+        # basic_publish lanze NackError/UnroutableError si el broker no lo acepta.
+        if hasattr(canal, "confirm_delivery"):
+            canal.confirm_delivery()
         cuerpo = json.dumps({
             "tipo": tipo,
             "origen": origen,
@@ -220,9 +220,6 @@ def _publicar_en_broker(tipo, datos, origen="gateway"):
                                      type=tipo)
         canal.basic_publish(exchange=EXCHANGE, routing_key=tipo, body=cuerpo.encode("utf-8"),
                             properties=props)
-        # Confirmacion del broker: si no confirma, no lo damos por enviado.
-        if hasattr(canal, "confirm_delivery"):
-            canal.confirm_delivery()
         try:
             conexion.close()
         except Exception:
@@ -287,13 +284,23 @@ def consumir_eventos(servicio, handler, mientras=True):
     try:
         canal = conexion.channel()
         cola = _declarar_canal(pika, canal, servicio)
+        # Con prefetch=1 el broker entrega un evento a la vez y espera el ack
+        # (si el handler falla, el basic_nack lo reencola sin perderlo).
+        try:
+            canal.basic_qos(prefetch_count=1)
+        except Exception:
+            pass
+        # consume() es push: el broker empuja los eventos en cuanto llegan,
+        # sin sondear la cola ni dormir entre consultas.
+        entregas = canal.consume(queue=cola, auto_ack=False,
+                                 inactivity_timeout=None if mientras else 0.5)
         print(f"[mensajeria] {servicio}: escuchando la cola '{cola}'")
         while True:
-            metodo, properties, body = canal.basic_get(queue=cola, auto_ack=False)
+            metodo, properties, body = next(entregas)
             if metodo is None:
+                # (None, None, None) = inactividad transcurrida
                 if not mientras:
                     break
-                time.sleep(1)
                 continue
             try:
                 evento = json.loads(body.decode("utf-8"))
@@ -313,6 +320,10 @@ def consumir_eventos(servicio, handler, mientras=True):
                     pass
             if not mientras:
                 break
+        try:
+            canal.cancel()
+        except Exception:
+            pass
     except Exception as e:
         print(f"[mensajeria] {servicio}: error del consumidor: {e}")
         return False

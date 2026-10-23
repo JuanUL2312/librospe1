@@ -12,7 +12,6 @@ Uso:
 import json
 import os
 import threading
-import time
 
 EXCHANGE = (os.environ.get("AMQP_EXCHANGE", "librospe.eventos") or "librospe.eventos").strip()
 
@@ -23,15 +22,12 @@ COLAS = {
     "clientes": os.environ.get("AMQP_COLA_CLIENTES", "librospe.clientes"),
 }
 
-# routing key -> servicios que la consumen
+# routing key -> servicios que la consumen (solo los eventos que se emiten)
 EVENTOS = {
     "pedido.creado": ["inventario", "ventas"],
     "venta.registrada": ["inventario", "ventas"],
     "producto.actualizado": ["ventas", "inventario"],
-    "stock.actualizado": ["ventas", "inventario"],
     "cliente.registrado": ["ventas", "usuarios"],
-    "cliente.actualizado": ["ventas"],
-    "usuario.actualizado": ["ventas", "inventario"],
     "producto.alerta_stock": ["usuarios", "ventas"],
 }
 
@@ -88,12 +84,19 @@ def _consumir(servicio, handler, parar):
         try:
             canal = conexion.channel()
             cola = _preparar_canal(pika, canal, servicio)
+            # prefetch=1: el broker entrega un evento a la vez y espera el ack
+            try:
+                canal.basic_qos(prefetch_count=1)
+            except Exception:
+                pass
             print(f"[rabbit] {servicio}: escuchando la cola '{cola}'")
+            # consume() empuja los eventos en cuanto llegan; con el timeout
+            # corto el bucle sigue revisando `parar` cada segundo.
+            entregas = canal.consume(queue=cola, auto_ack=False, inactivity_timeout=1.0)
             while not parar.is_set():
-                metodo, properties, body = canal.basic_get(queue=cola, auto_ack=False)
+                metodo, properties, body = next(entregas)
                 if metodo is None:
-                    parar.wait(1)
-                    continue
+                    continue      # inactividad: se revisa `parar` en la vuelta
                 try:
                     evento = json.loads(body.decode("utf-8"))
                     tipo = evento.get("tipo") or properties.type
@@ -109,6 +112,10 @@ def _consumir(servicio, handler, parar):
                         canal.basic_nack(metodo.delivery_tag, requeue=True)
                 except Exception:
                     pass
+            try:
+                canal.cancel()
+            except Exception:
+                pass
         except Exception as e:
             print(f"[rabbit] {servicio}: error del consumidor: {e}")
             parar.wait(10)

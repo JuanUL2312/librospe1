@@ -96,8 +96,9 @@ def crear():
             "correo":data["correo"],"nombres":data["nombres"],"apellidos":data["apellidos"],
             "clave":hashed,"rol_id":rol_id,"rol":rol,"documento":data.get("documento")
         })
-        db.session.commit()
+        # Antes del commit (misma transaccion/conexion): LAST_INSERT_ID() es por-conexion.
         nid=db.session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        db.session.commit()
         return jsonify({"ok":True,"id":nid}),201
     except Exception as e:
         db.session.rollback()
@@ -144,6 +145,31 @@ def eliminar(uid):
         return jsonify({"error":str(e)}),500
 
 
+@app.route("/validar-credenciales", methods=["POST"])
+def validar_credenciales():
+    """Uso interno (gateway API con JWT): valida correo+clave y devuelve identidad."""
+    if not _verifica():
+        return jsonify({"error": "Token invalido"}), 401
+    data = request.get_json(silent=True) or {}
+    correo = str(data.get("correo") or "").strip().lower()
+    clave = str(data.get("clave") or "")
+    if not correo or not clave:
+        return jsonify({"error": "correo y clave requeridos"}), 400
+    fila = db.session.execute(text("""
+        SELECT id, clave, nombres, apellidos, correo, rol, estado
+        FROM usuarios_sistema WHERE correo = :correo
+    """), {"correo": correo}).mappings().first()
+    if not fila or not fila["clave"] or not bcrypt.check_password_hash(fila["clave"], clave):
+        return jsonify({"error": "Credenciales invalidas"}), 401
+    if not fila["estado"]:
+        return jsonify({"error": "Usuario deshabilitado"}), 403
+    nombre = f"{fila['nombres'] or ''} {fila['apellidos'] or ''}".strip()
+    return jsonify({
+        "id": fila["id"], "correo": fila["correo"], "rol": fila["rol"],
+        "nombre": nombre, "nombres": fila["nombres"], "apellidos": fila["apellidos"],
+    }), 200
+
+
 def _aplicar_evento(tipo, datos):
     """Aplica un evento recibido del agente de mensajes (RabbitMQ)."""
     try:
@@ -167,4 +193,4 @@ if __name__ == "__main__":
         iniciar_consumidor("usuarios", _aplicar_evento)
     except Exception as e:
         print(f"[usuarios] no se pudo iniciar el consumidor de eventos: {e}")
-    app.run(host="0.0.0.0", port=8003)
+    app.run(host="127.0.0.1", port=8003)

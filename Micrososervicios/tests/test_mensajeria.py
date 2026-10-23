@@ -25,7 +25,7 @@ class FakeProps:
 
 class FakeCanal:
     def __init__(self):
-        self._entrega = None
+        self._entregas = []
 
     def exchange_declare(self, exchange=None, exchange_type=None, durable=None):
         declarados.setdefault("exchanges", []).append((exchange, exchange_type, durable))
@@ -36,18 +36,29 @@ class FakeCanal:
     def queue_bind(self, exchange=None, queue=None, routing_key=None):
         declarados.setdefault("bindings", []).append((exchange, queue, routing_key))
 
+    def basic_qos(self, prefetch_size=0, prefetch_count=0, global_qos=False):
+        declarados.setdefault("qos", []).append(prefetch_count)
+
     def confirm_delivery(self):
         declarados.setdefault("confirms", []).append(True)
+        declarados.setdefault("orden", []).append("confirm")
 
     def basic_publish(self, exchange=None, routing_key=None, body=None, properties=None):
+        declarados.setdefault("orden", []).append("publish")
         publicados.append({"exchange": exchange, "routing_key": routing_key,
                            "body": json.loads(body.decode("utf-8")), "props": properties})
 
-    def basic_get(self, queue=None, auto_ack=False):
-        if not self._entrega:
-            return None, None, None
-        entrega, self._entrega = self._entrega, None
-        return entrega
+    def consume(self, queue=None, auto_ack=False, exclusive=False, arguments=None,
+                inactivity_timeout=None):
+        # igual que pika: cede (metodo, props, cuerpo) y (None, None, None)
+        # cuando no hay mas eventos
+        declarados.setdefault("consumes", []).append((queue, inactivity_timeout))
+        for entrega in list(self._entregas):
+            yield entrega
+        yield (None, None, None)
+
+    def cancel(self):
+        declarados.setdefault("cancel", []).append(True)
 
     def basic_ack(self, tag):
         declarados.setdefault("acks", []).append(tag)
@@ -102,7 +113,10 @@ def mensajeria(monkeypatch):
 def test_configuracion(mensajeria):
     assert mensajeria.EXCHANGE == "librospe.eventos"
     assert set(mensajeria.COLAS) == {"inventario", "ventas", "usuarios", "clientes"}
-    assert len(mensajeria.EVENTOS) >= 8
+    # solo los eventos que realmente se emiten (los demas no se publican)
+    assert len(mensajeria.EVENTOS) == 5
+    for muerto in ("stock.actualizado", "cliente.actualizado", "usuario.actualizado"):
+        assert muerto not in mensajeria.EVENTOS
     assert "inventario" in mensajeria.EVENTOS["pedido.creado"]
     assert "ventas" in mensajeria.EVENTOS["pedido.creado"]
 
@@ -121,6 +135,9 @@ def test_publicacion(mensajeria, monkeypatch):
     assert ev["body"]["datos"]["pedido_id"] == 7
     assert ev["props"].delivery_mode == 2      # persistente
     assert declarados.get("confirms")
+    # la confirmacion se activa ANTES de publicar (si no, no protege nada)
+    orden = declarados["orden"]
+    assert orden.index("confirm") < orden.index("publish")
 
 
 def test_consumo(mensajeria, monkeypatch):
@@ -133,20 +150,21 @@ def test_consumo(mensajeria, monkeypatch):
     cuerpo = json.dumps({"tipo": "pedido.creado", "origen": "gateway",
                           "datos": {"pedido_id": 9}}).encode("utf-8")
     conexion = FakeConexion()
-    conexion.canal._entrega = (FakeEntrega(cuerpo), FakeProps(type="pedido.creado"), cuerpo)
+    conexion.canal._entregas = [(FakeEntrega(cuerpo), FakeProps(type="pedido.creado"), cuerpo)]
     monkeypatch.setattr(mensajeria, "_conexion", lambda *a, **k: (conexion, ""))
 
     cola = mensajeria._declarar_canal(FakeParams("x"), conexion.canal, "inventario")
     assert cola == "librospe.inventario"
     assert ("librospe.eventos", "librospe.inventario", "pedido.creado") in declarados["bindings"]
 
-    import threading
-    parar = threading.Event()
-    parar.set()
     mensajeria.consumir_eventos("inventario", handler, mientras=False)
     assert len(recibidos) == 1
     assert recibidos[0][0] == "pedido.creado"
     assert declarados["acks"] == [42]
+    # consumo en push (consume + prefetch=1), no sondeo con basic_get
+    assert declarados.get("qos") == [1]
+    assert declarados.get("consumes", [])[0][0] == "librospe.inventario"
+    assert declarados.get("cancel")
 
 
 def test_respaldo_sin_broker(mensajeria, monkeypatch):

@@ -4416,68 +4416,63 @@ def ver_bloqueos():
     
     try:
         # ============================================
-        # 1. BLOQUEOS PERMANENTES DE CLIENTES
+        # 1 y 2) BLOQUEOS (tabla 'bloqueos' -> microservicio usuarios)
+        #   NO se unen clientes/usuarios_sistema en el SQL: son bases
+        #   distintas y la consulta cruda caeria al motor por defecto.
         # ============================================
         bloqueos_permanentes = db.session.execute(text("""
-            SELECT 
-                b.id,
-                b.cliente_id,
-                b.motivo,
-                b.fecha_bloqueo,
-                b.bloqueado_por,
-                b.estado,
-                b.permanente,
-                c.correo AS cliente_correo,
-                c.nombres AS cliente_nombres,
-                c.apellidos AS cliente_apellidos,
-                CONCAT(bloq.nombres, ' ', bloq.apellidos) AS bloqueado_por_nombre
-            FROM bloqueos b
-            LEFT JOIN clientes c ON b.cliente_id = c.id
-            LEFT JOIN usuarios_sistema bloq ON b.bloqueado_por = bloq.id
-            WHERE b.tipo_usuario = 'cliente' AND b.estado = 1 AND b.permanente = 1
-            ORDER BY b.fecha_bloqueo DESC
+            SELECT id, cliente_id, motivo, fecha_bloqueo, bloqueado_por
+            FROM bloqueos
+            WHERE tipo_usuario = 'cliente' AND estado = 1 AND permanente = 1
+            ORDER BY fecha_bloqueo DESC
         """)).mappings().all()
-        
-        # ============================================
-        # 2. BLOQUEOS TEMPORALES DE CLIENTES
-        # ============================================
+
         bloqueos_temporales = db.session.execute(text("""
-            SELECT 
-                b.id,
-                b.cliente_id,
-                b.motivo,
-                b.fecha_bloqueo,
-                b.bloqueado_por,
-                b.estado,
-                b.permanente,
-                b.minutos_bloqueo,
-                c.correo AS cliente_correo,
-                c.nombres AS cliente_nombres,
-                c.apellidos AS cliente_apellidos,
-                CONCAT(bloq.nombres, ' ', bloq.apellidos) AS bloqueado_por_nombre,
-                DATE_ADD(b.fecha_bloqueo, INTERVAL b.minutos_bloqueo MINUTE) AS fecha_desbloqueo
-            FROM bloqueos b
-            LEFT JOIN clientes c ON b.cliente_id = c.id
-            LEFT JOIN usuarios_sistema bloq ON b.bloqueado_por = bloq.id
-            WHERE b.tipo_usuario = 'cliente' AND b.estado = 1 AND b.permanente = 0
-            ORDER BY b.fecha_bloqueo DESC
+            SELECT id, cliente_id, motivo, fecha_bloqueo, bloqueado_por,
+                   minutos_bloqueo
+            FROM bloqueos
+            WHERE tipo_usuario = 'cliente' AND estado = 1 AND permanente = 0
+            ORDER BY fecha_bloqueo DESC
         """)).mappings().all()
-        
+
+        # Enriquecer desde SU microservicio (ORM -> binds "clientes"/"usuarios")
+        todos = list(bloqueos_permanentes) + list(bloqueos_temporales)
+        ids_clientes = [b["cliente_id"] for b in todos if b["cliente_id"]]
+        ids_usuarios = [b["bloqueado_por"] for b in todos if b["bloqueado_por"]]
+        clientes = {
+            c.id: c for c in Cliente.query.filter(Cliente.id.in_(ids_clientes))
+        } if ids_clientes else {}
+        usuarios = {
+            u.id: u for u in UsuarioSistema.query.filter(UsuarioSistema.id.in_(ids_usuarios))
+        } if ids_usuarios else {}
+
+        def _nombre_cliente(cid):
+            c = clientes.get(cid)
+            return f"{c.nombres} {c.apellidos}".strip() if c else ""
+
+        def _correo_cliente(cid):
+            c = clientes.get(cid)
+            return c.correo if c else None
+
+        def _nombre_bloqueador(uid):
+            u = usuarios.get(uid)
+            return f"{u.nombres} {u.apellidos}".strip() if u else None
+
         # ============================================
-        # 3. UNIFICAR RESULTADOS
+        # 3) UNIFICAR RESULTADOS
         # ============================================
         bloqueos_lista = []
-        
+
         # Permanentes
         for b in bloqueos_permanentes:
             bloqueo_dict = {
                 'id_bloqueo': b['id'],
                 'tipo': 'Cliente',
-                'nombre_completo': f"{b['cliente_nombres'] or ''} {b['cliente_apellidos'] or ''}".strip(),
-                'email': b['cliente_correo'],
+                'nombre_completo': _nombre_cliente(b['cliente_id']),
+                'email': _correo_cliente(b['cliente_id']),
                 'motivo': b['motivo'] or 'Sin motivo',
                 'fecha_bloqueo': b['fecha_bloqueo'],
-                'bloqueado_por': b['bloqueado_por_nombre'] or 'Sistema',
+                'bloqueado_por': _nombre_bloqueador(b['bloqueado_por']) or 'Sistema',
                 'origen': 'Permanente',
                 'tipo_origen': 'bloqueos',
                 'permanente': True
@@ -4486,18 +4481,21 @@ def ver_bloqueos():
         
         # Temporales
         for b in bloqueos_temporales:
+            fecha_desbloqueo = None
+            if b['fecha_bloqueo'] and b['minutos_bloqueo']:
+                fecha_desbloqueo = b['fecha_bloqueo'] + timedelta(minutes=b['minutos_bloqueo'])
             bloqueo_dict = {
                 'id_bloqueo': b['id'],
                 'tipo': 'Cliente',
-                'nombre_completo': f"{b['cliente_nombres'] or ''} {b['cliente_apellidos'] or ''}".strip(),
-                'email': b['cliente_correo'],
+                'nombre_completo': _nombre_cliente(b['cliente_id']),
+                'email': _correo_cliente(b['cliente_id']),
                 'motivo': b['motivo'] or 'Sin motivo',
                 'fecha_bloqueo': b['fecha_bloqueo'],
-                'bloqueado_por': b['bloqueado_por_nombre'] or 'Sistema',
+                'bloqueado_por': _nombre_bloqueador(b['bloqueado_por']) or 'Sistema',
                 'origen': 'Temporal (10 min)',
                 'tipo_origen': 'bloqueos',
                 'permanente': False,
-                'fecha_desbloqueo': b['fecha_desbloqueo']
+                'fecha_desbloqueo': fecha_desbloqueo
             }
             bloqueos_lista.append(bloqueo_dict)
         
@@ -4630,100 +4628,99 @@ def api_bloqueos():
     try:
         # 🔥 PRIMERO: Limpiar bloqueos expirados
         limpiar_bloqueos_expirados()
-        
+
         # ============================================
-        # 1. BLOQUEOS DE LA TABLA 'bloqueos' (manuales y temporales)
+        # 1) BLOQUEOS DE LA TABLA 'bloqueos' (manuales y temporales)
+        #    (tabla unica -> microservicio usuarios; NO unir con clientes:
+        #     son bases distintas y el SQL crudo caeria al motor equivocado)
         # ============================================
         bloqueos_bd = db.session.execute(text("""
-            SELECT 
-                b.id,
-                b.cliente_id,
-                b.motivo,
-                b.fecha_bloqueo,
-                b.permanente,
-                b.minutos_bloqueo,
-                c.correo AS cliente_correo,
-                c.nombres AS cliente_nombres,
-                c.apellidos AS cliente_apellidos
-            FROM bloqueos b
-            LEFT JOIN clientes c ON b.cliente_id = c.id
-            WHERE b.tipo_usuario = 'cliente' 
-            AND b.estado = 1
+            SELECT id, cliente_id, motivo, fecha_bloqueo, permanente
+            FROM bloqueos
+            WHERE tipo_usuario = 'cliente'
+            AND estado = 1
             AND (
-                b.permanente = 1 
-                OR b.fecha_bloqueo > DATE_SUB(NOW(), INTERVAL b.minutos_bloqueo MINUTE)
+                permanente = 1
+                OR fecha_bloqueo > DATE_SUB(NOW(), INTERVAL minutos_bloqueo MINUTE)
             )
-            ORDER BY b.fecha_bloqueo DESC
+            ORDER BY fecha_bloqueo DESC
         """)).mappings().all()
-        
+
         # ============================================
-        # 2. BLOQUEOS AUTOMÁTICOS (intentos_login)
+        # 2) BLOQUEOS AUTOMÁTICOS (intentos_login, tambien en usuarios)
         # ============================================
         intentos_bloqueados = db.session.execute(text("""
-            SELECT 
-                i.id,
-                i.email,
-                i.intentos,
-                i.email_bloqueado,
-                c.id AS cliente_id,
-                c.nombres AS cliente_nombres,
-                c.apellidos AS cliente_apellidos,
-                c.correo AS cliente_correo
-            FROM intentos_login i
-            JOIN clientes c ON i.email = c.correo
-            WHERE i.email_bloqueado IS NOT NULL 
-            AND i.email_bloqueado > NOW()
-            ORDER BY i.email_bloqueado DESC
+            SELECT id, email, intentos, email_bloqueado
+            FROM intentos_login
+            WHERE email_bloqueado IS NOT NULL
+            AND email_bloqueado > NOW()
+            ORDER BY email_bloqueado DESC
         """)).mappings().all()
-        
+
         # ============================================
-        # 3. UNIFICAR RESULTADOS SIN DUPLICADOS
+        # 3) DATOS DEL CLIENTE desde SU microservicio (ORM -> bind "clientes")
+        # ============================================
+        ids = [b["cliente_id"] for b in bloqueos_bd if b["cliente_id"]]
+        correos = [i["email"] for i in intentos_bloqueados if i["email"]]
+        clientes_por_id = {}
+        clientes_por_correo = {}
+        if ids:
+            clientes_por_id = {
+                c.id: c for c in Cliente.query.filter(Cliente.id.in_(ids))}
+        if correos:
+            clientes_por_correo = {
+                c.correo: c for c in Cliente.query.filter(Cliente.correo.in_(correos))}
+
+        # ============================================
+        # 4) UNIFICAR RESULTADOS SIN DUPLICADOS
         # ============================================
         resultado = []
         emails_vistos = set()
-        
+
         # Procesar bloqueos de la tabla 'bloqueos'
         for b in bloqueos_bd:
-            email = b['cliente_correo']
+            c = clientes_por_id.get(b["cliente_id"])
+            email = c.correo if c else None
             # Si ya vimos este email en intentos_login, usar el de intentos_login (más reciente)
             if email in emails_vistos:
                 continue
-            
+
             emails_vistos.add(email)
-            
+
             resultado.append({
                 'id': b['id'],
                 'tipo': 'Cliente',
-                'nombre_completo': f"{b['cliente_nombres'] or ''} {b['cliente_apellidos'] or ''}".strip(),
+                'nombre_completo': f"{c.nombres if c else ''} {c.apellidos if c else ''}".strip(),
                 'email': email,
                 'motivo': b['motivo'] or 'Sin motivo',
                 'fecha_bloqueo': b['fecha_bloqueo'],
                 'origen': 'Permanente' if b['permanente'] else 'Temporal',
                 'permanente': bool(b['permanente'])
             })
-        
+
         # Procesar bloqueos automáticos de intentos_login
         for i in intentos_bloqueados:
             email = i['email']
             # Si ya vimos este email, saltar (el de intentos_login es más reciente)
             if email in emails_vistos:
                 continue
-            
+
             emails_vistos.add(email)
-            
+            c = clientes_por_correo.get(email)
+
             resultado.append({
                 'id': i['id'],
                 'tipo': 'Cliente',
-                'nombre_completo': f"{i['cliente_nombres'] or ''} {i['cliente_apellidos'] or ''}".strip(),
+                'nombre_completo': f"{c.nombres if c else ''} {c.apellidos if c else ''}".strip(),
                 'email': email,
                 'motivo': f"Bloqueo automático por {i['intentos']} intentos fallidos",
                 'fecha_bloqueo': i['email_bloqueado'],
                 'origen': 'Automático',
                 'permanente': False
             })
-        
+
         return jsonify(resultado)
-        
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -8003,3 +8000,18 @@ class UsuarioEnInventario(db.Model):
     rol = db.Column(db.String(20), nullable=False)  # ← Mantener para compatibilidad
     documento = db.Column(db.String(20), nullable=True)  # DNI o Carnet de Extranjería
     debe_cambiar_clave = db.Column(db.Integer, default=0)  # 1 = debe cambiar la contraseña al entrar
+
+
+# ---------------------------------------------------------------------------
+# API Gateway JWT (fase 100% microservicios) — coexistencia con la tienda.
+# Con API_GATEWAY=1 en el entorno, ESTE MISMO proceso expone además /api/v1
+# (JSON + JWT) hacia los microservicios independientes (procesos aparte en
+# 127.0.0.1:8001-8004). La tienda Jinja y sus rutas /api/ heredadas no se
+# tocan: el CSRF y los errores JSON del gateway solo actúan bajo /api/v1 y
+# /api/ respectivamente.
+# ---------------------------------------------------------------------------
+if os.environ.get("API_GATEWAY", "0").lower() in ("1", "true", "yes"):
+    from api_gateway_setup import configurar as _configurar_api_gateway
+
+    _configurar_api_gateway(app, integrado=True)
+

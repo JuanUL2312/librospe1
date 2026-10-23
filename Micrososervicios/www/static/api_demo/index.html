@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LibrosPE — Demo API Gateway (JWT)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f4f6f9; color: #1d2733; }
+  header { background: #143054; color: #fff; padding: 14px 20px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .8; }
+  main { max-width: 960px; margin: 20px auto; padding: 0 16px; }
+  .tarjeta { background: #fff; border: 1px solid #dde3ea; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; margin: 8px 0 4px; }
+  input, select { width: 100%; padding: 8px; border: 1px solid #c6cfda; border-radius: 6px; font-size: 14px; }
+  button { margin-top: 12px; padding: 9px 14px; border: 0; border-radius: 6px; background: #143054; color: #fff;
+           font-size: 14px; cursor: pointer; }
+  button.sec { background: #5b6b7f; }
+  button.peligro { background: #a4262c; }
+  .fila { display: flex; gap: 10px; flex-wrap: wrap; }
+  .fila > div { flex: 1; min-width: 200px; }
+  .acciones { display: flex; gap: 8px; flex-wrap: wrap; }
+  .acciones button { margin-top: 0; }
+  pre { background: #0f1b2d; color: #9fe8a9; padding: 12px; border-radius: 6px; font-size: 12px;
+        overflow: auto; max-height: 420px; white-space: pre-wrap; word-break: break-word; }
+  .estado { font-size: 13px; margin-top: 10px; }
+  .err { color: #a4262c; }
+  .ok { color: #107c10; }
+  .crumb { font-size: 12px; opacity: .75; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LibrosPE — Frontend desacoplado (100% fetch + JWT)</h1>
+  <p>Sin cookies ni sesiones: cada llamada lleva <code>Authorization: Bearer &lt;JWT&gt;</code> al API Gateway.</p>
+</header>
+<main>
+  <section class="tarjeta" id="caja-login">
+    <h2>1. Iniciar sesión</h2>
+    <div class="fila">
+      <div>
+        <label>Tipo de cuenta</label>
+        <select id="tipo">
+          <option value="usuario">Personal del sistema (admin/vendedor)</option>
+          <option value="cliente">Cliente de la tienda</option>
+        </select>
+      </div>
+      <div>
+        <label>Correo</label>
+        <input id="correo" type="email" autocomplete="username" placeholder="correo@ejemplo.com">
+      </div>
+      <div>
+        <label>Clave</label>
+        <input id="clave" type="password" autocomplete="current-password">
+      </div>
+    </div>
+    <button onclick="entrar()">Entrar</button>
+    <div class="estado" id="estado-login"></div>
+  </section>
+
+  <section class="tarjeta" id="caja-panel" hidden>
+    <h2>2. Operaciones contra el Gateway <span class="crumb" id="quien"></span></h2>
+    <div class="acciones">
+      <button onclick="pedir('GET','/api/v1/inventario/productos')">Productos</button>
+      <button onclick="pedir('GET','/api/v1/inventario/stock-bajo/10')">Stock bajo</button>
+      <button onclick="pedir('GET','/api/v1/ventas/listar')">Ventas</button>
+      <button onclick="pedir('GET','/api/v1/usuarios/listar')">Usuarios</button>
+      <button class="sec" id="btn-perfil" onclick="miPerfil()">Mi perfil</button>
+      <button class="sec" onclick="refrescar()">Refrescar token</button>
+      <button class="peligro" onclick="salir()">Cerrar sesión</button>
+    </div>
+    <div class="estado" id="estado-panel"></div>
+    <pre id="salida">(las respuestas del microservicio aparecerán aquí)</pre>
+  </section>
+</main>
+
+<script src="/static/js/api_cliente.js"></script>
+<script>
+  var identidad = null;
+
+  function mostrar(sel, texto, clase) {
+    var e = document.getElementById(sel);
+    e.textContent = texto;
+    e.className = 'estado ' + (clase || '');
+  }
+
+  function entrar() {
+    var credenciales = {
+      tipo: document.getElementById('tipo').value,
+      correo: document.getElementById('correo').value.trim(),
+      clave: document.getElementById('clave').value
+    };
+    mostrar('estado-login', 'Validando en el microservicio…');
+    apiLogin('/api/v1/auth/login', credenciales).then(function (datos) {
+      identidad = datos.usuario;
+      document.getElementById('quien').textContent =
+        '— ' + datos.usuario.nombre + ' (' + datos.usuario.rol + ')';
+      document.getElementById('btn-perfil').hidden = datos.usuario.rol !== 'cliente';
+      document.getElementById('caja-login').hidden = true;
+      document.getElementById('caja-panel').hidden = false;
+      mostrar('estado-panel', 'Sesión activa; el JWT vence en ' +
+        Math.round(datos.expira_en / 60) + ' min.', 'ok');
+    }).catch(function (fallo) {
+      var d = (fallo && fallo.datos) || {};
+      mostrar('estado-login', d.error || ('No se pudo iniciar sesión (HTTP ' +
+        (fallo && fallo.status) + ')'), 'err');
+    });
+  }
+
+  function pedir(metodo, ruta, body) {
+    mostrar('estado-panel', metodo + ' ' + ruta + ' …');
+    apiFetch(ruta, { method: metodo, body: body }).then(function (datos) {
+      var json = JSON.stringify(datos, null, 2);
+      document.getElementById('salida').textContent =
+        json.length > 20000 ? json.slice(0, 20000) + '\n… (recortado)' : json;
+      mostrar('estado-panel', 'HTTP 200 — respuesta del microservicio', 'ok');
+    }).catch(function (fallo) {
+      mostrar('estado-panel', '', '');
+      document.getElementById('salida').textContent =
+        JSON.stringify({ status: fallo && fallo.status, datos: fallo && fallo.datos },
+                       null, 2);
+    });
+  }
+
+  function miPerfil() {
+    if (!identidad) return;
+    pedir('GET', '/api/v1/clientes/' + identidad.id);
+  }
+
+  function refrescar() {
+    apiFetch('/api/v1/auth/refresh', { method: 'POST' }).then(function (d) {
+      mostrar('estado-panel', 'Token renovado; vence en ' +
+        Math.round(d.expira_en / 60) + ' min.', 'ok');
+    }).catch(function (f) {
+      mostrar('estado-panel', 'No se pudo renovar', 'err');
+    });
+  }
+
+  function salir() {
+    apiFetch('/api/v1/auth/logout', { method: 'POST' })
+      .catch(function () {})
+      .then(function () {
+        window.apiCerrarSesion();
+        identidad = null;
+        document.getElementById('caja-panel').hidden = true;
+        document.getElementById('caja-login').hidden = false;
+        document.getElementById('salida').textContent = '(las respuestas del microservicio aparecerán aquí)';
+        mostrar('estado-login', 'Sesión finalizada en el cliente.', 'ok');
+      });
+  }
+</script>
+</body>
+</html>
