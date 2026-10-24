@@ -2469,8 +2469,6 @@ def logout():
 @admin_required
 def nuevo_usuario():
     if request.method == "POST":
-        referencia_reserva = None
-        venta_confirmada = False
         try:
             # Resolver rol_id a partir del nombre del rol (tabla roles)
             rol_nombre = {"administrador": "admin", "vendedor": "vendedor"}.get(
@@ -3661,6 +3659,8 @@ def venta_nueva():
         vendedores = [vendedor] if vendedor else []
     
     if request.method == "POST":
+        referencia_reserva = None
+        venta_confirmada = False
         try:
             # Control anti-doble clic: evitar ventas duplicadas
             ultima_venta = session.get("ultima_venta_ts")
@@ -5147,7 +5147,9 @@ _VENTAS_IDEMPOTENCIA = {}
 @app.route("/api/ventas/rapida", methods=["POST"])
 @login_required
 def venta_rapida():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "Solicitud invalida"}), 400
     # Caja cerrada => bloqueo de operaciones de venta (regla de negocio).
     if not _hay_caja_abierta():
         return jsonify({"success": False, "caja_cerrada": True,
@@ -5178,17 +5180,25 @@ def venta_rapida():
             pass
     try:
         for item in items:
-            producto = Producto.query.get(item["id"])
+            if not isinstance(item, dict):
+                return jsonify({"success": False, "error": "Producto invalido"}), 400
             try:
-                cantidad_item = int(item.get("cantidad"))
-            except (AttributeError, TypeError, ValueError):
+                producto_id_item = int(item.get("id"))
+                cantidad_cruda = item.get("cantidad")
+                cantidad_item = int(cantidad_cruda)
+            except (TypeError, ValueError, OverflowError):
                 return jsonify({"success": False, "error": "Cantidad de producto invalida"}), 400
-            if isinstance(item.get("cantidad"), bool) or cantidad_item <= 0:
+            if (isinstance(cantidad_cruda, bool)
+                    or (isinstance(cantidad_cruda, float) and not cantidad_cruda.is_integer())
+                    or producto_id_item <= 0 or cantidad_item <= 0):
                 return jsonify({"success": False, "error": "Cantidad de producto invalida"}), 400
+            producto = Producto.query.get(producto_id_item)
             if not producto or producto.cantidad < cantidad_item:
-                return jsonify({"success": False, "error": f'Stock insuficiente: {item["nombre"]}'})
-        referencia_reserva = ("pos:" + hashlib.sha256(clave_idem.encode("utf-8")).hexdigest()[:48]
-                              if clave_idem else "pos:" + nueva_referencia())
+                return jsonify({"success": False, "error": "Producto inexistente o stock insuficiente"}), 409
+        # La clave persistente de idempotencia de POS tiene una migracion
+        # propia pendiente; la reserva usa una referencia por ejecucion para
+        # no compartir una unica reserva entre dos ventas concurrentes.
+        referencia_reserva = "pos:" + nueva_referencia()
         items_reserva = [{"id": item["id"], "cantidad": int(item["cantidad"])} for item in items]
         reserva = reservar_stock(referencia_reserva, items_reserva, documento_tipo="venta")
         if not reserva.get("ok"):
@@ -5253,7 +5263,7 @@ def venta_rapida():
                 "venta_id": venta,
                 "producto_id": item["id"],
                 "cantidad": int(item["cantidad"]),
-                "precio": float(item["precio"]),
+                "precio": float(total) / max(1, int(item["cantidad"])),
                 "total": total_general,
                 "tipo_comprobante": "boleta",
                 "numero_comprobante": numero_pos,
