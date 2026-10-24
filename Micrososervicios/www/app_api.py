@@ -18,22 +18,14 @@ Arranque local : python app_api.py
 uWSGI producción: app_api:app  (o app:app con API_GATEWAY=1)
 """
 import os
-from pathlib import Path
 
 from flask import Flask
 
 
 def cargar_entorno():
     """Carga .env con setdefault: no pisa variables ya definidas por uWSGI."""
-    for base in (Path(__file__).resolve().parent.parent,
-                 Path(__file__).resolve().parent):
-        archivo = base / ".env"
-        if archivo.is_file():
-            for linea in archivo.read_text(encoding="utf-8").splitlines():
-                linea = linea.strip()
-                if linea and not linea.startswith("#") and "=" in linea:
-                    k, v = linea.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    from entorno_ms import cargar_entorno as _cargar_env
+    _cargar_env(__file__)
 
 
 cargar_entorno()

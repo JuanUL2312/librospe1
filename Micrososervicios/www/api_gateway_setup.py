@@ -168,23 +168,9 @@ def _cuerpo_salud(app, profundo):
         "jwt_minutos": app.config["JWT_MINUTOS"],
     }
     if profundo:
-        from gateways.proxy import ServicioNoDisponible, reenviar
+        from salud_ms import sondear_http, urls_desde_app
 
-        servicios = {
-            "ventas": app.config["MS_VENTAS_URL"],
-            "inventario": app.config["MS_INVENTARIO_URL"],
-            "usuarios": app.config["MS_USUARIOS_URL"],
-            "clientes": app.config["MS_CLIENTES_URL"],
-        }
-        estado = {}
-        for nombre, base in servicios.items():
-            try:
-                r = reenviar("GET", f"{base.rstrip('/')}/health", servicio=nombre)
-                estado[nombre] = "OK" if r.status_code == 200 else f"HTTP {r.status_code}"
-            except ServicioNoDisponible:
-                estado[nombre] = "caído/no alcanzable"
-            except Exception:
-                estado[nombre] = "error"
+        estado = sondear_http(urls_desde_app(app))
         cuerpo["servicios"] = estado
         if any(v != "OK" for v in estado.values()):
             cuerpo["status"] = "DEGRADADO"

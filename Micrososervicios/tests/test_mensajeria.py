@@ -43,7 +43,8 @@ class FakeCanal:
         declarados.setdefault("confirms", []).append(True)
         declarados.setdefault("orden", []).append("confirm")
 
-    def basic_publish(self, exchange=None, routing_key=None, body=None, properties=None):
+    def basic_publish(self, exchange=None, routing_key=None, body=None, properties=None,
+                      mandatory=False):
         declarados.setdefault("orden", []).append("publish")
         publicados.append({"exchange": exchange, "routing_key": routing_key,
                            "body": json.loads(body.decode("utf-8")), "props": properties})
@@ -192,3 +193,37 @@ def test_texto_del_sms():
     assert "S/ 25.50" in texto
     assert "mis-pedidos" in texto
     assert len(texto) < 320      # cabe en un SMS
+
+
+def test_reintentos_limitados_y_cola_de_fallidos(mensajeria):
+    pika = sys.modules["pika"]
+    canal = FakeCanal()
+    props = FakeProps(headers={})
+    mensajeria._publicar_reintento_o_fallido(
+        pika, canal, "librospe.inventario", props, b"{}")
+    assert publicados[-1]["routing_key"] == "librospe.inventario"
+    assert publicados[-1]["props"].headers["x-librospe-reintentos"] == 1
+
+    props = FakeProps(headers={"x-librospe-reintentos": 3})
+    mensajeria._publicar_reintento_o_fallido(
+        pika, canal, "librospe.inventario", props, b"{}")
+    assert publicados[-1]["routing_key"] == "librospe.inventario.dead"
+    assert publicados[-1]["props"].delivery_mode == 2
+
+
+def test_outbox_transaccional_inserta_sin_confirmar_la_transaccion(mensajeria):
+    class ConexionFalsa:
+        def __init__(self):
+            self.llamadas = []
+
+        def execute(self, sentencia, parametros):
+            self.llamadas.append((str(sentencia), parametros))
+
+    conexion = ConexionFalsa()
+    mensajeria.guardar_en_outbox_transaccional(
+        conexion, "pedido.creado", {"pedido_id": 9}, "gateway")
+    assert len(conexion.llamadas) == 1
+    sql, params = conexion.llamadas[0]
+    assert "INSERT INTO eventos_pendientes" in sql
+    assert params["t"] == "pedido.creado"
+    assert '"pedido_id": 9' in params["p"]

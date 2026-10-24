@@ -7,7 +7,7 @@ BD y schema vive.
 """
 from datetime import datetime
 
-from flask import jsonify
+from flask import current_app, jsonify
 from sqlalchemy import text
 
 from . import monitor_bp, get_db, get_service_engine
@@ -46,11 +46,11 @@ def _estado_mensajeria():
 
 @monitor_bp.route("/health", methods=["GET"])
 def api_health():
-    """Verificar el estado de los microservicios y sus BDs."""
+    """Estado de BDs (binds), procesos HTTP :8001-8004 y el broker."""
     try:
         db.session.execute(text("SELECT 1"))
 
-        estado_servicios = {}
+        estado_bd = {}
         for servicio, cfg in TABLAS_SERVICIOS.items():
             motor = get_service_engine(cfg["bind"])
             existe = db.session.execute(text("""
@@ -58,20 +58,36 @@ def api_health():
                 WHERE table_schema = :schema AND table_name = :tabla
             """), {"schema": motor.url.database, "tabla": cfg["tabla"]}).scalar()
 
-            estado_servicios[servicio] = "active" if existe else "not_configured"
+            estado_bd[servicio] = "active" if existe else "not_configured"
+
+        from salud_ms import sondear_http, urls_desde_app
+
+        estado_http = sondear_http(urls_desde_app(current_app))
+        http_ok = all(v == "OK" for v in estado_http.values())
+        bd_ok = all(v == "active" for v in estado_bd.values())
+        mensajeria = _estado_mensajeria()
+        broker_ok = mensajeria.get("broker") in ("conectado", "sin configurar")
+
+        if bd_ok and http_ok and broker_ok:
+            status = "OK"
+        elif bd_ok:
+            status = "DEGRADADO"
+        else:
+            status = "ERROR"
 
         return jsonify({
-            "status": "OK",
+            "status": status,
             "service": "LibrosPE microservicios",
-            "version": "3.0",
+            "version": "3.1",
             "bd_por_servicio": {
                 servicio: _nombre_base_datos(cfg["bind"])
                 for servicio, cfg in TABLAS_SERVICIOS.items()
             },
-            "services": estado_servicios,
-            "agente_mensajes": _estado_mensajeria(),
+            "services": estado_bd,
+            "http_servicios": estado_http,
+            "agente_mensajes": mensajeria,
             "timestamp": datetime.now().isoformat()
-        })
+        }), 200 if bd_ok else 503
     except Exception as e:
         db.session.rollback()
         return jsonify({

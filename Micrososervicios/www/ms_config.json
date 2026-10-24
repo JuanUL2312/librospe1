@@ -3,6 +3,8 @@
     "inventario": "librospe_ms_inventario",
     "usuarios": "librospe_ms_usuarios",
     "clientes": "librospe_ms_clientes",
-    "service_token": "librospe-interno-dev",
-    "inventario_url": "https://librospe.alwaysdata.net"
+    "inventario_url": "http://127.0.0.1:8001",
+    "ventas_url": "http://127.0.0.1:8002",
+    "usuarios_url": "http://127.0.0.1:8003",
+    "clientes_url": "http://127.0.0.1:8004"
 }

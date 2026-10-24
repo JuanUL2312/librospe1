@@ -9,8 +9,19 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env}"
-LOG_FILE="${EVENTOS_LOG_FILE:-$SCRIPT_DIR/eventos.log}"
+HOME="${HOME:-/home/librospe}"
+
+if [[ -r "${HOME}/.env" ]]; then
+  ENV_FILE="${ENV_FILE:-$HOME/.env}"
+elif [[ -r "$SCRIPT_DIR/.env" ]]; then
+  ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env}"
+else
+  ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env}"
+fi
+LOG_FILE="${EVENTOS_LOG_FILE:-$HOME/eventos.log}"
+if [[ ! -w "$(dirname "$LOG_FILE")" ]]; then
+  LOG_FILE="${EVENTOS_LOG_FILE:-$SCRIPT_DIR/eventos.log}"
+fi
 
 if [[ ! -r "$ENV_FILE" ]]; then
   echo "No se encontró el archivo de configuración: $ENV_FILE" >&2
@@ -18,6 +29,7 @@ if [[ ! -r "$ENV_FILE" ]]; then
 fi
 
 set -a
+# shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
 
@@ -31,12 +43,22 @@ echo "📨 REINTENTO DE EVENTOS (agente de mensajes)" | tee -a "$LOG_FILE"
 echo "📅 $(date)" | tee -a "$LOG_FILE"
 echo "=========================================" | tee -a "$LOG_FILE"
 
-cd "$SCRIPT_DIR/www"
+if [[ -d "$HOME/www" ]]; then
+  WWW="$HOME/www"
+else
+  WWW="$SCRIPT_DIR/www"
+fi
+cd "$WWW"
+
 if [[ -f venv/bin/activate ]]; then
   # shellcheck disable=SC1091
   source venv/bin/activate
 fi
-python3 - <<'PY' 2>&1 | tee -a "$LOG_FILE"
+PYTHON="${PY:-python3}"
+if [[ -x "$HOME/www/venv/bin/python" ]]; then
+  PYTHON="$HOME/www/venv/bin/python"
+fi
+"$PYTHON" - <<'PY' 2>&1 | tee -a "$LOG_FILE"
 try:
     from mensajeria import procesar_outbox, estado
     enviados, fallidos = procesar_outbox(500)

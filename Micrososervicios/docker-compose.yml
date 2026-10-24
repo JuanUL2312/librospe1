@@ -27,11 +27,17 @@ services:
       start_period: 40s
 
   gateway:
-    build: ./www
+    build:
+      context: .
+      dockerfile: www/Dockerfile
     ports: ["8000:8000"]
     env_file: .env
     environment:
       AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
+      MS_INVENTARIO_URL: http://inventario:8001
+      MS_VENTAS_URL: http://ventas:8002
+      MS_USUARIOS_URL: http://usuarios:8003
+      MS_CLIENTES_URL: http://clientes:8004
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -45,6 +51,10 @@ services:
     env_file: .env
     environment:
       AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
+      MS_INVENTARIO_URL: http://inventario:8001
+      MS_VENTAS_URL: http://ventas:8002
+      MS_USUARIOS_URL: http://usuarios:8003
+      MS_CLIENTES_URL: http://clientes:8004
     command: python app.py
     depends_on:
       rabbitmq:
@@ -55,6 +65,10 @@ services:
     env_file: .env
     environment:
       AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
+      MS_INVENTARIO_URL: http://inventario:8001
+      MS_VENTAS_URL: http://ventas:8002
+      MS_USUARIOS_URL: http://usuarios:8003
+      MS_CLIENTES_URL: http://clientes:8004
     command: python app.py
     depends_on:
       rabbitmq:
@@ -65,6 +79,10 @@ services:
     env_file: .env
     environment:
       AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
+      MS_INVENTARIO_URL: http://inventario:8001
+      MS_VENTAS_URL: http://ventas:8002
+      MS_USUARIOS_URL: http://usuarios:8003
+      MS_CLIENTES_URL: http://clientes:8004
     command: python app.py
     depends_on:
       rabbitmq:
@@ -75,6 +93,10 @@ services:
     env_file: .env
     environment:
       AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
+      MS_INVENTARIO_URL: http://inventario:8001
+      MS_VENTAS_URL: http://ventas:8002
+      MS_USUARIOS_URL: http://usuarios:8003
+      MS_CLIENTES_URL: http://clientes:8004
     command: python app.py
     depends_on:
       rabbitmq:

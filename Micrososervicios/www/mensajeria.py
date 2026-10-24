@@ -15,7 +15,9 @@ Nunca lanza excepciones: cualquier fallo se registra y se degrada al outbox.
 """
 import json
 import os
+import time
 from datetime import datetime
+from sqlalchemy import text
 
 # ------------------------------------------------------------------
 # Configuracion
@@ -39,6 +41,9 @@ EVENTOS = {
 _estado = {"broker": False, "broker_configurado": False,
            "ultimo_error": "", "publicados": 0, "en_outbox": 0,
            "ultimo_evento": None, "ultimo_intento": None}
+_ultimo_ping_broker = 0.0
+_CACHE_PING_S = 20.0
+MAX_INTENTOS_OUTBOX = 10
 
 
 def amqp_url():
@@ -54,10 +59,53 @@ def broker_configurado():
     return bool(amqp_url())
 
 
-def estado():
-    """Estado del agente de mensajes (para el monitor /api/health)."""
+def _ping_broker():
+    """Sondeo corto (no publica). Actualiza _estado['broker']."""
+    global _ultimo_ping_broker
+    if not broker_configurado():
+        _estado["broker"] = False
+        _estado["ultimo_error"] = "AMQP_URL no configurado"
+        return
+    url = amqp_url()
+    pika = _pika()
+    if pika is None:
+        _estado["broker"] = False
+        _estado["ultimo_error"] = "la libreria 'pika' no esta instalada"
+        return
+    try:
+        parametros = pika.URLParameters(url)
+        parametros.heartbeat = 10
+        parametros.blocked_connection_timeout = 3
+        parametros.socket_timeout = 3
+        parametros.connection_attempts = 1
+        parametros.retry_delay = 0
+        conexion = pika.BlockingConnection(parametros)
+        try:
+            conexion.close()
+        except Exception:
+            pass
+        _estado["broker"] = True
+        _estado["ultimo_error"] = ""
+    except Exception as e:
+        _estado["broker"] = False
+        _estado["ultimo_error"] = str(e)[:200]
+    _ultimo_ping_broker = time.monotonic()
+
+
+def estado(sondear=True):
+    """Estado del agente de mensajes (para el monitor /api/health).
+
+    Si AMQP_URL está definido, sondea el broker (cache 20 s). Antes el
+    health decía 'no disponible' hasta el primer publish de la vida del
+    proceso, aunque el broker estuviera bien.
+    """
     info = dict(_estado)
     info["broker_configurado"] = broker_configurado()
+    if sondear and broker_configurado():
+        if (time.monotonic() - _ultimo_ping_broker) >= _CACHE_PING_S:
+            _ping_broker()
+            info = dict(_estado)
+            info["broker_configurado"] = True
     return info
 
 
@@ -70,98 +118,136 @@ def _db():
     return app, db
 
 
-def _asegurar_outbox():
-    """Crea la tabla del outbox si no existe."""
+_DDL_OUTBOX = """
+CREATE TABLE IF NOT EXISTS eventos_pendientes (
+    id INT(11) NOT NULL AUTO_INCREMENT,
+    tipo VARCHAR(80) NOT NULL,
+    origen VARCHAR(40) NULL,
+    payload TEXT NULL,
+    estado VARCHAR(20) NOT NULL DEFAULT 'pendiente',
+    intentos INT(11) NOT NULL DEFAULT 0,
+    error TEXT NULL,
+    creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    enviado_en DATETIME NULL,
+    PRIMARY KEY (id),
+    KEY idx_estado (estado),
+    KEY idx_tipo (tipo)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+
+def _engine(db, bind_key=None):
+    return db.engines[bind_key] if bind_key else db.engine
+
+
+def _asegurar_outbox(bind_key=None):
+    """Crea el outbox en la BD elegida; no confirma otras transacciones."""
     try:
         app, db = _db()
         with app.app_context():
-            db.session.execute(db.text("""
-                CREATE TABLE IF NOT EXISTS eventos_pendientes (
-                    id INT(11) NOT NULL AUTO_INCREMENT,
-                    tipo VARCHAR(80) NOT NULL,
-                    origen VARCHAR(40) NULL,
-                    payload TEXT NULL,
-                    estado VARCHAR(20) NOT NULL DEFAULT 'pendiente',
-                    intentos INT(11) NOT NULL DEFAULT 0,
-                    error TEXT NULL,
-                    creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    enviado_en DATETIME NULL,
-                    PRIMARY KEY (id),
-                    KEY idx_estado (estado),
-                    KEY idx_tipo (tipo)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""))
-            db.session.commit()
+            with _engine(db, bind_key).begin() as con:
+                con.execute(text(_DDL_OUTBOX))
         return True
     except Exception as e:
-        print(f"[mensajeria] no se pudo preparar el outbox: {e}")
+        print(f"[mensajeria] no se pudo preparar el outbox: {str(e)[:180]}")
         return False
 
 
-def guardar_en_outbox(tipo, datos, origen="gateway"):
+def preparar_outbox(bind_key=None):
+    """Prepara una tabla outbox antes de abrir la transaccion del negocio."""
+    return _asegurar_outbox(bind_key)
+
+
+def guardar_en_outbox_transaccional(connection, tipo, datos, origen="gateway"):
+    """Inserta un evento usando la transaccion activa del documento de ventas."""
+    connection.execute(
+        text("INSERT INTO eventos_pendientes (tipo, origen, payload, estado) "
+             "VALUES (:t, :o, :p, 'pendiente')"),
+        {"t": tipo, "o": origen,
+         "p": json.dumps(datos, ensure_ascii=False, default=str)},
+    )
+
+
+def guardar_en_outbox(tipo, datos, origen="gateway", bind_key=None):
     """Guarda el evento en el outbox. Devuelve True si se guardo."""
     try:
         app, db = _db()
         with app.app_context():
-            _asegurar_outbox()
-            db.session.execute(db.text(
-                "INSERT INTO eventos_pendientes (tipo, origen, payload, estado) "
-                "VALUES (:t, :o, :p, 'pendiente')"),
-                {"t": tipo, "o": origen, "p": json.dumps(datos, ensure_ascii=False, default=str)})
-            db.session.commit()
-            n = db.session.execute(db.text(
-                "SELECT COUNT(*) FROM eventos_pendientes WHERE estado='pendiente'")).scalar()
+            if not _asegurar_outbox(bind_key):
+                return False
+            engine = _engine(db, bind_key)
+            with engine.begin() as con:
+                con.execute(text(
+                    "INSERT INTO eventos_pendientes (tipo, origen, payload, estado) "
+                    "VALUES (:t, :o, :p, 'pendiente')"),
+                    {"t": tipo, "o": origen,
+                     "p": json.dumps(datos, ensure_ascii=False, default=str)})
+                n = con.execute(text(
+                    "SELECT COUNT(*) FROM eventos_pendientes "
+                    "WHERE estado='pendiente'")).scalar()
             _estado["en_outbox"] = int(n or 0)
         return True
     except Exception as e:
-        print(f"[mensajeria] no se pudo guardar en el outbox: {e}")
+        print(f"[mensajeria] no se pudo guardar en el outbox: {str(e)[:180]}")
         return False
 
 
-def pendientes_outbox(limite=100):
-    """Devuelve los eventos pendientes del outbox (lista de dicts)."""
+def pendientes_outbox(limite=100, bind_key=None):
+    """Devuelve eventos pendientes de la base predeterminada o de un bind."""
     try:
         app, db = _db()
         with app.app_context():
-            _asegurar_outbox()
-            filas = db.session.execute(db.text(
-                "SELECT id, tipo, origen, payload, intentos FROM eventos_pendientes "
-                "WHERE estado='pendiente' ORDER BY id LIMIT :lim"), {"lim": limite}).fetchall()
+            if not _asegurar_outbox(bind_key):
+                return []
+            with _engine(db, bind_key).connect() as con:
+                filas = con.execute(text(
+                    "SELECT id, tipo, origen, payload, intentos "
+                    "FROM eventos_pendientes WHERE estado='pendiente' "
+                    "ORDER BY id LIMIT :lim"), {"lim": limite}).fetchall()
             return [{"id": f[0], "tipo": f[1], "origen": f[2],
-                     "datos": json.loads(f[3]) if f[3] else {}, "intentos": f[4]} for f in filas]
+                     "datos": json.loads(f[3]) if f[3] else {}, "intentos": f[4]}
+                    for f in filas]
     except Exception as e:
-        print(f"[mensajeria] no se pudieron leer los pendientes: {e}")
+        print(f"[mensajeria] no se pudieron leer los pendientes: {str(e)[:180]}")
         return []
 
 
-def marcar_outbox(evento_id, ok, error=None):
-    """Marca el evento del outbox como enviado o fallido."""
+def marcar_outbox(evento_id, ok, error=None, bind_key=None):
+    """Marca el evento en la misma base desde la que fue le?do."""
     try:
         app, db = _db()
         with app.app_context():
-            if ok:
-                db.session.execute(db.text(
-                    "UPDATE eventos_pendientes SET estado='enviado', enviado_en=NOW(), error=NULL "
-                    "WHERE id=:id"), {"id": evento_id})
-            else:
-                db.session.execute(db.text(
-                    "UPDATE eventos_pendientes SET intentos=intentos+1, error=:e "
-                    "WHERE id=:id"), {"id": evento_id, "e": (error or "")[:500]})
-            db.session.commit()
+            engine = _engine(db, bind_key)
+            with engine.begin() as con:
+                if ok:
+                    con.execute(text(
+                        "UPDATE eventos_pendientes SET estado='enviado', "
+                        "enviado_en=NOW(), error=NULL WHERE id=:id"), {"id": evento_id})
+                else:
+                    con.execute(text(
+                        "UPDATE eventos_pendientes SET "
+                        "estado=CASE WHEN intentos+1 >= :max_intentos "
+                        "THEN 'fallido' ELSE estado END, "
+                        "intentos=intentos+1, error=:e WHERE id=:id"),
+                        {"id": evento_id, "e": (error or "")[:500],
+                         "max_intentos": MAX_INTENTOS_OUTBOX})
     except Exception as e:
-        print(f"[mensajeria] no se pudo marcar el outbox: {e}")
+        print(f"[mensajeria] no se pudo marcar el outbox: {str(e)[:180]}")
 
 
 def procesar_outbox(limite=100):
-    """Reintenta publicar los eventos pendientes. Devuelve (enviados, fallidos)."""
+    """Reintenta los outbox locales y el outbox atomico de ventas."""
     enviados = fallidos = 0
-    for ev in pendientes_outbox(limite):
-        ok, detalle = _publicar_en_broker(ev["tipo"], ev["datos"], ev.get("origen") or "gateway")
-        if ok:
-            marcar_outbox(ev["id"], True)
-            enviados += 1
-        else:
-            marcar_outbox(ev["id"], False, detalle)
-            fallidos += 1
+    for bind_key in (None, "ventas"):
+        for ev in pendientes_outbox(limite, bind_key):
+            ok, detalle = _publicar_en_broker(
+                ev["tipo"], ev["datos"], ev.get("origen") or "gateway")
+            if ok:
+                marcar_outbox(ev["id"], True, bind_key=bind_key)
+                enviados += 1
+            else:
+                marcar_outbox(ev["id"], False, detalle, bind_key=bind_key)
+                fallidos += 1
     _estado["en_outbox"] = fallidos
     return enviados, fallidos
 
@@ -263,10 +349,34 @@ def _declarar_canal(pika, canal, servicio):
     canal.exchange_declare(exchange=EXCHANGE, exchange_type="topic", durable=True)
     cola = COLAS.get(servicio, COLAS["ventas"])
     canal.queue_declare(queue=cola, durable=True)
+    canal.queue_declare(queue=f"{cola}.dead", durable=True)
     for tipo, servicios in EVENTOS.items():
         if servicio in servicios:
             canal.queue_bind(exchange=EXCHANGE, queue=cola, routing_key=tipo)
     return cola
+
+
+MAX_REINTENTOS_EVENTO = 3
+HEADER_REINTENTOS_EVENTO = "x-librospe-reintentos"
+
+
+def _publicar_reintento_o_fallido(pika, canal, cola, properties, body):
+    """Reencola con limite y mueve fallos persistentes a una cola durable."""
+    headers = dict(getattr(properties, "headers", None) or {})
+    intentos = int(headers.get(HEADER_REINTENTOS_EVENTO, 0) or 0)
+    destino = cola if intentos < MAX_REINTENTOS_EVENTO else f"{cola}.dead"
+    if destino == cola:
+        headers[HEADER_REINTENTOS_EVENTO] = intentos + 1
+    else:
+        print(f"[rabbit] mensaje apartado en {destino} tras {intentos} reintentos")
+    nuevas = pika.BasicProperties(
+        content_type=getattr(properties, "content_type", "application/json"),
+        type=getattr(properties, "type", None),
+        delivery_mode=2,
+        headers=headers,
+    )
+    canal.basic_publish(exchange="", routing_key=destino, body=body,
+                        properties=nuevas, mandatory=True)
 
 
 def consumir_eventos(servicio, handler, mientras=True):
@@ -284,6 +394,8 @@ def consumir_eventos(servicio, handler, mientras=True):
     try:
         canal = conexion.channel()
         cola = _declarar_canal(pika, canal, servicio)
+        if hasattr(canal, "confirm_delivery"):
+            canal.confirm_delivery()
         # Con prefetch=1 el broker entrega un evento a la vez y espera el ack
         # (si el handler falla, el basic_nack lo reencola sin perderlo).
         try:
@@ -313,11 +425,12 @@ def consumir_eventos(servicio, handler, mientras=True):
             if ok:
                 canal.basic_ack(metodo.delivery_tag)
             else:
-                # se devuelve al inicio de la cola para reintentar
                 try:
+                    _publicar_reintento_o_fallido(pika, canal, cola, properties, body)
+                    canal.basic_ack(metodo.delivery_tag)
+                except Exception as e:
+                    print(f"[mensajeria] no se pudo transferir el mensaje: {str(e)[:160]}")
                     canal.basic_nack(metodo.delivery_tag, requeue=True)
-                except Exception:
-                    pass
             if not mientras:
                 break
         try:

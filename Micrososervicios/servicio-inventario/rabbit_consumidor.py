@@ -66,10 +66,34 @@ def _preparar_canal(pika, canal, servicio):
     canal.exchange_declare(exchange=EXCHANGE, exchange_type="topic", durable=True)
     cola = COLAS.get(servicio, COLAS["ventas"])
     canal.queue_declare(queue=cola, durable=True)
+    canal.queue_declare(queue=f"{cola}.dead", durable=True)
     for tipo, servicios in EVENTOS.items():
         if servicio in servicios:
             canal.queue_bind(exchange=EXCHANGE, queue=cola, routing_key=tipo)
     return cola
+
+
+MAX_REINTENTOS_EVENTO = 3
+HEADER_REINTENTOS_EVENTO = "x-librospe-reintentos"
+
+
+def _publicar_reintento_o_fallido(pika, canal, cola, properties, body):
+    """Reencola con limite y mueve fallos persistentes a una cola durable."""
+    headers = dict(getattr(properties, "headers", None) or {})
+    intentos = int(headers.get(HEADER_REINTENTOS_EVENTO, 0) or 0)
+    destino = cola if intentos < MAX_REINTENTOS_EVENTO else f"{cola}.dead"
+    if destino == cola:
+        headers[HEADER_REINTENTOS_EVENTO] = intentos + 1
+    else:
+        print(f"[rabbit] mensaje apartado en {destino} tras {intentos} reintentos")
+    nuevas = pika.BasicProperties(
+        content_type=getattr(properties, "content_type", "application/json"),
+        type=getattr(properties, "type", None),
+        delivery_mode=2,
+        headers=headers,
+    )
+    canal.basic_publish(exchange="", routing_key=destino, body=body,
+                        properties=nuevas, mandatory=True)
 
 
 def _consumir(servicio, handler, parar):
@@ -84,6 +108,8 @@ def _consumir(servicio, handler, parar):
         try:
             canal = conexion.channel()
             cola = _preparar_canal(pika, canal, servicio)
+            if hasattr(canal, "confirm_delivery"):
+                canal.confirm_delivery()
             # prefetch=1: el broker entrega un evento a la vez y espera el ack
             try:
                 canal.basic_qos(prefetch_count=1)
@@ -109,7 +135,12 @@ def _consumir(servicio, handler, parar):
                     if ok:
                         canal.basic_ack(metodo.delivery_tag)
                     else:
-                        canal.basic_nack(metodo.delivery_tag, requeue=True)
+                        try:
+                            _publicar_reintento_o_fallido(pika, canal, cola, properties, body)
+                            canal.basic_ack(metodo.delivery_tag)
+                        except Exception as transfer_error:
+                            print(f"[rabbit] {servicio}: no se pudo transferir el mensaje: {str(transfer_error)[:160]}")
+                            canal.basic_nack(metodo.delivery_tag, requeue=True)
                 except Exception:
                     pass
             try:

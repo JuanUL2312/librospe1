@@ -191,10 +191,10 @@ function cargarDatos(){
     const chk=localStorage.getItem('checkoutData');
     if(chk){
         checkoutData=JSON.parse(chk);
-        console.log("✅ checkoutData cargado:", checkoutData);
-        console.log("🔍 Documento encontrado:", checkoutData.documento);
+        console.log("[checkout] datos cargados");
+        console.log("[checkout] datos cargados");
     }else{
-        console.log("❌ No hay checkoutData en localStorage");
+        console.log("[checkout] datos cargados");
     }
     
     const tipoEntrega=localStorage.getItem('tipoEntrega')||'recojo';
@@ -239,8 +239,21 @@ function selectPaymentMethod(metodo){
 // ===============================
 // CONFIRMAR PEDIDO
 // ===============================
-async function confirmarPedido(){
-    if(!metodoSeleccionado){
+// Clave de idempotencia del checkout: se conserva en sessionStorage para que
+// un reintento de la MISMA compra no cree un segundo pedido ni descuente dos
+// veces el stock. Se renueva cuando la compra termina (exito o rechazo).
+function obtenerClaveIdempotencia(){
+    let clave = sessionStorage.getItem('checkoutIdempotencia');
+    if(!clave){
+        clave = (window.crypto && typeof window.crypto.randomUUID === 'function')
+            ? window.crypto.randomUUID()
+            : 'ck-'+Date.now()+'-'+Math.random().toString(36).slice(2,12);
+        sessionStorage.setItem('checkoutIdempotencia', clave);
+    }
+    return clave;
+}
+
+async function confirmarPedido(){    if(!metodoSeleccionado){
         Swal.fire({icon:'warning',title:'Selecciona método de pago'});
         return;
     }
@@ -275,8 +288,10 @@ async function confirmarPedido(){
     const latitudEntrega = checkoutData.latitud || localStorage.getItem('latitudEntrega') || '';
     const longitudEntrega = checkoutData.longitud || localStorage.getItem('longitudEntrega') || '';
 
+    const claveIdempotencia = obtenerClaveIdempotencia();
     const pedidoData={
         items:items,
+        clave_idempotencia:claveIdempotencia,
         total:total,
         tipo_entrega:tipoEntrega,
         direccion:checkoutData.direccion || '',
@@ -301,9 +316,7 @@ async function confirmarPedido(){
         }
     };
     
-    console.log("📤 ENVIANDO PEDIDO:");
-    console.log("   Cliente:", pedidoData.cliente);
-    console.log("   Documento enviado:", pedidoData.cliente.documento);
+    console.log("[checkout] enviando pedido");
     
     const btn=document.getElementById('btnConfirmar');
     const original=btn.innerHTML;
@@ -313,11 +326,13 @@ async function confirmarPedido(){
     try{
         const res=await fetch('/api/pedidos/crear',{
             method:'POST',
-            headers:{'Content-Type':'application/json'},
+            headers:{'Content-Type':'application/json',
+                     'Idempotency-Key':claveIdempotencia},
             body:JSON.stringify(pedidoData)
         });
         const data=await res.json();
         if(data.success){
+            sessionStorage.removeItem('checkoutIdempotencia');
             localStorage.removeItem('carritoCliente');
             localStorage.removeItem('checkoutData');
             localStorage.removeItem('cuponAplicado');
@@ -363,6 +378,11 @@ async function confirmarPedido(){
                 }).then(()=>{ window.location.href='/mis-pedidos'; });
             }
         }else{
+            // Un rechazo de negocio permite corregir y reintentar con otra
+            // clave; un fallo de red conserva la clave para no duplicar.
+            if(data.codigo && data.codigo !== 'pedido_en_proceso'){
+                sessionStorage.removeItem('checkoutIdempotencia');
+            }
             Swal.fire({icon:'error',title:'Error',text:data.error});
         }
     }catch(e){

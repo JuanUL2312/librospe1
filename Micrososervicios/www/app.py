@@ -2,7 +2,9 @@ import os
 import sys
 import time
 import hmac
+import hashlib
 import json
+import math
 import re
 from pathlib import Path
 from urllib.parse import quote, quote_plus
@@ -38,10 +40,20 @@ from mensajeria import (
     estado as estado_mensajeria,
     procesar_outbox,
     publicar_evento,
+    preparar_outbox,
+    guardar_en_outbox_transaccional,
 )
 # Consumidor: en alwaysdata todo corre en un solo proceso, asi que el gateway
 # consume los eventos de las colas y refresca las copias locales.
 from consumidor_copias import iniciar_consumidor_copias
+# Reserva atomica e idempotente de stock (patron saga del checkout).
+from stock import (
+    StockError,
+    confirmar_stock,
+    liberar_stock,
+    normalizar_referencia,
+    reservar_stock,
+)
 import secrets
 import smtplib
 from email.mime.text import MIMEText
@@ -66,16 +78,12 @@ def hora_actual_peru():
     return datetime.now(_ZONA_PERU).replace(tzinfo=None)
 
 def cargar_entorno():
-    """Carga variables desde ../.env sin sobrescribir las del servidor."""
-    archivo_env = Path(__file__).resolve().parent.parent / ".env"
-    if not archivo_env.is_file():
-        return
-    for linea in archivo_env.read_text(encoding="utf-8").splitlines():
-        linea = linea.strip()
-        if not linea or linea.startswith("#") or "=" not in linea:
-            continue
-        clave, valor = linea.split("=", 1)
-        os.environ.setdefault(clave.strip(), valor.strip().strip('"').strip("'"))
+    """Carga .env (repo, $HOME y www/) sin pisar el entorno del servidor.
+
+    Si uWSGI inyecta la SECRET_KEY histórica filtrada, ~/.env puede reemplazarla.
+    """
+    from entorno_ms import cargar_entorno as _cargar_env
+    _cargar_env(__file__)
 
 
 cargar_entorno()
@@ -320,6 +328,17 @@ class Producto(db.Model):
     proveedor = db.relationship("Proveedor", back_populates="productos")
     categoria_rel = db.relationship("Categoria", back_populates="productos")  
 
+def _descontar_stock_atomico(producto_id, cantidad):
+    """Descuenta solo cuando el inventario cubre la cantidad solicitada."""
+    resultado = db.session.query(Producto).filter(
+        Producto.id == producto_id,
+        Producto.cantidad >= cantidad,
+    ).update(
+        {Producto.cantidad: Producto.cantidad - cantidad},
+        synchronize_session=False,
+    )
+    return resultado == 1
+
 class UsuarioSistema(db.Model):
     __tablename__ = "usuarios_sistema"
     __bind_key__ = "usuarios"
@@ -523,6 +542,8 @@ class Pedido(db.Model):
     lat = db.Column(db.Numeric(10, 7), nullable=True)
     lng = db.Column(db.Numeric(10, 7), nullable=True)
     geo_precision = db.Column(db.String(10), nullable=True)  # exacta|aproximada|manual
+    clave_idempotencia = db.Column(db.String(64), nullable=True, unique=True)
+    huella_idempotencia = db.Column(db.String(64), nullable=True)
     nota = db.Column(db.Text)
     # Confirmación de entrega (delivery)
     nombre_recibe = db.Column(db.String(200), nullable=True)
@@ -3748,7 +3769,10 @@ def venta_nueva():
                 cliente_id=cliente_existente.id if cliente_existente else None,
             )
             db.session.add(nueva_venta)
-            producto.cantidad -= cantidad
+            if not _descontar_stock_atomico(producto.id, cantidad):
+                db.session.rollback()
+                flash("Stock insuficiente para completar la venta", "danger")
+                return redirect(url_for("inventario"))
             db.session.commit()
             registrar_auditoria("VENTA", "ventas", f"Venta #{nueva_venta.id} - {producto.nombre} x{cantidad} - Total: S/ {total_venta:.2f} ({metodo_pago})")
             verificar_stock_bajo_y_notificar()
@@ -5181,7 +5205,9 @@ def venta_rapida():
                 cliente_id=cliente_rapido.id if cliente_rapido else None,
             )
             db.session.add(nueva_venta)
-            producto.cantidad -= item["cantidad"]
+            if not _descontar_stock_atomico(producto.id, int(item["cantidad"])):
+                db.session.rollback()
+                return jsonify({"success": False, "error": f"Stock insuficiente: {producto.nombre}"}), 409
             total_general += total
             venta_ids.append(nueva_venta.id)
         db.session.commit()
@@ -5189,7 +5215,8 @@ def venta_rapida():
                             f"Venta rápida POS #{venta_ids[0]} - {len(venta_ids)} item(s) - "
                             f"Total: S/ {total_general:.2f} ({metodo_pago})"
                             + (f" - idem:{clave_idem}" if clave_idem else ""))
-        # Evento de dominio: el microservicio de inventario descuenta stock.
+        # Evento informativo: el stock ya se desconto en esta transaccion;
+        # el consumidor de inventario no debe volver a descontarlo.
         for item, venta in zip(items, venta_ids):
             _emitir_evento("venta.registrada", {
                 "venta_id": venta,
@@ -5983,37 +6010,71 @@ def _punto_entrega_pedido(data, cliente_direccion, cliente_residencia):
 @app.route("/api/pedidos/crear", methods=["POST"])
 @login_required_cliente
 def crear_pedido():
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get("items"), list) or not data["items"]:
+        return jsonify({"success": False, "error": "Pedido invalido o carrito vacio"}), 400
+    for item in data["items"]:
+        if not isinstance(item, dict):
+            return jsonify({"success": False, "error": "Producto invalido"}), 400
+        try:
+            cantidad_original = item.get("cantidad")
+            cantidad = int(cantidad_original)
+            producto_original = item.get("id")
+            producto_id = int(producto_original)
+        except (TypeError, ValueError, OverflowError):
+            return jsonify({"success": False, "error": "Cantidad o producto invalido"}), 400
+        if (isinstance(cantidad_original, bool) or isinstance(producto_original, bool)
+                or (isinstance(cantidad_original, float) and not cantidad_original.is_integer())
+                or cantidad <= 0 or producto_id <= 0):
+            return jsonify({"success": False, "error": "La cantidad debe ser un entero positivo"}), 400
+        item["cantidad"], item["id"] = cantidad, producto_id
 
-    # Diagnostico: ver si llegaron las coordenadas marcadas por el cliente.
+    # Clave de idempotencia: el navegador la envia en el cuerpo/cabecera para
+    # que un reintento (doble clic, timeout, recarga) no cree otro pedido ni
+    # vuelva a descontar stock. Si no llega, se genera una para esta peticion.
+    clave_cruda = (request.headers.get("Idempotency-Key")
+                   or data.get("clave_idempotencia") or "").strip()
+    if not clave_cruda:
+        return jsonify({"success": False,
+                        "error": "Idempotency-Key es obligatoria"}), 400
     try:
-        with open("/home/librospe/tmp/pedidos_diag.log", "a", encoding="utf-8") as _f:
-            _f.write(f"[diag] latitud={data.get('latitud')!r} longitud={data.get('longitud')!r} "
-                     f"tipo_entrega={data.get('tipo_entrega')!r} total={data.get('total')!r}\n")
-    except Exception:
-        pass
+        referencia = normalizar_referencia(clave_cruda)
+    except StockError:
+        return jsonify({"success": False,
+                        "error": "clave_idempotencia invalida"}), 400
+    huella_idempotencia = hashlib.sha256(
+        json.dumps(data, sort_keys=True, separators=(",", ":"),
+                   ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    pedido_existente = Pedido.query.filter_by(
+        clave_idempotencia=referencia).first()
+    if pedido_existente:
+        if (pedido_existente.cliente_id != session["cliente_id"]
+                or pedido_existente.huella_idempotencia != huella_idempotencia):
+            return jsonify({"success": False,
+                            "codigo": "clave_idempotencia_reutilizada",
+                            "error": "La clave ya fue usada para otro pedido."}), 409
+        return jsonify({"success": True, "duplicado": True,
+                        "pedido_id": pedido_existente.id}), 200
 
-    print("=" * 60)
-    print("📦 DATOS RECIBIDOS EN /api/pedidos/crear:")
-    print(f"Items: {len(data.get('items', []))} productos")
-    print(f"Tipo entrega: {data.get('tipo_entrega')}")
-    print(f"Total: {data.get('total')}")
-    print(f"Cliente data completo: {data.get('cliente', {})}")
-    print(f"Documento: {data.get('cliente', {}).get('documento', 'NO ENCONTRADO')}")
-    print(f"Razón Social: {data.get('cliente', {}).get('razon_social', 'NO')}")
-    print(f"Dirección Fiscal: {data.get('cliente', {}).get('direccion_fiscal', 'NO')}")
-    print("=" * 60)
-    
+    # Log sin datos personales: solo el tamano del pedido y el canal.
+    print(f"[checkout] items={len(data['items'])} "
+          f"entrega={data.get('tipo_entrega')!r} ref={referencia[:12]}...")
+    reserva_pendiente = False
+
     try:
         # ============================================
-        # 1. VALIDAR STOCK
+        # 1. CARGAR PRODUCTOS Y PRECIOS DEL SERVIDOR
         # ============================================
+        # La disponibilidad la garantiza la reserva atomica mas abajo; aqui
+        # solo se valida que el producto exista y se fija el precio real.
         for item in data["items"]:
             producto = Producto.query.get(item["id"])
             if not producto:
-                return jsonify({"success": False, "error": f'Producto no encontrado: {item["nombre"]}'})
-            if producto.cantidad < item["cantidad"]:
-                return jsonify({"success": False, "error": f'Stock insuficiente: {item["nombre"]}. Disponible: {producto.cantidad}'})
+                return jsonify({"success": False, "error": f'Producto no encontrado: {item.get("nombre", item["id"])}'}), 404
+            # Nunca persistir el precio o nombre enviados por el navegador.
+            item["precio"] = float(producto.precio_oferta or producto.precio or 0)
+            item["nombre"] = producto.nombre
         
         # ============================================
         # 2. EXTRAER DATOS DEL CHECKOUT
@@ -6055,15 +6116,8 @@ def crear_pedido():
         if not cliente_documento:
             cliente_documento = session.get("cliente_dni", "")
         
-        print(f"\n📝 DATOS A GUARDAR EN VENTA:")
-        print(f"   Nombres: '{cliente_nombres}'")
-        print(f"   Apellidos: '{cliente_apellidos}'")
-        print(f"   Email: '{cliente_email}'")
-        print(f"   Teléfono: '{cliente_telefono}'")
-        print(f"   Documento (DNI/RUC): '{cliente_documento}'")
-        print(f"   Razón Social: '{cliente_razon_social}'")
-        print(f"   Dirección Fiscal: '{cliente_direccion_fiscal}'")
-        print(f"   Dirección Entrega: '{cliente_direccion}'")
+        print(f"[checkout] cliente={session['cliente_id']} "
+              f"entrega={data['tipo_entrega']} items={len(data['items'])}")
         
         # ============================================
         # 2.5 VALIDAR DELIVERY (dirección + distrito de residencia)
@@ -6094,10 +6148,20 @@ def crear_pedido():
         lat_entrega, lng_entrega, precision_entrega = _punto_entrega_pedido(
             data, cliente_direccion, cliente_residencia)
 
-        subtotal_pedido = sum(float(it["precio"]) * int(it["cantidad"]) for it in data["items"])
-        descuento_pedido = float(data.get("descuento") or 0)
-        costo_envio_pedido = float(data.get("costo_envio") or 0)
-        cargo_contraentrega_pedido = float(data.get("cargo_contraentrega") or 0)
+        subtotal_pedido = round(sum(float(it["precio"]) * int(it["cantidad"])
+                                    for it in data["items"]), 2)
+        try:
+            descuento_pedido = float(data.get("descuento") or 0)
+            costo_envio_pedido = float(data.get("costo_envio") or 0)
+            cargo_contraentrega_pedido = float(data.get("cargo_contraentrega") or 0)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "Importes invalidos"}), 400
+        importes = (descuento_pedido, costo_envio_pedido, cargo_contraentrega_pedido)
+        if (not all(math.isfinite(v) and v >= 0 for v in importes)
+                or descuento_pedido > subtotal_pedido):
+            return jsonify({"success": False, "error": "Importes fuera de rango"}), 400
+        total_calculado = round(subtotal_pedido - descuento_pedido + costo_envio_pedido
+                                + cargo_contraentrega_pedido, 2)
         metodo_pago_pedido = (data.get("metodo_pago") or "").strip() or None
         distrito_pedido = (data.get("distrito") or "").strip() or None
         # En los pedidos DELIVERY el pago se recibe al momento de la entrega:
@@ -6105,9 +6169,40 @@ def crear_pedido():
         # comprados (antes quedaba NULL porque el pago aún no se registraba).
         es_delivery = data["tipo_entrega"] == "delivery"
 
+        # ============================================
+        # El outbox debe existir antes de abrir la transaccion del pedido.
+        # El evento se insertara en esa misma transaccion, en la BD de ventas.
+        if not preparar_outbox("ventas"):
+            return jsonify({"success": False, "codigo": "outbox_no_disponible",
+                            "error": "No se pudo preparar la confirmacion del pedido."}), 503
+
+        # 3.5 RESERVAR STOCK (una sola vez, idempotente)
+        # ============================================
+        # El inventario es el dueno del stock: descuenta con una condicion
+        # atomica y registra la referencia. Un reintento del mismo pedido no
+        # vuelve a descontar; un fallo posterior libera la reserva.
+        reserva = reservar_stock(referencia, data["items"],
+                                 documento_tipo="pedido")
+        if not reserva.get("ok"):
+            codigo = reserva.get("codigo") or "inventario_no_disponible"
+            if codigo == "stock_insuficiente":
+                return jsonify({"success": False, "codigo": codigo,
+                                "error": reserva.get(
+                                    "error", "Stock insuficiente.")}), 409
+            return jsonify({"success": False, "codigo": codigo,
+                            "error": reserva.get(
+                                "error", "No se pudo reservar el stock.")}), 503
+        if reserva.get("duplicado"):
+            if reserva.get("estado") == "confirmado" and reserva.get("documento_id"):
+                return jsonify({"success": True, "duplicado": True,
+                                "pedido_id": reserva["documento_id"]}), 200
+            return jsonify({"success": False, "codigo": "pedido_en_proceso",
+                            "error": "El pedido ya se esta procesando."}), 409
+        reserva_pendiente = True
+
         pedido = Pedido(
             cliente_id=session["cliente_id"],
-            total=float(data["total"]),
+            total=total_calculado,
             subtotal=subtotal_pedido,
             descuento=descuento_pedido,
             costo_envio=costo_envio_pedido,
@@ -6119,6 +6214,8 @@ def crear_pedido():
             lat=lat_entrega,
             lng=lng_entrega,
             geo_precision=precision_entrega,
+            clave_idempotencia=referencia,
+            huella_idempotencia=huella_idempotencia,
         )
         db.session.add(pedido)
         db.session.flush()
@@ -6155,9 +6252,9 @@ def crear_pedido():
             )
             db.session.add(detalle)
             
-            # Actualizar stock
-            producto.cantidad -= int(item["cantidad"])
-            
+            # El stock ya se desconto al reservar (arriba); aqui solo se
+            # guarda el detalle. No se vuelve a tocar la tabla de productos.
+
             # Crear VENTA (guardar dirección fiscal en cliente_direccion o campo específico)
             venta = Venta(
                 producto_id=item["id"],
@@ -6208,34 +6305,46 @@ def crear_pedido():
             if not cliente_obj.telefono and cliente_telefono:
                 campos["telefono"] = cliente_telefono
             if campos:
-                _guardar_datos_cliente(session["cliente_id"], campos)
+                # No llamar _guardar_datos_cliente aqu?: hace commit y partir?a
+                # la transacci?n antes del outbox de ventas.
+                for campo, valor in campos.items():
+                    setattr(cliente_obj, campo, valor)
         
-        db.session.commit()
-        
-        # Evento de dominio: el microservicio de inventario descuenta el stock
-        # y el de ventas actualiza sus copias al recibirlo por el agente de
-        # mensajes (si no hay broker, queda en el outbox y lo reintenta el cron).
-        _emitir_evento("pedido.creado", {
+        evento_pedido = {
             "pedido_id": pedido.id,
+            "referencia": referencia,
             "cliente_id": pedido.cliente_id,
             "tipo_entrega": pedido.tipo_entrega,
             "distrito": pedido.distrito_entrega,
             "total": float(pedido.total or 0),
             "items": [
                 {"id": it["id"], "cantidad": int(it["cantidad"]),
-                 "precio": float(it["precio"]),
-                 "nombre": it.get("nombre", "")}
+                 "precio": float(it["precio"]), "nombre": it.get("nombre", "")}
                 for it in data.get("items", [])
             ],
-        })
+        }
+        conexion_ventas = db.session.connection(
+            bind_arguments={"bind": db.engines["ventas"]})
+        guardar_en_outbox_transaccional(
+            conexion_ventas, "pedido.creado", evento_pedido, "gateway")
+        db.session.commit()
+        reserva_pendiente = False
 
-        print(f"\n✅ PEDIDO #{pedido.id} COMPLETADO")
-        print(f"   Cliente: {cliente_nombres} {cliente_apellidos}")
-        print(f"   Documento: '{cliente_documento}'")
-        if cliente_razon_social:
-            print(f"   Razón Social: '{cliente_razon_social}'")
-        if cliente_direccion_fiscal:
-            print(f"   Dirección Fiscal: '{cliente_direccion_fiscal}'")
+        # La reserva ya desconto el stock; se vincula al pedido creado. Si la
+        # marca fallara, el pedido y el descuento siguen siendo validos: solo
+        # queda pendiente la trazabilidad de la reserva.
+        confirmacion = confirmar_stock(referencia, pedido.id,
+                                       documento_tipo="pedido")
+        if not confirmacion.get("ok"):
+            print(f"[checkout] aviso: reserva {referencia[:12]}... sin confirmar: "
+                  f"{confirmacion.get('error')}")
+
+        # El evento ya esta guardado atomicamente con el pedido. Se intenta
+        # publicar ahora; si RabbitMQ falla, permanece en el outbox de ventas.
+        procesar_outbox(50)
+
+        print(f"[checkout] pedido #{pedido.id} confirmado "
+              f"({len(data['items'])} item(s))")
         
         # ============================================
         # 5. ENTREGA DEL COMPROBANTE: correo, SMS o WhatsApp
@@ -6247,7 +6356,7 @@ def crear_pedido():
             f"📚 Librería Salesiana Don Bosco\n"
             f"{etiq_comp} N° {numero_comprobante}\n"
             f"Cliente: {(cliente_nombres + ' ' + cliente_apellidos).strip() or 'Cliente'}\n"
-            f"Total: S/ {float(data['total']):.2f}\n"
+            f"Total: S/ {total_calculado:.2f}\n"
             f"Gracias por tu compra."
         )
         # El cliente elige dónde recibir el comprobante:
@@ -6269,12 +6378,12 @@ def crear_pedido():
             texto_sms = componer_texto_sms(
                 etiq_comp, numero_comprobante,
                 (cliente_nombres + " " + cliente_apellidos).strip() or "Cliente",
-                float(data["total"]), enlace_comprobante)
+                total_calculado, enlace_comprobante)
             sms_enviado, sms_detalle = enviar_sms(cliente_telefono, texto_sms)
             if sms_enviado:
-                print(f"📱 SMS enviado a {cliente_telefono}: {texto_sms[:60]}...")
+                print("[checkout] comprobante SMS enviado")
             else:
-                print(f"⚠️ No se pudo enviar el SMS a {cliente_telefono}: {sms_detalle}")
+                print("[checkout] no se pudo enviar el comprobante SMS")
 
         if preferencia == "sms":
             enviar_por_correo = (not sms_enviado) and correo_disponible
@@ -6293,13 +6402,13 @@ def crear_pedido():
                     numero_comprobante=numero_comprobante,
                     fecha=datetime.now(),
                     productos=productos_para_correo,
-                    total_venta=float(data["total"]),
+                    total_venta=total_calculado,
                     documento=cliente_documento,
                     tipo_documento="RUC" if tipo_comp == "factura" else (cliente_tipo_documento or ("DNI" if cliente_documento else "")),
                     razon_social=cliente_razon_social,
                     direccion_fiscal=cliente_direccion_fiscal,
                 ))
-                print(f"📧 Correo enviado a {cliente_email}")
+                print("[checkout] comprobante por correo enviado")
             except Exception as e:
                 print(f"⚠️ Error al enviar correo: {e}")
 
@@ -6307,7 +6416,7 @@ def crear_pedido():
         if not correo_enviado and not sms_enviado:
             whatsapp_url = enlace_whatsapp(cliente_telefono, texto_wa)
             if whatsapp_url:
-                print(f"💬 Comprobante disponible por WhatsApp a {cliente_telefono}")
+                print("[checkout] enlace de comprobante WhatsApp preparado")
 
         return jsonify({
             "success": True,
@@ -6322,10 +6431,17 @@ def crear_pedido():
         
     except Exception as e:
         db.session.rollback()
-        print(f"❌ ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)})
+        if reserva_pendiente:
+            # El pedido no se guardo: se devuelve el stock reservado. Si esta
+            # compensacion falla, el stock queda retenido y se registra para
+            # conciliacion (nunca se confirma una venta inexistente).
+            liberacion = liberar_stock(referencia)
+            if not liberacion.get("ok"):
+                print(f"[checkout] ALERTA: no se pudo liberar {referencia}: "
+                      f"{liberacion.get('error')}")
+        print(f"[checkout] error {type(e).__name__} ref={referencia[:12]}...")
+        return jsonify({"success": False,
+                        "error": "No se pudo completar el pedido."}), 500
 
 @app.route("/api/pedidos/nuevos")
 @login_required

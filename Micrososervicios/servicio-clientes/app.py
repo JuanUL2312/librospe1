@@ -1,5 +1,6 @@
 """Servicio CLIENTES (puerto 8004). BD propia: librospe_ms_clientes."""
 import os
+import sys
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -12,14 +13,22 @@ from sqlalchemy import text
 
 
 def cargar_entorno():
-    for base in (Path(__file__).resolve().parent.parent, Path(__file__).resolve().parent):
+    bases = [Path(__file__).resolve().parent.parent, Path(__file__).resolve().parent, Path.home()]
+    vistos = set()
+    for base in bases:
         f = base / ".env"
-        if f.is_file():
-            for linea in f.read_text(encoding="utf-8").splitlines():
-                linea = linea.strip()
-                if linea and not linea.startswith("#") and "=" in linea:
-                    k, v = linea.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        try:
+            r = f.resolve()
+        except OSError:
+            continue
+        if r in vistos or not f.is_file():
+            continue
+        vistos.add(r)
+        for linea in f.read_text(encoding="utf-8").splitlines():
+            linea = linea.strip()
+            if linea and not linea.startswith("#") and "=" in linea:
+                k, v = linea.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 cargar_entorno()
@@ -235,10 +244,19 @@ def _aplicar_evento(tipo, datos):
         return False
 
 
-if __name__ == "__main__":
+def _arrancar_consumidor():
+    if "pytest" in sys.modules:
+        return
+    if os.environ.get("MS_CONSUMIDOR", "1").lower() in ("0", "false", "no"):
+        return
     try:
         from rabbit_consumidor import iniciar_consumidor
         iniciar_consumidor("clientes", _aplicar_evento)
     except Exception as e:
         print(f"[clientes] no se pudo iniciar el consumidor de eventos: {e}")
-    app.run(host="127.0.0.1", port=8004)
+
+
+_arrancar_consumidor()
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=8004, threaded=True)
