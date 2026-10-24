@@ -1706,7 +1706,7 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
         smtp_password = EMAIL_PASSWORD
 
         if not destinatario or '@' not in destinatario:
-            print(f"❌ Email inválido: {destinatario}")
+            print("[email] destinatario invalido")
             return False
 
         es_factura = tipo_comprobante == "factura"
@@ -1907,14 +1907,14 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
         except Exception as e:
             print(f"⚠️ No se pudo adjuntar el PDF: {e}")
 
-        print(f"📧 Enviando a {destinatario}...")
+        print("[email] enviando comprobante")
         server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
         server.login(smtp_user, smtp_password)
         server.send_message(msg)
         server.quit()
 
-        print(f"✅ Correo enviado a {destinatario}")
+        print("[email] comprobante enviado")
         return True
 
     except Exception as e:
@@ -1932,7 +1932,7 @@ def enviar_entrega_email(cliente_obj, pedido):
 
         destinatario = cliente_obj.correo
         if not destinatario or '@' not in destinatario:
-            print(f"❌ Email inválido para entrega: {destinatario}")
+            print("[email] destinatario invalido")
             return False
 
         nombre = f"{cliente_obj.nombres or ''} {cliente_obj.apellidos or ''}".strip() or destinatario
@@ -1981,13 +1981,13 @@ def enviar_entrega_email(cliente_obj, pedido):
         """
         msg.attach(MIMEText(html, 'html'))
 
-        print(f"📧 Enviando correo de entrega a {destinatario}...")
+        print("[email] procesando comprobante de entrega")
         server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
         server.starttls()
         server.login(EMAIL_USER, EMAIL_PASSWORD)
         server.send_message(msg)
         server.quit()
-        print(f"✅ Correo de entrega enviado a {destinatario}")
+        print("[email] procesando comprobante de entrega")
         return True
     except Exception as e:
         print(f"❌ Error al enviar correo de entrega: {e}")
@@ -3715,7 +3715,7 @@ def venta_nueva():
             except Exception as e:
                 print(f"⚠️ No se pudo buscar cliente: {e}")
             
-            print(f"\n📋 VENTA: Producto ID={producto_id}, Cantidad={cantidad}, Email={cliente_email}")
+            print(f"[venta] producto={producto_id} cantidad={cantidad}")
             
             # Generar número de comprobante
             numero_comprobante = f"{datetime.now().strftime('%Y%m%d')}-{datetime.now().strftime('%H%M%S')}"
