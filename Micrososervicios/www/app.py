@@ -52,6 +52,7 @@ from stock import (
     confirmar_stock,
     liberar_stock,
     normalizar_referencia,
+    nueva_referencia,
     reservar_stock,
 )
 import secrets
@@ -2468,6 +2469,8 @@ def logout():
 @admin_required
 def nuevo_usuario():
     if request.method == "POST":
+        referencia_reserva = None
+        venta_confirmada = False
         try:
             # Resolver rol_id a partir del nombre del rol (tabla roles)
             rol_nombre = {"administrador": "admin", "vendedor": "vendedor"}.get(
@@ -3724,10 +3727,17 @@ def venta_nueva():
             if not producto:
                 flash("❌ Producto no encontrado", "danger")
                 return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
-            
+
             if producto.cantidad < cantidad:
                 flash(f"❌ Stock insuficiente. Disponible: {producto.cantidad}", "danger")
                 return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+
+            referencia_reserva = "venta:" + nueva_referencia()
+            reserva = reservar_stock(referencia_reserva, [{"id": producto_id, "cantidad": cantidad}],
+                                    documento_tipo="venta")
+            if not reserva.get("ok"):
+                flash("No se pudo reservar el inventario para completar la venta", "danger")
+                return redirect(url_for("inventario"))
             
             precio_unitario = float(producto.precio or 0)
             total_venta = precio_unitario * cantidad
@@ -3769,11 +3779,13 @@ def venta_nueva():
                 cliente_id=cliente_existente.id if cliente_existente else None,
             )
             db.session.add(nueva_venta)
-            if not _descontar_stock_atomico(producto.id, cantidad):
-                db.session.rollback()
-                flash("Stock insuficiente para completar la venta", "danger")
-                return redirect(url_for("inventario"))
             db.session.commit()
+            venta_confirmada = True
+            confirmacion_stock = confirmar_stock(referencia_reserva, nueva_venta.id,
+                                                  documento_tipo="venta")
+            if not confirmacion_stock.get("ok"):
+                app.logger.error("Reserva de inventario pendiente de conciliacion para venta_id=%s",
+                                 nueva_venta.id)
             registrar_auditoria("VENTA", "ventas", f"Venta #{nueva_venta.id} - {producto.nombre} x{cantidad} - Total: S/ {total_venta:.2f} ({metodo_pago})")
             verificar_stock_bajo_y_notificar()
             verificar_stock_maximo_y_notificar()
@@ -3809,6 +3821,10 @@ def venta_nueva():
             
         except Exception as e:
             db.session.rollback()
+            if referencia_reserva and not venta_confirmada:
+                liberacion = liberar_stock(referencia_reserva)
+                if not liberacion.get("ok"):
+                    app.logger.error("No se pudo liberar reserva fallida de venta; requiere conciliacion")
             print(f"❌ Error: {e}")
             import traceback
             traceback.print_exc()
@@ -5163,8 +5179,21 @@ def venta_rapida():
     try:
         for item in items:
             producto = Producto.query.get(item["id"])
-            if not producto or producto.cantidad < item["cantidad"]:
+            try:
+                cantidad_item = int(item.get("cantidad"))
+            except (AttributeError, TypeError, ValueError):
+                return jsonify({"success": False, "error": "Cantidad de producto invalida"}), 400
+            if isinstance(item.get("cantidad"), bool) or cantidad_item <= 0:
+                return jsonify({"success": False, "error": "Cantidad de producto invalida"}), 400
+            if not producto or producto.cantidad < cantidad_item:
                 return jsonify({"success": False, "error": f'Stock insuficiente: {item["nombre"]}'})
+        referencia_reserva = ("pos:" + hashlib.sha256(clave_idem.encode("utf-8")).hexdigest()[:48]
+                              if clave_idem else "pos:" + nueva_referencia())
+        items_reserva = [{"id": item["id"], "cantidad": int(item["cantidad"])} for item in items]
+        reserva = reservar_stock(referencia_reserva, items_reserva, documento_tipo="venta")
+        if not reserva.get("ok"):
+            return jsonify({"success": False, "error": "No se pudo reservar el inventario"}), 503
+        venta_confirmada = False
         venta_ids = []
         total_general = 0
         cliente_rapido = None
@@ -5205,12 +5234,14 @@ def venta_rapida():
                 cliente_id=cliente_rapido.id if cliente_rapido else None,
             )
             db.session.add(nueva_venta)
-            if not _descontar_stock_atomico(producto.id, int(item["cantidad"])):
-                db.session.rollback()
-                return jsonify({"success": False, "error": f"Stock insuficiente: {producto.nombre}"}), 409
             total_general += total
             venta_ids.append(nueva_venta.id)
         db.session.commit()
+        venta_confirmada = True
+        confirmacion_stock = confirmar_stock(referencia_reserva, venta_ids[0], documento_tipo="venta")
+        if not confirmacion_stock.get("ok"):
+            app.logger.error("Reserva de inventario pendiente de conciliacion para venta_id=%s",
+                             venta_ids[0])
         registrar_auditoria("VENTA", "ventas",
                             f"Venta rápida POS #{venta_ids[0]} - {len(venta_ids)} item(s) - "
                             f"Total: S/ {total_general:.2f} ({metodo_pago})"
@@ -5248,6 +5279,10 @@ def venta_rapida():
         return jsonify(respuesta)
     except Exception as e:
         db.session.rollback()
+        if "referencia_reserva" in locals() and referencia_reserva and not locals().get("venta_confirmada", False):
+            liberacion = liberar_stock(referencia_reserva)
+            if not liberacion.get("ok"):
+                app.logger.error("No se pudo liberar reserva fallida de venta rapida; requiere conciliacion")
         return jsonify({"success": False, "error": str(e)})
 
 
