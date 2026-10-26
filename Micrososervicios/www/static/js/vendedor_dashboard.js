@@ -61,27 +61,54 @@ function actualizarCarrito() {
 }
 
 // Finalizar venta
+let ventaRapidaEnCurso = false;
+const CLAVE_VENTA_RAPIDA_PENDIENTE = 'venta_rapida_clave_pendiente';
+const DATOS_VENTA_RAPIDA_PENDIENTE = 'venta_rapida_datos_pendientes';
+
 document.getElementById('btnFinalizarVenta').onclick = function() {
+    if (ventaRapidaEnCurso) return;
     if(carrito.length === 0) {
         alert('Agrega productos al carrito');
         return;
     }
-    
-    let clienteDNI = document.getElementById('dniCliente').value;
+    ventaRapidaEnCurso = true;
+    const botonVenta = document.getElementById('btnFinalizarVenta');
+    botonVenta.disabled = true;
+    let claveIdempotencia = sessionStorage.getItem(CLAVE_VENTA_RAPIDA_PENDIENTE);
+    let datosVenta;
+    try {
+        datosVenta = JSON.parse(sessionStorage.getItem(DATOS_VENTA_RAPIDA_PENDIENTE) || 'null');
+    } catch (e) {
+        datosVenta = null;
+    }
+    if (!claveIdempotencia) {
+        claveIdempotencia = (window.crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : (Date.now() + '-' + Math.random().toString(16).slice(2));
+        sessionStorage.setItem(CLAVE_VENTA_RAPIDA_PENDIENTE, claveIdempotencia);
+        datosVenta = null;
+    }
+    if (!datosVenta) {
+        datosVenta = {
+            items: carrito.map(item => ({id: item.id, cantidad: item.cantidad})),
+            cliente_dni: document.getElementById('dniCliente').value || null,
+            cliente_tipo_documento: document.getElementById('tipoDocumentoCliente').value,
+            tipo_comprobante: 'boleta',
+            clave_idempotencia: claveIdempotencia
+        };
+        sessionStorage.setItem(DATOS_VENTA_RAPIDA_PENDIENTE, JSON.stringify(datosVenta));
+    }
     
     fetch('/api/ventas/rapida', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            items: carrito,
-            cliente_dni: clienteDNI || null,
-            cliente_tipo_documento: document.getElementById('tipoDocumentoCliente').value,
-            tipo_comprobante: 'boleta'
-        })
+        headers: {'Content-Type': 'application/json', 'Idempotency-Key': claveIdempotencia},
+        body: JSON.stringify(datosVenta)
     })
-    .then(res => res.json())
-    .then(data => {
+    .then(res => res.json().then(data => ({res, data})))
+    .then(({res, data}) => {
         if(data.success) {
+            sessionStorage.removeItem(DATOS_VENTA_RAPIDA_PENDIENTE);
+            sessionStorage.removeItem(CLAVE_VENTA_RAPIDA_PENDIENTE);
             alert(`✅ Venta registrada! Total: S/. ${data.total}`);
             carrito = [];
             actualizarCarrito();
@@ -89,7 +116,18 @@ document.getElementById('btnFinalizarVenta').onclick = function() {
             window.location.href = `/comprobante/${data.venta_id}`;
         } else {
             alert('Error: ' + data.error);
+            if (res.status < 500) {
+                sessionStorage.removeItem(DATOS_VENTA_RAPIDA_PENDIENTE);
+                sessionStorage.removeItem(CLAVE_VENTA_RAPIDA_PENDIENTE);
+            }
         }
+    })
+    .catch(() => {
+        alert('No se pudo confirmar la respuesta. Reintenta para consultar la misma venta.');
+    })
+    .finally(() => {
+        ventaRapidaEnCurso = false;
+        botonVenta.disabled = false;
     });
 };
 

@@ -124,13 +124,20 @@ def _url_inventario() -> str:
 
 
 def _permitir_respaldo_bd() -> bool:
-    """El acceso Gateway->BD queda desactivado salvo opt-in de migracion."""
+    """El acceso Gateway->BD queda desactivado salvo opt-in de migracion.
+
+    Si la app no define la clave (por ejemplo, una version anterior del
+    gateway), se consulta el entorno para no desactivar el respaldo en
+    silencio.
+    """
     try:
         from flask import current_app
-        return bool(current_app.config.get("INVENTARIO_DB_FALLBACK", False))
+        if "INVENTARIO_DB_FALLBACK" in current_app.config:
+            return bool(current_app.config["INVENTARIO_DB_FALLBACK"])
     except RuntimeError:
-        return os.environ.get("INVENTARIO_DB_FALLBACK", "false").lower() in (
-            "1", "true", "yes")
+        pass
+    return os.environ.get("INVENTARIO_DB_FALLBACK", "false").strip().lower() in (
+        "1", "true", "yes", "on")
 
 
 def _token_servicio() -> str:
@@ -409,6 +416,74 @@ def _liberar_directo(referencia: str) -> dict:
             "error": "No se pudo liberar la reserva; requiere conciliacion.",
             "detalle": str(e)[:200],
         }
+
+
+def cancelar_stock_confirmado(referencia, documento_id, documento_tipo="pedido") -> dict:
+    """Devuelve stock reservado de un pedido cancelado, una sola vez."""
+    referencia = normalizar_referencia(referencia)
+    try:
+        documento_id = int(documento_id)
+    except (TypeError, ValueError):
+        return {"ok": False, "codigo": "documento_invalido",
+                "error": "documento_id invalido"}
+    estado, cuerpo = _post("/_cancelar-reserva-stock", {
+        "referencia": referencia, "documento_tipo": documento_tipo,
+        "documento_id": documento_id,
+    })
+    # 404 tambien puede significar que el servicio aun no tiene esta ruta;
+    # en modo compatibilidad se consulta el bind due?o para hacer la compensacion.
+    if estado is not None and estado < 500 and estado != 404:
+        cuerpo.setdefault("ok", estado == 200)
+        cuerpo["via"] = "servicio"
+        return cuerpo
+    if _permitir_respaldo_bd():
+        return _cancelar_stock_directo(referencia, documento_id, documento_tipo)
+    return {"ok": False, "codigo": "inventario_no_disponible",
+            "error": "No se pudo confirmar la devolucion del inventario."}
+
+
+def _cancelar_stock_directo(referencia, documento_id, documento_tipo):
+    from sqlalchemy import text
+    try:
+        motor = _motor_inventario()
+        _asegurar_tabla(motor)
+        with motor.begin() as con:
+            filas = con.execute(text(
+                f"SELECT producto_id, cantidad, estado, documento_tipo, documento_id "
+                f"FROM {TABLA_RESERVAS} WHERE referencia=:r ORDER BY id FOR UPDATE"
+            ), {"r": referencia}).mappings().all()
+            if not filas:
+                return {"ok": False, "codigo": "reserva_no_encontrada",
+                        "error": "No existe la reserva del pedido."}
+            for fila in filas:
+                if fila["documento_id"] is not None and (
+                    int(fila["documento_id"]) != documento_id or
+                    fila["documento_tipo"] != documento_tipo
+                ):
+                    return {"ok": False, "codigo": "documento_no_coincide",
+                            "error": "La reserva pertenece a otro documento."}
+            if any(f["estado"] not in ("reservado", "confirmado", "liberado")
+                   for f in filas):
+                return {"ok": False, "codigo": "estado_reserva_invalido",
+                        "error": "La reserva no puede devolverse en su estado actual."}
+            activas = [f for f in filas if f["estado"] in ("reservado", "confirmado")]
+            for fila in activas:
+                actualizado = con.execute(text(
+                    f"UPDATE {TABLA_PRODUCTOS} SET cantidad=cantidad+:c WHERE id=:p"
+                ), {"c": fila["cantidad"], "p": fila["producto_id"]})
+                if actualizado.rowcount != 1:
+                    raise RuntimeError("producto de la reserva no encontrado")
+            if activas:
+                con.execute(text(
+                    f"UPDATE {TABLA_RESERVAS} SET estado='liberado' "
+                    "WHERE referencia=:r AND estado IN ('reservado','confirmado')"
+                ), {"r": referencia})
+        return {"ok": True, "via": "bd", "duplicado": not bool(activas),
+                "devueltas": len(activas)}
+    except Exception as e:
+        return {"ok": False, "codigo": "inventario_no_disponible",
+                "error": "No se pudo devolver el stock; requiere conciliacion.",
+                "detalle": str(e)[:200]}
 
 
 def confirmar_stock(referencia, documento_id, documento_tipo="pedido") -> dict:

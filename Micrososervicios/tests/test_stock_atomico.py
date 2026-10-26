@@ -72,3 +72,21 @@ def test_peticion_http_de_reserva_envia_token_interno(monkeypatch):
     status, cuerpo = stock._post("/_reservar-stock", {"referencia": "token-test-123"})
     assert status == 200 and cuerpo["ok"] is True
     assert capturada["request"].get_header("X-service-token") == "token-de-prueba"
+
+
+def test_cancelacion_usa_fallback_si_servicio_aun_no_tiene_la_ruta(monkeypatch):
+    llamada = {}
+    monkeypatch.setattr(stock, "_post",
+                        lambda *args, **kwargs: (404, {"error": "Not Found"}))
+    def devolver(referencia, documento_id, documento_tipo):
+        llamada.update(referencia=referencia, documento_id=documento_id,
+                       documento_tipo=documento_tipo)
+        return {"ok": True, "via": "bd"}
+    monkeypatch.setattr(stock, "_cancelar_stock_directo", devolver)
+    with gateway.app.app_context():
+        gateway.app.config["INVENTARIO_DB_FALLBACK"] = True
+        resultado = stock.cancelar_stock_confirmado(
+            "cancel-key-123", 42, documento_tipo="pedido")
+    assert resultado == {"ok": True, "via": "bd"}
+    assert llamada == {"referencia": "cancel-key-123", "documento_id": 42,
+                       "documento_tipo": "pedido"}

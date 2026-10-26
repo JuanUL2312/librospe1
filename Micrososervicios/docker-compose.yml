@@ -45,6 +45,22 @@ services:
       ventas: {condition: service_started}
       usuarios: {condition: service_started}
       clientes: {condition: service_started}
+
+  outbox-worker:
+    build:
+      context: .
+      dockerfile: www/Dockerfile
+    env_file: .env
+    environment:
+      AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
+      OUTBOX_POLL_SECONDS: ${OUTBOX_POLL_SECONDS:-15}
+      OUTBOX_WORKER: "1"
+    command: ["python", "outbox_worker.py"]
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
   inventario:
     build: ./servicio-inventario
     ports: ["8001:8001"]

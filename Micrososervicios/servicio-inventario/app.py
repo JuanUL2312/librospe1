@@ -43,7 +43,20 @@ DB_USER = os.environ.get("DB_USER", "root")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_NAME = os.environ.get("MS_INVENTARIO_DB", "librospe_ms_inventario")
-SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", "librospe-interno-dev")
+SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", "").strip()
+
+
+@app.before_request
+def proteger_servicio():
+    """Only health is public; toda API requiere token interno configurado."""
+    if request.path == "/health":
+        return None
+    if not SERVICE_TOKEN:
+        return jsonify({"error": "Servicio sin token configurado"}), 503
+    recibido = request.headers.get("X-Service-Token", "")
+    if not recibido or not hmac.compare_digest(recibido, SERVICE_TOKEN):
+        return jsonify({"error": "Token de servicio invalido"}), 401
+
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"
 )
@@ -519,6 +532,63 @@ def confirmar_stock():
         app.logger.exception("Error confirmando la reserva %s", referencia)
         return jsonify({"ok": False, "codigo": "inventario_no_disponible",
                         "error": "No se pudo confirmar la reserva."}), 503
+
+
+@app.route("/_cancelar-reserva-stock", methods=["POST"])
+@servicio_requerido
+def cancelar_reserva_stock():
+    """Devuelve una reserva confirmada al cancelarse su documento, idempotentemente."""
+    data = request.get_json(silent=True) or {}
+    try:
+        referencia = _normalizar_referencia(data.get("referencia"))
+        documento_id = int(data.get("documento_id"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "codigo": "datos_invalidos",
+                        "error": "referencia o documento_id invalidos"}), 400
+    documento_tipo = str(data.get("documento_tipo") or "pedido")[:16]
+    try:
+        _asegurar_tabla_reservas()
+        filas = db.session.execute(text(
+            f"SELECT producto_id, cantidad, estado, documento_tipo, documento_id "
+            f"FROM {TABLA_RESERVAS} WHERE referencia=:r ORDER BY id FOR UPDATE"
+        ), {"r": referencia}).mappings().all()
+        if not filas:
+            db.session.rollback()
+            return jsonify({"ok": False, "codigo": "reserva_no_encontrada",
+                            "error": "No existe la reserva del pedido."}), 404
+        for fila in filas:
+            if fila["documento_id"] is not None and (
+                int(fila["documento_id"]) != documento_id or
+                fila["documento_tipo"] != documento_tipo
+            ):
+                db.session.rollback()
+                return jsonify({"ok": False, "codigo": "documento_no_coincide",
+                                "error": "La reserva pertenece a otro documento."}), 409
+        if any(f["estado"] not in ("reservado", "confirmado", "liberado")
+               for f in filas):
+            db.session.rollback()
+            return jsonify({"ok": False, "codigo": "estado_reserva_invalido",
+                            "error": "La reserva no puede devolverse en su estado actual."}), 409
+        activas = [f for f in filas if f["estado"] in ("reservado", "confirmado")]
+        for fila in activas:
+            actualizado = db.session.execute(text(
+                f"UPDATE {TABLA_STOCK} SET cantidad=cantidad+:c WHERE id=:p"
+            ), {"c": fila["cantidad"], "p": fila["producto_id"]})
+            if actualizado.rowcount != 1:
+                raise RuntimeError("producto de la reserva no encontrado")
+        if activas:
+            db.session.execute(text(
+                f"UPDATE {TABLA_RESERVAS} SET estado='liberado' "
+                "WHERE referencia=:r AND estado IN ('reservado','confirmado')"
+            ), {"r": referencia})
+        db.session.commit()
+        return jsonify({"ok": True, "duplicado": not bool(activas),
+                        "devueltas": len(activas), "referencia": referencia}), 200
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Error devolviendo stock de reserva %s", referencia)
+        return jsonify({"ok": False, "codigo": "inventario_no_disponible",
+                        "error": "No se pudo devolver el stock."}), 503
 
 
 def _aplicar_evento(tipo, datos):

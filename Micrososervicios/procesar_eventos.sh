@@ -58,15 +58,22 @@ PYTHON="${PY:-python3}"
 if [[ -x "$HOME/www/venv/bin/python" ]]; then
   PYTHON="$HOME/www/venv/bin/python"
 fi
+# Este cron publica outbox y reconcilia sagas pendientes. Evita arrancar
+# consumidores en segundo plano durante una tarea programada.
+export OUTBOX_WORKER=1
 "$PYTHON" - <<'PY' 2>&1 | tee -a "$LOG_FILE"
 try:
     from mensajeria import procesar_outbox, estado
+    from app import reconciliar_reservas_stock
     enviados, fallidos = procesar_outbox(500)
-    print(f"📤 Eventos publicados: {enviados} | pendientes: {fallidos}")
+    confirmadas, canceladas, pendientes = reconciliar_reservas_stock(200)
+    print(f"Eventos publicados: {enviados} | pendientes: {fallidos}")
+    print(f"Reservas confirmadas: {confirmadas} | pedidos cancelados: {canceladas} "
+          f"| stock pendiente: {pendientes}")
     info = estado()
-    print(f"🔌 Broker: {'conectado' if info.get('broker') else 'no disponible'}")
+    print(f"Broker: {'conectado' if info.get('broker') else 'no disponible'}")
 except Exception as e:
-    print(f"❌ Error procesando los eventos: {e}")
+    print(f"Error procesando eventos o conciliando reservas: {e}")
 PY
 
 echo "=========================================" | tee -a "$LOG_FILE"

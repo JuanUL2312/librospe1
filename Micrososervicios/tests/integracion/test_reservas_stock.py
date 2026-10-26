@@ -222,6 +222,28 @@ def test_confirmar_vincula_el_pedido_y_sobrevive_a_la_liberacion(gateway, motor,
     assert _stock(motor, producto) == 7
 
 
+def test_cancelar_pedido_devuelve_stock_confirmado_idempotentemente(gateway, motor, producto):
+    _fijar_stock(motor, producto, 10)
+    referencia = _ref("cancelar")
+    assert stock.reservar_stock(
+        referencia, [{"id": producto, "cantidad": 3}])["ok"] is True
+    assert stock.confirmar_stock(referencia, 501, documento_tipo="pedido")["ok"] is True
+    assert _stock(motor, producto) == 7
+
+    primera = stock.cancelar_stock_confirmado(referencia, 501, "pedido")
+    segunda = stock.cancelar_stock_confirmado(referencia, 501, "pedido")
+
+    assert primera["ok"] is True, primera
+    assert segunda["ok"] is True, segunda
+    assert segunda["duplicado"] is True
+    assert _stock(motor, producto) == 10
+    with motor.connect() as con:
+        estado = con.execute(text(
+            "SELECT estado FROM reservas_stock WHERE referencia=:r"),
+            {"r": referencia}).scalar()
+    assert estado == "liberado"
+
+
 def test_items_duplicados_se_agrupan_antes_de_validar_stock(gateway, motor,
                                                             producto):
     _fijar_stock(motor, producto, 5)

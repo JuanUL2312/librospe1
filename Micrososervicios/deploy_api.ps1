@@ -94,8 +94,8 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(r'$SSH_HOST', username=r'$SSH_USER', key_filename=r'$SSH_KEY', timeout=60)
 cmds = [
-    '~/www/venv/bin/pip install --quiet PyJWT requests',
-    "~/www/venv/bin/python -c \"import jwt, requests; print('DEPS_OK', jwt.__version__, requests.__version__)\"",
+    '~/www/venv/bin/pip install --quiet PyJWT requests gunicorn',
+    "~/www/venv/bin/python -c \"import jwt, requests, gunicorn; print('DEPS_OK', jwt.__version__, requests.__version__, gunicorn.__version__)\"",
     'test -f ~/www/app_api.py && test -f ~/www/jwt_auth.py && test -d ~/www/gateways && test -d ~/www/static/api_demo && test -f ~/servicio-clientes/app.py && echo ARCHIVOS_OK',
 ]
 ok = True
@@ -142,12 +142,12 @@ Write-Host ""
 Write-Host "============================================================"
 if ($todoOk) { Write-Host " DEPLOY API COMPLETADO" } else { Write-Host " DEPLOY API CON VERIFICACIONES PENDIENTES" }
 Write-Host "============================================================"
-Write-Host " Subido: www/{app_api,jwt_auth,gateways/,api_demo/} + 4 servicios"
-Write-Host " Deps  : PyJWT + requests instalados en ~/www/venv"
+Write-Host " Subido: www/ + los cuatro microservicios"
+Write-Host " Deps  : PyJWT, requests y gunicorn instalados en ~/www/venv"
 Write-Host ""
-Write-Host " ACTIVACION:"
-Write-Host "  El sitio actual (app.py, tienda Jinja) ya tiene API_GATEWAY=1 en ~/.env"
-Write-Host "  y los 4 microservicios corren via ~/iniciar_servicios_api.sh (127.0.0.1:8001-8004)."
-Write-Host "  Falta UNO: reiniciar el sitio de la tienda en el panel (Web > Sites > Restart)"
-Write-Host "  para que app.py cargue /api/v1. Ver ACTIVAR_API.md (pasos + rollback)."
+Write-Host " SIGUIENTE PASO:"
+Write-Host "  Registra los cuatro procesos en Advanced > Services de Alwaysdata."
+Write-Host "  No uses nohup/cron para mantener procesos web."
+Write-Host "  Configura MS_*_URL del Gateway con services-librospe.alwaysdata.net."
+Write-Host "  Luego reinicia el sitio y valida /api/health. Ver ACTIVAR_API.md."
 Write-Host "============================================================"

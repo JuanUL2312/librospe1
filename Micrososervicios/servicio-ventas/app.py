@@ -43,7 +43,20 @@ DB_USER = os.environ.get("DB_USER", "root")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_NAME = os.environ.get("MS_VENTAS_DB", "librospe_ms_ventas")
-SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", "librospe-interno-dev")
+SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", "").strip()
+
+
+@app.before_request
+def proteger_servicio():
+    """Only health is public; toda API requiere token interno configurado."""
+    if request.path == "/health":
+        return None
+    if not SERVICE_TOKEN:
+        return jsonify({"error": "Servicio sin token configurado"}), 503
+    recibido = request.headers.get("X-Service-Token", "")
+    if not recibido or not hmac.compare_digest(recibido, SERVICE_TOKEN):
+        return jsonify({"error": "Token de servicio invalido"}), 401
+
 INVENTARIO_URL = os.environ.get("MS_INVENTARIO_URL", "http://127.0.0.1:8001")
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"

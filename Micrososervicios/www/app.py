@@ -42,6 +42,7 @@ from mensajeria import (
     publicar_evento,
     preparar_outbox,
     guardar_en_outbox_transaccional,
+    reencolar_fallidos,
 )
 # Consumidor: en alwaysdata todo corre en un solo proceso, asi que el gateway
 # consume los eventos de las colas y refresca las copias locales.
@@ -50,6 +51,7 @@ from consumidor_copias import iniciar_consumidor_copias
 from stock import (
     StockError,
     confirmar_stock,
+    cancelar_stock_confirmado,
     liberar_stock,
     normalizar_referencia,
     nueva_referencia,
@@ -154,6 +156,11 @@ app.config["MS_INVENTARIO_URL"] = os.environ.get(
 app.config["MS_VENTAS_URL"] = os.environ.get("MS_VENTAS_URL", _ms_config.get("ventas_url", "http://127.0.0.1:8002"))
 app.config["MS_USUARIOS_URL"] = os.environ.get("MS_USUARIOS_URL", _ms_config.get("usuarios_url", "http://127.0.0.1:8003"))
 app.config["MS_CLIENTES_URL"] = os.environ.get("MS_CLIENTES_URL", _ms_config.get("clientes_url", "http://127.0.0.1:8004"))
+# Respaldo directo a la BD de inventario cuando el servicio no esta levantado.
+# Debe viajar a app.config: stock.py consulta primero la config de la app y,
+# si la clave no existe, asume desactivado (falla cerrado).
+app.config["INVENTARIO_DB_FALLBACK"] = os.environ.get(
+    "INVENTARIO_DB_FALLBACK", "false").strip().lower() in ("1", "true", "yes", "on")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "connect_args": {"ssl": {"ssl_mode": "REQUIRED"}},
@@ -403,6 +410,18 @@ class Venta(db.Model):
             return f"{self.cliente_nombres} {self.cliente_apellidos}"
         return self.cliente_nombres or ""
 
+
+class PosVentaIdempotencia(db.Model):
+    """Respuesta persistente de un cobro POS para reintentos seguros."""
+    __tablename__ = "pos_ventas_idempotencia"
+    __bind_key__ = "ventas"
+    clave = db.Column(db.String(64), primary_key=True)
+    huella = db.Column(db.String(64), nullable=False)
+    referencia_stock = db.Column(db.String(64), nullable=False, unique=True)
+    respuesta = db.Column(db.Text, nullable=False)
+    stock_confirmado = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text("0"))
+    creado_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
 class Caja(db.Model):
     __tablename__ = "cajas"
     __bind_key__ = "ventas"
@@ -545,6 +564,7 @@ class Pedido(db.Model):
     geo_precision = db.Column(db.String(10), nullable=True)  # exacta|aproximada|manual
     clave_idempotencia = db.Column(db.String(64), nullable=True, unique=True)
     huella_idempotencia = db.Column(db.String(64), nullable=True)
+    stock_confirmado = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text("0"))
     nota = db.Column(db.Text)
     # Confirmación de entrega (delivery)
     nombre_recibe = db.Column(db.String(200), nullable=True)
@@ -1032,10 +1052,10 @@ def verificar_bloqueo_ip(ip):
     ).first()
     
     if bloqueado:
-        print(f"IP {ip} BLOQUEADA hasta {bloqueado.ips_bloqueadas}", flush=True)
+        app.logger.info("Acceso desde IP bloqueada")
         return True
     
-    print(f"IP {ip} NO BLOQUEADA", flush=True)
+    app.logger.debug("Acceso desde IP no bloqueada")
     return False
 
 
@@ -1049,7 +1069,7 @@ def verificar_bloqueo_email(email):
     # 1. Verificar bloqueo temporal en intentos_login
     registro = IntentosLogin.query.filter_by(email=email).first()
     if registro and registro.email_bloqueado and registro.email_bloqueado > ahora:
-        print(f"Email {email} BLOQUEADO TEMPORALMENTE hasta {registro.email_bloqueado}", flush=True)
+        app.logger.info("Cuenta con bloqueo temporal activo")
         return True
     
     # 2. Verificar bloqueo permanente en tabla bloqueos
@@ -1065,7 +1085,7 @@ def verificar_bloqueo_email(email):
         """), {"cliente_id": cliente.id}).fetchone()
         
         if bloqueo:
-            print(f"Email {email} BLOQUEADO PERMANENTEMENTE (cliente)", flush=True)
+            app.logger.info("Cuenta de cliente con bloqueo permanente activo")
             return True
     
     # Verificar si es un usuario del sistema
@@ -1080,7 +1100,7 @@ def verificar_bloqueo_email(email):
         """), {"usuario_id": usuario.id}).fetchone()
         
         if bloqueo:
-            print(f"Email {email} BLOQUEADO PERMANENTEMENTE (usuario sistema)", flush=True)
+            app.logger.info("Cuenta de usuario con bloqueo permanente activo")
             return True
     
     return False
@@ -1094,7 +1114,7 @@ def limpiar_intentos_exitosos(email, ip):
     - Elimina bloqueos temporales
     """
     try:
-        print(f"🔍 Limpiando intentos para {email}")
+        app.logger.debug("Limpiando contadores de inicio de sesión")
         
         # 1. Buscar el registro de intentos
         registro = IntentosLogin.query.filter_by(email=email).first()
@@ -1106,9 +1126,9 @@ def limpiar_intentos_exitosos(email, ip):
             registro.email_bloqueado = None
             registro.ultimo_intento = datetime.now()
             db.session.commit()
-            print(f"✅ Intentos y totales reseteados para {email}")
+            app.logger.debug("Contadores de inicio de sesión reiniciados")
         else:
-            print(f"ℹ️ No hay registro de intentos para {email}")
+            app.logger.debug("No hay contadores de inicio de sesión para reiniciar")
         
         # 2. Desactivar bloqueos temporales en tabla 'bloqueos'
         # Buscar si es cliente
@@ -1123,7 +1143,7 @@ def limpiar_intentos_exitosos(email, ip):
                 AND estado = 1
             """), {"cliente_id": cliente.id})
             db.session.commit()
-            print(f"✅ Bloqueos temporales desactivados para cliente {email}")
+            app.logger.info("Bloqueo temporal de cliente desactivado")
         
         # Buscar si es usuario del sistema
         usuario = UsuarioSistema.query.filter_by(correo=email).first()
@@ -1137,7 +1157,7 @@ def limpiar_intentos_exitosos(email, ip):
                 AND estado = 1
             """), {"usuario_id": usuario.id})
             db.session.commit()
-            print(f"✅ Bloqueos temporales desactivados para usuario {email}")
+            app.logger.info("Bloqueo temporal de usuario desactivado")
         
         # 3. Verificar si la IP ya no tiene bloqueos activos
         ahora = datetime.now()
@@ -1149,7 +1169,7 @@ def limpiar_intentos_exitosos(email, ip):
         if emails_bloqueados == 0:
             IntentosLogin.query.filter_by(ip=ip).update({IntentosLogin.ips_bloqueadas: None})
             db.session.commit()
-            print(f"✅ IP {ip} desbloqueada")
+            app.logger.info("Bloqueo temporal de IP desactivado")
         
         return True
         
@@ -5140,95 +5160,116 @@ def productos_top():
         for p in top
     ])
 
-# Cache de idempotencia del POS (clave -> respuesta) para reintentos offline.
-_VENTAS_IDEMPOTENCIA = {}
-
-
 @app.route("/api/ventas/rapida", methods=["POST"])
 @login_required
 def venta_rapida():
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({"success": False, "error": "Solicitud invalida"}), 400
-    # Caja cerrada => bloqueo de operaciones de venta (regla de negocio).
-    if not _hay_caja_abierta():
-        return jsonify({"success": False, "caja_cerrada": True,
-                        "error": "No hay caja abierta: no se pueden registrar ventas."}), 409
-    items = data.get("items", [])
-    if not items:
-        return jsonify({"success": False, "error": "Carrito vacío"})
-    # Idempotencia POS offline: un reintento con la misma clave NUNCA duplica
-    # la venta (la clave original se guarda en memoria y en auditoria).
-    clave_idem = str(data.get("clave_idempotencia") or "").strip()
-    if clave_idem:
-        previa = _VENTAS_IDEMPOTENCIA.get(clave_idem)
-        if previa is not None:
-            respuesta = dict(previa)
-            respuesta["duplicado"] = True
-            return jsonify(respuesta)
-        try:
-            fila = db.session.execute(text(
-                "SELECT detalle FROM auditoria WHERE accion='VENTA' AND modulo='ventas' "
-                "AND detalle LIKE :patron ORDER BY id DESC LIMIT 1"),
-                {"patron": f"%idem:{clave_idem}%"}).first()
-            if fila:
-                return jsonify({"success": True, "duplicado": True, "total": 0.0,
-                                "vuelto": None, "metodo_pago": data.get("metodo_pago", "efectivo"),
-                                "numero_comprobante": None,
-                                "nota": "Venta ya registrada anteriormente"})
-        except Exception:
-            pass
+
+    clave_cuerpo = str(data.get("clave_idempotencia") or "").strip()
+    clave_header = str(request.headers.get("Idempotency-Key") or "").strip()
+    if clave_cuerpo and clave_header and clave_cuerpo != clave_header:
+        return jsonify({"success": False, "error": "Claves de idempotencia no coinciden"}), 400
+    try:
+        clave_idem = normalizar_referencia(clave_header or clave_cuerpo)
+    except StockError:
+        return jsonify({"success": False, "error": "Se requiere una clave de idempotencia valida"}), 400
+
+    items = data.get("items")
+    if not isinstance(items, list) or not items or len(items) > 100:
+        return jsonify({"success": False, "error": "Carrito vacio o invalido"}), 400
+
+    items_normalizados = []
     try:
         for item in items:
             if not isinstance(item, dict):
                 return jsonify({"success": False, "error": "Producto invalido"}), 400
+            id_original = item.get("id")
+            cantidad_original = item.get("cantidad")
             try:
-                producto_id_item = int(item.get("id"))
-                cantidad_cruda = item.get("cantidad")
-                cantidad_item = int(cantidad_cruda)
+                producto_id = int(id_original)
+                cantidad = int(cantidad_original)
             except (TypeError, ValueError, OverflowError):
-                return jsonify({"success": False, "error": "Cantidad de producto invalida"}), 400
-            if (isinstance(cantidad_cruda, bool)
-                    or (isinstance(cantidad_cruda, float) and not cantidad_cruda.is_integer())
-                    or producto_id_item <= 0 or cantidad_item <= 0):
-                return jsonify({"success": False, "error": "Cantidad de producto invalida"}), 400
-            producto = Producto.query.get(producto_id_item)
-            if not producto or producto.cantidad < cantidad_item:
-                return jsonify({"success": False, "error": "Producto inexistente o stock insuficiente"}), 409
-        # La clave persistente de idempotencia de POS tiene una migracion
-        # propia pendiente; la reserva usa una referencia por ejecucion para
-        # no compartir una unica reserva entre dos ventas concurrentes.
-        referencia_reserva = "pos:" + nueva_referencia()
-        items_reserva = [{"id": item["id"], "cantidad": int(item["cantidad"])} for item in items]
-        reserva = reservar_stock(referencia_reserva, items_reserva, documento_tipo="venta")
+                return jsonify({"success": False, "error": "Cantidad o producto invalido"}), 400
+            if (isinstance(id_original, bool) or isinstance(cantidad_original, bool)
+                    or (isinstance(id_original, float) and not id_original.is_integer())
+                    or (isinstance(cantidad_original, float) and not cantidad_original.is_integer())
+                    or producto_id <= 0 or cantidad <= 0 or cantidad > 1_000_000):
+                return jsonify({"success": False, "error": "Cantidad o producto invalido"}), 400
+            items_normalizados.append({"id": producto_id, "cantidad": cantidad})
+    except Exception:
+        return jsonify({"success": False, "error": "Carrito invalido"}), 400
+
+    agrupados = {}
+    for item in items_normalizados:
+        agrupados[item["id"]] = agrupados.get(item["id"], 0) + item["cantidad"]
+    solicitud_canonica = {
+        "items": [{"id": pid, "cantidad": cant} for pid, cant in sorted(agrupados.items())],
+        "metodo_pago": str(data.get("metodo_pago") or "efectivo"),
+        "monto_recibido": str(data.get("monto_recibido") or ""),
+        "cliente_dni": str(data.get("cliente_dni") or ""),
+        "cliente_tipo_documento": str(data.get("cliente_tipo_documento") or ""),
+    }
+    huella = hashlib.sha256(json.dumps(
+        solicitud_canonica, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
+
+    previa = PosVentaIdempotencia.query.filter_by(clave=clave_idem).first()
+    if previa:
+        if previa.huella != huella:
+            return jsonify({"success": False, "codigo": "clave_idempotencia_reutilizada",
+                            "error": "La clave ya se uso con otra venta."}), 409
+        respuesta_previa = json.loads(previa.respuesta)
+        confirmacion_previa = confirmar_stock(
+            previa.referencia_stock, respuesta_previa["venta_id"], documento_tipo="venta")
+        if confirmacion_previa.get("ok") and not previa.stock_confirmado:
+            previa.stock_confirmado = True
+            db.session.commit()
+        respuesta_previa["duplicado"] = True
+        return jsonify(respuesta_previa)
+
+    if not _hay_caja_abierta():
+        return jsonify({"success": False, "caja_cerrada": True,
+                        "error": "No hay caja abierta: no se pueden registrar ventas."}), 409
+    if not preparar_outbox("ventas"):
+        return jsonify({"success": False, "error": "No se pudo preparar la cola de eventos"}), 503
+
+    try:
+        # Esta reserva determinista serializa reintentos del mismo cobro en el
+        # servicio de inventario. La respuesta de venta tiene un indice unico.
+        referencia_reserva = "pos:" + hashlib.sha256(clave_idem.encode("utf-8")).hexdigest()[:48]
+        for item in items_normalizados:
+            producto = Producto.query.get(item["id"])
+            if not producto:
+                return jsonify({"success": False, "error": "Producto inexistente"}), 409
+        reserva = reservar_stock(referencia_reserva, items_normalizados, documento_tipo="venta")
         if not reserva.get("ok"):
             return jsonify({"success": False, "error": "No se pudo reservar el inventario"}), 503
-        venta_confirmada = False
-        venta_ids = []
-        total_general = 0
+
         cliente_rapido = None
-        try:
-            doc = data.get("cliente_dni", "")
-            if doc:
-                cliente_rapido = Cliente.query.filter(
-                    or_(Cliente.dni == doc, Cliente.ruc == doc, Cliente.ce == doc)
-                ).first()
-        except Exception:
-            cliente_rapido = None
+        doc = data.get("cliente_dni", "")
+        if doc:
+            cliente_rapido = Cliente.query.filter(
+                or_(Cliente.dni == doc, Cliente.ruc == doc, Cliente.ce == doc)
+            ).first()
+
         metodo_pago = data.get("metodo_pago", "efectivo")
-        monto_recibido = None
-        vuelto = None
         try:
-            if metodo_pago == "efectivo":
-                monto_recibido = float(data.get("monto_recibido") or 0)
+            monto_recibido = (float(data.get("monto_recibido") or 0)
+                              if metodo_pago == "efectivo" else None)
         except (TypeError, ValueError):
             monto_recibido = None
+
         numero_pos = f"POS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        for item in items:
+        ventas_creadas = []
+        total_general = 0.0
+        for item in items_normalizados:
             producto = Producto.query.get(item["id"])
-            total = float(producto.precio or 0) * int(item["cantidad"])
-            nueva_venta = Venta(
-                producto_id=item["id"],
+            precio_unitario = float(producto.precio or 0)
+            total_item = precio_unitario * item["cantidad"]
+            venta = Venta(
+                producto_id=producto.id,
                 cantidad=item["cantidad"],
                 vendedor_id=session["usuario_id"],
                 fecha_venta=datetime.now(),
@@ -5236,64 +5277,99 @@ def venta_rapida():
                 numero_comprobante=numero_pos,
                 metodo_pago=metodo_pago,
                 monto_recibido=monto_recibido,
-                vuelto=round(float(monto_recibido) - float(total), 2) if monto_recibido is not None else None,
+                vuelto=(round(monto_recibido - total_item, 2)
+                        if monto_recibido is not None else None),
                 cliente_nombres=data.get("cliente_nombre", ""),
                 cliente_apellidos=data.get("cliente_apellido", ""),
                 cliente_documento=data.get("cliente_dni", ""),
                 cliente_tipo_documento=data.get("cliente_tipo_documento", ""),
                 cliente_id=cliente_rapido.id if cliente_rapido else None,
             )
-            db.session.add(nueva_venta)
-            total_general += total
-            venta_ids.append(nueva_venta.id)
-        db.session.commit()
-        venta_confirmada = True
-        confirmacion_stock = confirmar_stock(referencia_reserva, venta_ids[0], documento_tipo="venta")
-        if not confirmacion_stock.get("ok"):
-            app.logger.error("Reserva de inventario pendiente de conciliacion para venta_id=%s",
-                             venta_ids[0])
-        registrar_auditoria("VENTA", "ventas",
-                            f"Venta rápida POS #{venta_ids[0]} - {len(venta_ids)} item(s) - "
-                            f"Total: S/ {total_general:.2f} ({metodo_pago})"
-                            + (f" - idem:{clave_idem}" if clave_idem else ""))
-        # Evento informativo: el stock ya se desconto en esta transaccion;
-        # el consumidor de inventario no debe volver a descontarlo.
-        for item, venta in zip(items, venta_ids):
-            _emitir_evento("venta.registrada", {
-                "venta_id": venta,
-                "producto_id": item["id"],
-                "cantidad": int(item["cantidad"]),
-                "precio": float(total) / max(1, int(item["cantidad"])),
-                "total": total_general,
+            db.session.add(venta)
+            ventas_creadas.append((venta, producto, item["cantidad"], precio_unitario, total_item))
+            total_general += total_item
+
+        db.session.flush()
+        conexion_ventas = db.session.connection(
+            bind_arguments={"bind": db.engines["ventas"]})
+        for venta, producto, cantidad, precio, total_item in ventas_creadas:
+            guardar_en_outbox_transaccional(conexion_ventas, "venta.registrada", {
+                "venta_id": venta.id,
+                "producto_id": producto.id,
+                "cantidad": cantidad,
+                "precio": precio,
+                "total": total_item,
                 "tipo_comprobante": "boleta",
                 "numero_comprobante": numero_pos,
                 "metodo_pago": metodo_pago,
-            })
+                "referencia": referencia_reserva,
+            }, "gateway")
+        respuesta = {
+            "success": True,
+            "venta_id": ventas_creadas[0][0].id,
+            "total": float(total_general),
+            "vuelto": (round(monto_recibido - total_general, 2)
+                       if monto_recibido is not None else None),
+            "metodo_pago": metodo_pago,
+            "numero_comprobante": numero_pos,
+        }
+        db.session.add(PosVentaIdempotencia(
+            clave=clave_idem,
+            huella=huella,
+            referencia_stock=referencia_reserva,
+            respuesta=json.dumps(respuesta, ensure_ascii=False, separators=(",", ":")),
+            stock_confirmado=False,
+        ))
+        # Venta y respuesta idempotente se confirman en la misma transaccion.
+        db.session.commit()
+
+        confirmacion = confirmar_stock(referencia_reserva, respuesta["venta_id"],
+                                       documento_tipo="venta")
+        if confirmacion.get("ok"):
+            fila_idempotencia = PosVentaIdempotencia.query.filter_by(clave=clave_idem).first()
+            if fila_idempotencia:
+                fila_idempotencia.stock_confirmado = True
+                db.session.commit()
+        else:
+            app.logger.error("Reserva POS pendiente de conciliacion para venta_id=%s",
+                             respuesta["venta_id"])
+        registrar_auditoria("VENTA", "ventas",
+                            f"Venta rapida POS #{respuesta['venta_id']} - "
+                            f"{len(ventas_creadas)} item(s) - Total: S/ {total_general:.2f} "
+                            f"({metodo_pago}) - idem:{clave_idem}")
+        procesar_outbox(50)
         try:
             verificar_stock_bajo_y_notificar()
             verificar_stock_maximo_y_notificar()
         except Exception:
-            pass
-        respuesta = {
-            "success": True,
-            "venta_id": venta_ids[0],
-            "total": float(total_general),
-            "vuelto": round(float(monto_recibido) - float(total_general), 2) if monto_recibido is not None else None,
-            "metodo_pago": metodo_pago,
-            "numero_comprobante": numero_pos,
-        }
-        if clave_idem:
-            if len(_VENTAS_IDEMPOTENCIA) > 500:
-                _VENTAS_IDEMPOTENCIA.clear()
-            _VENTAS_IDEMPOTENCIA[clave_idem] = dict(respuesta)
+            app.logger.exception("No se pudieron actualizar las alertas de stock POS")
         return jsonify(respuesta)
-    except Exception as e:
+    except IntegrityError:
         db.session.rollback()
-        if "referencia_reserva" in locals() and referencia_reserva and not locals().get("venta_confirmada", False):
-            liberacion = liberar_stock(referencia_reserva)
-            if not liberacion.get("ok"):
-                app.logger.error("No se pudo liberar reserva fallida de venta rapida; requiere conciliacion")
-        return jsonify({"success": False, "error": str(e)})
+        # Una solicitud igual pudo confirmar la venta mientras esta esperaba
+        # el indice unico; devolver exactamente su respuesta persistida.
+        previa = PosVentaIdempotencia.query.filter_by(clave=clave_idem).first()
+        if previa and previa.huella == huella:
+            respuesta_previa = json.loads(previa.respuesta)
+            confirmacion_previa = confirmar_stock(
+                previa.referencia_stock, respuesta_previa["venta_id"], documento_tipo="venta")
+            if confirmacion_previa.get("ok") and not previa.stock_confirmado:
+                previa.stock_confirmado = True
+                db.session.commit()
+            respuesta_previa["duplicado"] = True
+            return jsonify(respuesta_previa)
+        if previa:
+            return jsonify({"success": False, "codigo": "clave_idempotencia_reutilizada",
+                            "error": "La clave ya se uso con otra venta."}), 409
+        # Si no hay fila, no se confirma ninguna venta. La reserva conservada
+        # bajo la misma referencia permite que un reintento retome el proceso.
+        return jsonify({"success": False, "error": "No se pudo confirmar la venta"}), 409
+    except Exception:
+        db.session.rollback()
+        # No liberamos una reserva con clave idempotente: una repeticion puede
+        # retomarla tras un fallo transitorio sin volver a descontar el stock.
+        app.logger.exception("Fallo al registrar venta POS idem=%s", clave_idem[:12])
+        return jsonify({"success": False, "error": "No se pudo completar la venta"}), 500
 
 
 # ===============================================
@@ -5340,7 +5416,7 @@ def api_productos_recomendados():
                 Producto.cantidad,
                 Producto.destacado,
                 Producto.imagen,
-                func.coalesce(func.sum(Venta.cantidad), 0).label("vendidos"),
+                func.coalesce(func.sum(VentaEnInventario.cantidad), 0).label("vendidos"),
             )
             .outerjoin(VentaEnInventario, VentaEnInventario.producto_id == Producto.id)
             .group_by(Producto.id)
@@ -6380,7 +6456,10 @@ def crear_pedido():
         # queda pendiente la trazabilidad de la reserva.
         confirmacion = confirmar_stock(referencia, pedido.id,
                                        documento_tipo="pedido")
-        if not confirmacion.get("ok"):
+        if confirmacion.get("ok"):
+            pedido.stock_confirmado = True
+            db.session.commit()
+        else:
             print(f"[checkout] aviso: reserva {referencia[:12]}... sin confirmar: "
                   f"{confirmacion.get('error')}")
 
@@ -6960,9 +7039,44 @@ def cambiar_estado_pedido(pedido_id):
             pedido.fecha_entrega = datetime.now()
             pedido.confirmado_por = session.get("nombre") or session.get("usuario_nombre") or "Administrador"
 
-        # Guardar el cambio
-        pedido.estado = nuevo_estado
-        db.session.commit()
+        # La cancelacion es una saga: primero persiste un estado recuperable,
+        # luego devuelve el stock de forma idempotente y finalmente cierra el pedido.
+        if pedido.estado == "cancelando" and nuevo_estado != "cancelado":
+            mensaje_error = "El pedido tiene una cancelacion pendiente de conciliacion."
+            if is_ajax:
+                return jsonify({"success": False, "error": mensaje_error}), 409
+            flash(mensaje_error, "warning")
+            return redirect(url_for("ver_pedidos"))
+
+        if nuevo_estado == "cancelado" and pedido.estado != "cancelado":
+            estados_no_reintegrables = ("enviado", "entregado", "recogido")
+            debe_devolver_stock = (
+                pedido.estado not in estados_no_reintegrables
+                and bool(pedido.clave_idempotencia)
+            )
+            if debe_devolver_stock:
+                pedido.estado = "cancelando"
+                db.session.commit()
+                devolucion = cancelar_stock_confirmado(
+                    pedido.clave_idempotencia, pedido.id, documento_tipo="pedido")
+                if not devolucion.get("ok"):
+                    mensaje_error = (
+                        "Cancelacion pendiente: no se pudo devolver el inventario. "
+                        "Reintenta la cancelacion cuando inventario este disponible."
+                    )
+                    app.logger.error(
+                        "Cancelacion pendiente pedido_id=%s codigo=%s",
+                        pedido.id, devolucion.get("codigo", "error"))
+                    if is_ajax:
+                        return jsonify({"success": False, "estado": "cancelando",
+                                        "error": mensaje_error}), 503
+                    flash(mensaje_error, "warning")
+                    return redirect(url_for("ver_pedidos"))
+            pedido.estado = "cancelado"
+            db.session.commit()
+        else:
+            pedido.estado = nuevo_estado
+            db.session.commit()
 
         # Cobro en efectivo confirmado: vincular las ventas del pedido al
         # turno de caja abierto para que el cierre lo cuadre.
@@ -7804,15 +7918,9 @@ def cliente_detalle_pedido(pedido_id):
         venta = Venta.query.filter_by(cliente_email=cliente.correo).order_by(Venta.fecha_venta.desc()).first()
     
 
-    print("=" * 50)
-    print(f"🔍 Pedido #{pedido_id} - Cliente: {cliente.nombres if cliente else 'N/A'}")
-    print(f"   Venta encontrada: {venta.id if venta else 'NO'}")
-    if venta:
-        print(f"   Número comprobante: {venta.numero_comprobante}")
-        print(f"   Tipo: {venta.tipo_comprobante}")
-        print(f"   Razón Social: {venta.cliente_razon_social}")
-        print(f"   Dirección Fiscal: {venta.cliente_direccion_fiscal}")
-    print("=" * 50)
+    app.logger.info("Detalle de pedido consultado: pedido_id=%s cliente_id=%s venta_id=%s",
+                    pedido_id, cliente.id if cliente else None,
+                    venta.id if venta else None)
     
     return render_template("cliente_pedido_detalle.html", 
                           pedido=pedido, 
@@ -7828,6 +7936,66 @@ def cliente_detalle_pedido(pedido_id):
 # Si el broker no esta disponible, los eventos quedan en el outbox
 # (eventos_pendientes) y este endpoint los reintenta (lo invoca el cron).
 # =============================================
+
+def reconciliar_reservas_stock(limite=100):
+    """Completa cancelaciones pendientes y repara vinculos de reservas."""
+    confirmadas = canceladas = pendientes = 0
+    with app.app_context():
+        cancelaciones = (Pedido.query.filter(
+            Pedido.estado == "cancelando",
+            Pedido.clave_idempotencia.isnot(None),
+        ).order_by(Pedido.id).limit(limite).all())
+        for pedido in cancelaciones:
+            resultado = cancelar_stock_confirmado(
+                pedido.clave_idempotencia, pedido.id, documento_tipo="pedido")
+            if resultado.get("ok"):
+                pedido.estado = "cancelado"
+                db.session.commit()
+                canceladas += 1
+            else:
+                db.session.rollback()
+                pendientes += 1
+
+        restantes = max(0, limite - len(cancelaciones))
+        pedidos = []
+        if restantes:
+            pedidos = (Pedido.query.filter(
+                Pedido.clave_idempotencia.isnot(None),
+                Pedido.stock_confirmado.is_(False),
+                Pedido.estado.notin_(("cancelado", "cancelando")),
+            ).order_by(Pedido.id).limit(restantes).all())
+        for pedido in pedidos:
+            resultado = confirmar_stock(pedido.clave_idempotencia, pedido.id,
+                                        documento_tipo="pedido")
+            if resultado.get("ok"):
+                pedido.stock_confirmado = True
+                db.session.commit()
+                confirmadas += 1
+            else:
+                db.session.rollback()
+                pendientes += 1
+
+        restantes -= len(pedidos)
+        if restantes > 0:
+            ventas_pendientes = (PosVentaIdempotencia.query.filter_by(
+                stock_confirmado=False
+            ).order_by(PosVentaIdempotencia.creado_en).limit(restantes).all())
+            for fila in ventas_pendientes:
+                try:
+                    respuesta = json.loads(fila.respuesta)
+                    resultado = confirmar_stock(
+                        fila.referencia_stock, respuesta["venta_id"],
+                        documento_tipo="venta")
+                except (ValueError, KeyError, TypeError):
+                    resultado = {"ok": False}
+                if resultado.get("ok"):
+                    fila.stock_confirmado = True
+                    db.session.commit()
+                    confirmadas += 1
+                else:
+                    db.session.rollback()
+                    pendientes += 1
+    return confirmadas, canceladas, pendientes
 
 @app.route("/api/eventos/estado")
 @login_required
@@ -7853,8 +8021,15 @@ def api_eventos_procesar():
     if session.get("rol") != "administrador":
         return jsonify({"success": False, "error": "Solo administradores"}), 403
     try:
+        reencolados = reencolar_fallidos(200)
         enviados, fallidos = procesar_outbox(200)
-        return jsonify({"success": True, "enviados": enviados, "fallidos": fallidos,
+        reservas_confirmadas, pedidos_cancelados, pendientes_stock = (
+            reconciliar_reservas_stock(200))
+        return jsonify({"success": True, "reencolados": reencolados,
+                        "enviados": enviados, "fallidos": fallidos,
+                        "reservas_confirmadas": reservas_confirmadas,
+                        "pedidos_cancelados": pedidos_cancelados,
+                        "pendientes_stock": pendientes_stock,
                         "agente_mensajes": estado_mensajeria()})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -8027,7 +8202,8 @@ register_microservicios(app, db, login_required)
 # Se arranca al importar la app: en alwaysdata el gateway es el unico proceso
 # y es quien mantiene al dia las copias locales de los microservicios.
 try:
-    iniciar_consumidor_copias()
+    if os.environ.get("OUTBOX_WORKER", "0").lower() not in ("1", "true", "yes"):
+        iniciar_consumidor_copias()
 except Exception as _e:  # pragma: no cover
     print(f"[consumidor] no se pudo arrancar: {_e}")
 

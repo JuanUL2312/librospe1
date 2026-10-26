@@ -18,6 +18,10 @@ BASE = {
 }
 
 
+def _headers_internos(env_prueba):
+    return {"X-Service-Token": env_prueba.get("SERVICE_TOKEN", "")}
+
+
 # ------------------------------- inventario -------------------------------
 
 def test_inventario_health(servicios):
@@ -27,8 +31,8 @@ def test_inventario_health(servicios):
     assert isinstance(d["productos"], int)
 
 
-def test_inventario_lista_productos_con_keys_estables(servicios):
-    r = requests.get(f"{BASE['inventario']}/productos", timeout=10)
+def test_inventario_lista_productos_con_keys_estables(servicios, env_prueba):
+    r = requests.get(f"{BASE['inventario']}/productos", headers=_headers_internos(env_prueba), timeout=10)
     assert r.status_code == 200
     datos = r.json()
     assert isinstance(datos, list) and datos
@@ -36,8 +40,8 @@ def test_inventario_lista_productos_con_keys_estables(servicios):
         assert {"id", "nombre", "precio"} <= set(p)
 
 
-def test_inventario_detalle_inexistente_devuelve_error(servicios):
-    r = requests.get(f"{BASE['inventario']}/productos/999999", timeout=10)
+def test_inventario_detalle_inexistente_devuelve_error(servicios, env_prueba):
+    r = requests.get(f"{BASE['inventario']}/productos/999999", headers=_headers_internos(env_prueba), timeout=10)
     assert r.status_code == 404
     assert r.json() == {"error": "No encontrado"}
 
@@ -65,8 +69,8 @@ def test_usuarios_health(servicios):
     assert isinstance(d["usuarios"], int)
 
 
-def test_usuarios_lista_con_keys_estables(servicios):
-    r = requests.get(f"{BASE['usuarios']}/", timeout=10)
+def test_usuarios_lista_con_keys_estables(servicios, env_prueba):
+    r = requests.get(f"{BASE['usuarios']}/", headers=_headers_internos(env_prueba), timeout=10)
     assert r.status_code == 200
     datos = r.json()
     assert isinstance(datos, list) and datos
@@ -74,8 +78,8 @@ def test_usuarios_lista_con_keys_estables(servicios):
         assert {"id", "correo", "rol"} <= set(u)
 
 
-def test_usuarios_roles_es_lista(servicios):
-    r = requests.get(f"{BASE['usuarios']}/roles", timeout=10)
+def test_usuarios_roles_es_lista(servicios, env_prueba):
+    r = requests.get(f"{BASE['usuarios']}/roles", headers=_headers_internos(env_prueba), timeout=10)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
 
@@ -83,7 +87,7 @@ def test_usuarios_roles_es_lista(servicios):
 def test_usuarios_escritura_sin_token_da_401(servicios):
     r = requests.post(f"{BASE['usuarios']}/", json={}, timeout=10)
     assert r.status_code == 401
-    assert r.json() == {"error": "Token invalido"}
+    assert r.json() == {"error": "Token de servicio invalido"}
 
 
 # -------------------------------- clientes --------------------------------
@@ -94,8 +98,8 @@ def test_clientes_health(servicios):
     assert d["servicio"] == "clientes"
 
 
-def test_clientes_lista(servicios):
-    r = requests.get(f"{BASE['clientes']}/", timeout=10)
+def test_clientes_lista(servicios, env_prueba):
+    r = requests.get(f"{BASE['clientes']}/", headers=_headers_internos(env_prueba), timeout=10)
     assert r.status_code == 200
     datos = r.json()
     assert isinstance(datos, list)
@@ -103,8 +107,8 @@ def test_clientes_lista(servicios):
         assert "id" in datos[0]
 
 
-def test_clientes_ubicacion_responde_json(servicios):
-    r = requests.get(f"{BASE['clientes']}/ubicacion", timeout=10)
+def test_clientes_ubicacion_responde_json(servicios, env_prueba):
+    r = requests.get(f"{BASE['clientes']}/ubicacion", headers=_headers_internos(env_prueba), timeout=10)
     assert r.status_code == 200
     assert isinstance(r.json(), (list, dict))
 
@@ -118,11 +122,11 @@ def test_ventas_health(servicios):
     assert isinstance(d["pedidos"], int)
 
 
-def test_ventas_lista_y_pedidos(servicios):
-    r = requests.get(f"{BASE['ventas']}/ventas", timeout=15)
+def test_ventas_lista_y_pedidos(servicios, env_prueba):
+    r = requests.get(f"{BASE['ventas']}/ventas", headers=_headers_internos(env_prueba), timeout=15)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
-    r = requests.get(f"{BASE['ventas']}/pedidos", timeout=15)
+    r = requests.get(f"{BASE['ventas']}/pedidos", headers=_headers_internos(env_prueba), timeout=15)
     assert r.status_code == 200
     pedidos = r.json()
     assert isinstance(pedidos, list)
@@ -130,8 +134,8 @@ def test_ventas_lista_y_pedidos(servicios):
         assert {"id", "cliente_id"} <= set(pedidos[0])
 
 
-def test_ventas_validar_stock_delega_en_inventario(servicios):
-    r = requests.get(f"{BASE['ventas']}/validar-stock/1/1", timeout=15)
+def test_ventas_validar_stock_delega_en_inventario(servicios, env_prueba):
+    r = requests.get(f"{BASE['ventas']}/validar-stock/1/1", headers=_headers_internos(env_prueba), timeout=15)
     assert r.status_code == 200
     d = r.json()
     assert d["origen"] == "ventas"

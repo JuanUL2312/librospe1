@@ -15,6 +15,7 @@ Nunca lanza excepciones: cualquier fallo se registra y se degrada al outbox.
 """
 import json
 import os
+import threading
 import time
 from datetime import datetime
 from sqlalchemy import text
@@ -44,6 +45,8 @@ _estado = {"broker": False, "broker_configurado": False,
 _ultimo_ping_broker = 0.0
 _CACHE_PING_S = 20.0
 MAX_INTENTOS_OUTBOX = 10
+_LOCK_LOCAL_OUTBOX = threading.Lock()
+_NOMBRE_LOCK_OUTBOX = "librospe_outbox_dispatcher"
 
 
 def amqp_url():
@@ -126,6 +129,7 @@ CREATE TABLE IF NOT EXISTS eventos_pendientes (
     payload TEXT NULL,
     estado VARCHAR(20) NOT NULL DEFAULT 'pendiente',
     intentos INT(11) NOT NULL DEFAULT 0,
+    proximo_intento DATETIME NULL,
     error TEXT NULL,
     creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     enviado_en DATETIME NULL,
@@ -147,6 +151,27 @@ def _asegurar_outbox(bind_key=None):
         with app.app_context():
             with _engine(db, bind_key).begin() as con:
                 con.execute(text(_DDL_OUTBOX))
+                if con.dialect.name in ("mysql", "mariadb"):
+                    tiene_backoff = con.execute(text(
+                        "SELECT COUNT(*) FROM information_schema.columns "
+                        "WHERE table_schema=DATABASE() AND table_name='eventos_pendientes' "
+                        "AND column_name='proximo_intento'")).scalar()
+                    if not tiene_backoff:
+                        try:
+                            con.execute(text(
+                                "ALTER TABLE eventos_pendientes "
+                                "ADD COLUMN proximo_intento DATETIME NULL"))
+                        except Exception:
+                            # Gateway y worker pueden arrancar a la vez. Si
+                            # ambos observaron la columna ausente, aceptar que
+                            # el otro proceso haya ganado la carrera del DDL.
+                            existe_ahora = con.execute(text(
+                                "SELECT COUNT(*) FROM information_schema.columns "
+                                "WHERE table_schema=DATABASE() "
+                                "AND table_name='eventos_pendientes' "
+                                "AND column_name='proximo_intento'")).scalar()
+                            if not existe_ahora:
+                                raise
         return True
     except Exception as e:
         print(f"[mensajeria] no se pudo preparar el outbox: {str(e)[:180]}")
@@ -203,6 +228,7 @@ def pendientes_outbox(limite=100, bind_key=None):
                 filas = con.execute(text(
                     "SELECT id, tipo, origen, payload, intentos "
                     "FROM eventos_pendientes WHERE estado='pendiente' "
+                    "AND (proximo_intento IS NULL OR proximo_intento <= NOW()) "
                     "ORDER BY id LIMIT :lim"), {"lim": limite}).fetchall()
             return [{"id": f[0], "tipo": f[1], "origen": f[2],
                      "datos": json.loads(f[3]) if f[3] else {}, "intentos": f[4]}
@@ -222,34 +248,104 @@ def marcar_outbox(evento_id, ok, error=None, bind_key=None):
                 if ok:
                     con.execute(text(
                         "UPDATE eventos_pendientes SET estado='enviado', "
-                        "enviado_en=NOW(), error=NULL WHERE id=:id"), {"id": evento_id})
+                        "enviado_en=NOW(), error=NULL, proximo_intento=NULL "
+                        "WHERE id=:id"), {"id": evento_id})
                 else:
                     con.execute(text(
                         "UPDATE eventos_pendientes SET "
                         "estado=CASE WHEN intentos+1 >= :max_intentos "
                         "THEN 'fallido' ELSE estado END, "
-                        "intentos=intentos+1, error=:e WHERE id=:id"),
+                        "error=:e, "
+                        "proximo_intento=CASE WHEN intentos+1 >= :max_intentos "
+                        "THEN NULL ELSE DATE_ADD(NOW(), INTERVAL "
+                        "LEAST(300, 5 * POW(2, intentos)) SECOND) END "
+                        ", intentos=intentos+1 "
+                        "WHERE id=:id AND estado='pendiente'"),
                         {"id": evento_id, "e": (error or "")[:500],
                          "max_intentos": MAX_INTENTOS_OUTBOX})
     except Exception as e:
         print(f"[mensajeria] no se pudo marcar el outbox: {str(e)[:180]}")
 
 
+def reencolar_fallidos(limite=100, tipo=None):
+    """Reinicia una cantidad acotada de eventos fallidos por accion admin."""
+    try:
+        app, db = _db()
+        total = 0
+        with app.app_context():
+            for bind_key in (None, "ventas"):
+                if not _asegurar_outbox(bind_key):
+                    continue
+                engine = _engine(db, bind_key)
+                with engine.connect() as con:
+                    sql = "SELECT id FROM eventos_pendientes WHERE estado='fallido'"
+                    parametros = {"lim": max(0, limite - total)}
+                    if tipo:
+                        sql += " AND tipo=:tipo"
+                        parametros["tipo"] = tipo
+                    sql += " ORDER BY id LIMIT :lim"
+                    ids = [row[0] for row in con.execute(text(sql), parametros)]
+                if not ids:
+                    continue
+                with engine.begin() as con:
+                    for evento_id in ids:
+                        con.execute(text(
+                            "UPDATE eventos_pendientes SET estado='pendiente', "
+                            "intentos=0, proximo_intento=NULL, error=NULL "
+                            "WHERE id=:id AND estado='fallido'"), {"id": evento_id})
+                        total += 1
+                if total >= limite:
+                    break
+        return total
+    except Exception as e:
+        print(f"[mensajeria] no se pudieron reencolar eventos fallidos: {str(e)[:180]}")
+        return 0
+
+
 def procesar_outbox(limite=100):
     """Reintenta los outbox locales y el outbox atomico de ventas."""
+    if not _LOCK_LOCAL_OUTBOX.acquire(blocking=False):
+        return 0, 0
+    conexion_lock = None
     enviados = fallidos = 0
-    for bind_key in (None, "ventas"):
-        for ev in pendientes_outbox(limite, bind_key):
-            ok, detalle = _publicar_en_broker(
-                ev["tipo"], ev["datos"], ev.get("origen") or "gateway")
-            if ok:
-                marcar_outbox(ev["id"], True, bind_key=bind_key)
-                enviados += 1
-            else:
-                marcar_outbox(ev["id"], False, detalle, bind_key=bind_key)
-                fallidos += 1
-    _estado["en_outbox"] = fallidos
-    return enviados, fallidos
+    try:
+        app, db = _db()
+        with app.app_context():
+            conexion_lock = db.engines["ventas"].connect()
+            if conexion_lock.dialect.name in ("mysql", "mariadb"):
+                tomado = conexion_lock.execute(
+                    text("SELECT GET_LOCK(:nombre, 0)"),
+                    {"nombre": _NOMBRE_LOCK_OUTBOX},
+                ).scalar()
+                if tomado != 1:
+                    conexion_lock.close()
+                    conexion_lock = None
+                    return 0, 0
+            for bind_key in (None, "ventas"):
+                for ev in pendientes_outbox(limite, bind_key):
+                    ok, detalle = _publicar_en_broker(
+                        ev["tipo"], ev["datos"], ev.get("origen") or "gateway")
+                    if ok:
+                        marcar_outbox(ev["id"], True, bind_key=bind_key)
+                        enviados += 1
+                    else:
+                        marcar_outbox(ev["id"], False, detalle, bind_key=bind_key)
+                        fallidos += 1
+        _estado["en_outbox"] = fallidos
+        return enviados, fallidos
+    finally:
+        if conexion_lock is not None:
+            try:
+                if conexion_lock.dialect.name in ("mysql", "mariadb"):
+                    conexion_lock.execute(
+                        text("SELECT RELEASE_LOCK(:nombre)"),
+                        {"nombre": _NOMBRE_LOCK_OUTBOX},
+                    )
+            except Exception:
+                pass
+            finally:
+                conexion_lock.close()
+        _LOCK_LOCAL_OUTBOX.release()
 
 
 # ------------------------------------------------------------------

@@ -4,7 +4,12 @@
 
 ALTER TABLE `librospe_ms_ventas`.`pedidos`
     ADD COLUMN IF NOT EXISTS `clave_idempotencia` VARCHAR(64) NULL,
-    ADD COLUMN IF NOT EXISTS `huella_idempotencia` VARCHAR(64) NULL;
+    ADD COLUMN IF NOT EXISTS `huella_idempotencia` VARCHAR(64) NULL,
+    ADD COLUMN IF NOT EXISTS `stock_confirmado` TINYINT(1) NOT NULL DEFAULT 0;
+
+UPDATE `librospe_ms_ventas`.`pedidos`
+SET `stock_confirmado` = 1
+WHERE `clave_idempotencia` IS NULL;
 
 SET @indice_idem_existe := (
     SELECT COUNT(*) FROM information_schema.statistics
@@ -30,10 +35,25 @@ CREATE TABLE IF NOT EXISTS `librospe_ms_ventas`.`eventos_pendientes` (
     `payload` TEXT NULL,
     `estado` VARCHAR(20) NOT NULL DEFAULT 'pendiente',
     `intentos` INT NOT NULL DEFAULT 0,
+    `proximo_intento` DATETIME NULL,
     `error` TEXT NULL,
     `creado_en` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `enviado_en` DATETIME NULL,
     PRIMARY KEY (`id`),
     KEY `idx_estado` (`estado`),
     KEY `idx_tipo` (`tipo`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE `librospe_ms_ventas`.`eventos_pendientes`
+    ADD COLUMN IF NOT EXISTS `proximo_intento` DATETIME NULL;
+
+CREATE TABLE IF NOT EXISTS `librospe_ms_ventas`.`pos_ventas_idempotencia` (
+    `clave` VARCHAR(64) NOT NULL,
+    `huella` VARCHAR(64) NOT NULL,
+    `referencia_stock` VARCHAR(64) NOT NULL,
+    `respuesta` TEXT NOT NULL,
+    `stock_confirmado` TINYINT(1) NOT NULL DEFAULT 0,
+    `creado_en` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`clave`),
+    UNIQUE KEY `uq_pos_idem_referencia_stock` (`referencia_stock`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

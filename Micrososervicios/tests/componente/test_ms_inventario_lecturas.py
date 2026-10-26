@@ -30,14 +30,19 @@ def test_lecturas_aisladas(env_prueba):
     assert r.status_code == 200
     assert r.get_json()["servicio"] == "inventario"
 
-    prods = cliente.get("/productos").get_json()
+    assert cliente.get("/productos").status_code == 401
+    prods_resp = cliente.get("/productos", headers=token)
+    assert prods_resp.status_code == 200
+    prods = prods_resp.get_json()
     assert isinstance(prods, list) and prods
     assert {"id", "nombre", "precio"} <= set(prods[0])
 
-    assert cliente.get("/productos/999999").status_code == 404
+    assert cliente.get("/productos/999999").status_code == 401
+    assert cliente.get("/productos/999999", headers=token).status_code == 404
 
-    # variante publica y protegida de verificacion de stock
-    r = cliente.get("/verificar-stock/1/1")
+    # Stock reads are internal to the microservice too.
+    assert cliente.get("/verificar-stock/1/1").status_code == 401
+    r = cliente.get("/verificar-stock/1/1", headers=token)
     assert r.status_code == 200
     assert isinstance(r.get_json()["disponible"], bool)
 

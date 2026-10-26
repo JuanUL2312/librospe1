@@ -1,56 +1,54 @@
-# Activación de la API Gateway JWT en producción
+# Activar las APIs de LibrosPE en Alwaysdata
 
-Estado: **todo subido y corriendo; falta 1 reinicio en el panel.**
+## Estado
 
-## Qué está listo
+El sitio web y sus consultas SQL pueden responder aunque el monitor muestre `DEGRADADO`. Ese estado indica que los cuatro procesos HTTP de microservicios no responden. Un `tmp/restart.txt` reinicia el sitio WSGI, pero no inicia esos procesos.
 
-| Paso | Estado |
-|------|--------|
-| Código: `www/app.py` con `API_GATEWAY=1`, `www/api_gateway_setup.py`, `gateways/`, `jwt_auth.py`, demo | subido (`deploy_api.ps1`) |
-| `~/.env`: `API_GATEWAY=1` + `MS_INVENTARIO_URL/MS_VENTAS_URL/MS_USUARIOS_URL/MS_CLIENTES_URL = http://127.0.0.1:8001-8004` | listo (backup: `~/.env.bak-api-20261021-062744`) |
-| 4 microservicios corriendo en `127.0.0.1:8001-8004` (bind local, no expuestos) | arriba y `/health` OK |
-| Script idempotente `~/iniciar_servicios_api.sh` | instalado (`bash ~/iniciar_servicios_api.sh`) |
-| Tienda actual (sin reiniciar) | viva, `/api/health` 200 |
+## Desplegar el codigo
 
-## Único paso pendiente (panel Alwaysdata)
+Desde `Micrososervicios` en PowerShell ejecuta:
 
-**Web > Sites > sitio de la tienda (librospe) > Restart.**
-
-Tras el reinicio, `app.py` sirve a la vez:
-- la tienda Jinja (igual que siempre),
-- la API JSON en `/api/v1/*` con JWT (`/api/v1/health?profundo=1`),
-- `/api/login` → demo del frontend.
-
-## Verificación (post-restart)
-
-1. `https://librospe.alwaysdata.net/` → 200 (tienda intacta).
-2. `https://librospe.alwaysdata.net/api/health` → 200 (monitor heredado).
-3. `https://librospe.alwaysdata.net/api/v1/health?profundo=1` → `"status": "OK"` y los 4 servicios `OK`.
-4. `https://librospe.alwaysdata.net/static/api_demo/index.html` → login con un usuario real.
-
-Si el paso 3 reporta servicios "caído/no alcanzable", la red del sitio no ve
-`127.0.0.1` → plan B: crear los 4 servicios como sitios/command en el panel
-con `MS_*_URL` apuntando a sus URLs internas.
-
-## Persistencia (opcional, recomendado)
-
-Los procesos `nohup` mueren si el servidor se reinicia. En **Jobs > Cron**
-del panel, añadir (cada 5 minutos):
-
-```bash
-bash /home/librospe/iniciar_servicios_api.sh
+```powershell
+.\deploy_api.ps1
 ```
 
-El script es idempotente: solo lanza lo que no responda.
+Este script sube `www/` y los cuatro directorios de servicio, e instala Gunicorn en `~/www/venv`. Despues registra los procesos administrados indicados abajo. No uses `nohup` ni tareas programadas para dejarlos corriendo.
 
-## Rollback
+## Servicios administrados
 
-1. Editar `~/.env`: `API_GATEWAY=0` (backup: `~/.env.bak-api-20261021-062744`).
-2. Reiniciar el sitio en el panel.
-   La tienda queda exactamente como antes; los servicios pueden seguir corriendo.
+En **Advanced > Services**, agrega los servicios con estos comandos en primer plano:
+
+| Servicio | Comando |
+|---|---|
+| inventario | `cd /home/librospe/servicio-inventario && /home/librospe/www/venv/bin/python -m gunicorn --bind ::8300 --workers 1 --threads 2 --timeout 45 app:app` |
+| ventas | `cd /home/librospe/servicio-ventas && /home/librospe/www/venv/bin/python -m gunicorn --bind ::8301 --workers 1 --threads 2 --timeout 45 app:app` |
+| usuarios | `cd /home/librospe/servicio-usuarios && /home/librospe/www/venv/bin/python -m gunicorn --bind ::8302 --workers 1 --threads 2 --timeout 45 app:app` |
+| clientes | `cd /home/librospe/servicio-clientes && /home/librospe/www/venv/bin/python -m gunicorn --bind ::8303 --workers 1 --threads 2 --timeout 45 app:app` |
+
+Los servicios deben cargar las mismas credenciales de base de datos y `SERVICE_TOKEN` desde `/home/librospe/.env`. No copies secretos en los comandos del panel. Toda ruta de API exige el token; `/health` es publico para permitir el monitoreo.
+
+## URLs del Gateway
+
+Configura en las variables de entorno del sitio Gateway:
+
+```text
+MS_INVENTARIO_URL=http://services-librospe.alwaysdata.net:8300
+MS_VENTAS_URL=http://services-librospe.alwaysdata.net:8301
+MS_USUARIOS_URL=http://services-librospe.alwaysdata.net:8302
+MS_CLIENTES_URL=http://services-librospe.alwaysdata.net:8303
+```
+
+Configura tambien `MS_INVENTARIO_URL` del servicio ventas con la URL del servicio inventario. Mant?n iguales `SERVICE_TOKEN` del sitio y de los procesos.
+
+## Verificacion
+
+Reinicia el sitio en **Web > Sites > Restart** y consulta:
+
+- `https://librospe.alwaysdata.net/api/health`: las cuatro claves de `http_servicios` deben indicar `OK`.
+- `https://librospe.alwaysdata.net/api/productos/recomendados`: debe devolver HTTP 200.
+
+Si health sigue degradado, revisa **Advanced > Services** y los logs de servicio; no ocultes el estado ni lo cambies manualmente a `OK`.
 
 ## Seguridad
 
-- Servicios bindeados a `127.0.0.1` (no expuestos a internet).
-- `/api/v1/*` exige `Authorization: Bearer <JWT>` en toda mutación (CSRF acotado a `/api/v1`).
-- Auditoría del gateway en `~/www/logs/auditoria_api.log` (JSON rotativo).
+Los puertos de Alwaysdata Services son accesibles externamente. Las rutas privadas validan `X-Service-Token`; mant?n un token aleatorio y distinto de las claves de desarrollo. El listener mostrado usa HTTP; para trafico de produccion con datos sensibles, confirma/configura TLS para esos endpoints antes de utilizarlos con clientes reales.

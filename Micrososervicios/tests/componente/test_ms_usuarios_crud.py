@@ -43,20 +43,22 @@ def test_crud_usuario_aislado(env_prueba):
     uid = r.get_json()["id"]
     try:
         # lectura: aparece en la lista
-        lista = cliente.get("/").get_json()
+        assert cliente.get("/").status_code == 401
+        lista = cliente.get("/", headers=token).get_json()
         assert any(u.get("correo") == correo for u in lista)
 
         # actualizacion
         r = cliente.put(f"/{uid}", json={"nombres": "Modificado"},
                         headers=token)
         assert r.status_code == 200
-        det = cliente.get(f"/{uid}").get_json()
+        assert cliente.get(f"/{uid}").status_code == 401
+        det = cliente.get(f"/{uid}", headers=token).get_json()
         assert det["nombres"] == "Modificado"
 
         # baja logica (DELETE pone estado=0, no borra la fila)
         r = cliente.delete(f"/{uid}", headers=token)
         assert r.status_code == 200
-        assert cliente.get(f"/{uid}").get_json()["estado"] == 0
+        assert cliente.get(f"/{uid}", headers=token).get_json()["estado"] == 0
     finally:
         # limpieza REAL de la fila de prueba
         from conftest import borrar_fila

@@ -43,7 +43,20 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
-SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", "librospe-interno-dev")
+SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", "").strip()
+
+
+@app.before_request
+def proteger_servicio():
+    """Only health is public; toda API requiere token interno configurado."""
+    if request.path == "/health":
+        return None
+    if not SERVICE_TOKEN:
+        return jsonify({"error": "Servicio sin token configurado"}), 503
+    recibido = request.headers.get("X-Service-Token", "")
+    if not recibido or not hmac.compare_digest(recibido, SERVICE_TOKEN):
+        return jsonify({"error": "Token de servicio invalido"}), 401
+
 
 def _verifica():
     return hmac.compare_digest(request.headers.get("X-Service-Token",""), SERVICE_TOKEN)

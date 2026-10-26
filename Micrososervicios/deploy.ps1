@@ -7,6 +7,7 @@ $SSH_KEY = Join-Path $env:USERPROFILE ".ssh\id_ed25519"
 $WEB_URL = "https://librospe.alwaysdata.net/api/health"
 
 $tarFile = Join-Path $env:TEMP "librospe_deploy.tar.gz"
+$eventScript = Join-Path $PSScriptRoot "procesar_eventos.sh"
 $venvPy = Join-Path $PSScriptRoot ".venv-live\Scripts\python.exe"
 
 # ---------------- [0/5] Entorno Python: crear venv si falta ----------------
@@ -125,16 +126,18 @@ import os
 os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
 import paramiko, sys
 host = r'$SSH_HOST'; user = r'$SSH_USER'; key = r'$SSH_KEY'
-tar = r'$tarFile'
+tar = r'$tarFile'; event_script = r'$eventScript'
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(host, username=user, key_filename=key, timeout=60)
 sftp = client.open_sftp()
 sftp.put(tar, '/home/librospe/deploy.tar.gz')
+sftp.put(event_script, '/home/librospe/procesar_eventos.sh.new')
 sftp.close()
 cmds = [
     'mkdir -p ~/deploy_stage && tar -xzf ~/deploy.tar.gz -C ~/deploy_stage',
     'rsync -a --exclude venv --exclude .env --exclude __pycache__ --exclude logs --exclude instance --exclude tmp --exclude app.log --exclude cookies.txt ~/deploy_stage/ ~/www/',
+    'mv ~/procesar_eventos.sh.new ~/procesar_eventos.sh && chmod 750 ~/procesar_eventos.sh',
     'mkdir -p ~/www/tmp && touch ~/www/tmp/restart.txt',
     'rm -rf ~/deploy_stage ~/deploy.tar.gz',
 ]
@@ -147,7 +150,7 @@ for cmd in cmds:
         client.close()
         sys.exit(1)
 client.close()
-print('Codigo subido y WSGI reiniciado (tmp/restart.txt).')
+print('Codigo y cron subidos. tmp/restart.txt no reinicia Passenger; usa el panel.')
 "@
 $tmpPy = Join-Path $env:TEMP "librospe_subir.py"
 Set-Content -LiteralPath $tmpPy -Value $pySubir -Encoding UTF8

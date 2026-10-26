@@ -199,6 +199,7 @@
                                     <option value="recogido" {% if pedido.estado=='recogido' %}selected{% endif %}>🙌 Recogido</option>
                                 {% endif %}
                                 
+                                    <option value="cancelando" disabled {% if pedido.estado=="cancelando" %}selected{% endif %}>Cancelacion pendiente de inventario</option>
                                 <option value="cancelado" {% if pedido.estado=='cancelado' %}selected{% endif %}>❌ Cancelado</option>
                             </select>
                             {% else %}
