@@ -106,6 +106,22 @@
                             <span class="text-success">Descuento:</span>
                             <span class="text-success" id="descuentoMonto">-S/. 0.00</span>
                         </div>
+                        <div class="d-flex justify-content-between mb-2 small">
+                            <span>Base imponible gravada:</span>
+                            <span id="baseGravadaCarrito">S/. 0.00</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2 small" id="baseExoneradaCarritoRow" style="display:none">
+                            <span>Valor exonerado:</span>
+                            <span id="baseExoneradaCarrito">S/. 0.00</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2 small">
+                            <span>IGV incluido:</span>
+                            <span id="igvCarrito">S/. 0.00</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2 small" id="ipmCarritoRow" style="display:none">
+                            <span>IPM incluido:</span>
+                            <span id="ipmCarrito">S/. 0.00</span>
+                        </div>
                         <div class="d-flex justify-content-between mb-2">
                             <span>Envío:</span>
                             <span id="envioTexto">Gratis</span>
@@ -238,5 +254,5 @@
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="{{ url_for('static', filename='js/carrito_2.js') }}?v=2026102902"></script>
+<script src="{{ url_for('static', filename='js/carrito_2.js') }}?v=20261102-igv1"></script>
 {% endblock %}

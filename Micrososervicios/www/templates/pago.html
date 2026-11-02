@@ -113,6 +113,14 @@
                             <div class="alert alert-success py-2"><i class="fas fa-check-circle me-2"></i>Pagas en efectivo al recibir. <strong>Costo adicional: S/. 3.00</strong></div>
                         </div>
                     </div>
+                    <div class="alert alert-primary mt-3 mb-0" id="comprobantePagoWrap" style="display:none">
+                        <label for="comprobantePago" class="form-label fw-semibold mb-1">
+                            <i class="fas fa-image me-1"></i>Captura de la transacción
+                        </label>
+                        <input class="form-control form-control-sm" type="file" id="comprobantePago"
+                               accept="image/png,image/jpeg,image/webp">
+                        <small class="d-block mt-1">Adjunta la constancia de Yape/Plin o transferencia. PNG, JPG o WEBP; máximo 5 MB.</small>
+                    </div>
                 </div>
             </div>
 
@@ -140,6 +148,18 @@
                     <div class="d-flex justify-content-between mb-2 small" id="descuentoResumen" style="display:none">
                         <span class="text-success">Descuento:</span><span class="text-success" id="descuentoTexto">-S/. 0.00</span>
                     </div>
+                    <div class="d-flex justify-content-between mb-2 small">
+                        <span>Base imponible gravada:</span><span id="baseGravadaPago">S/. 0.00</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 small" id="baseExoneradaPagoRow" style="display:none">
+                        <span>Valor exonerado:</span><span id="baseExoneradaPago">S/. 0.00</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 small">
+                        <span>IGV incluido:</span><span id="igvPago">S/. 0.00</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 small" id="ipmPagoRow" style="display:none">
+                        <span>IPM incluido:</span><span id="ipmPago">S/. 0.00</span>
+                    </div>
                     <div class="d-flex justify-content-between mb-2 small" id="envioRow" style="display:none">
                         <span>Envío:</span><span id="envioTexto">S/. 0.00</span>
                     </div>
@@ -159,5 +179,5 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/pago.css') }}">
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script src="{{ url_for('static', filename='js/pago_2.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pago_2.js') }}?v=20261102-proof1"></script>
 {% endblock %}

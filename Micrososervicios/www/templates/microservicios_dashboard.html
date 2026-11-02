@@ -10,6 +10,7 @@
 <body>
     <div class="container mt-4">
         <h1 class="mb-4">📊 Dashboard de Microservicios</h1>
+        <p class="text-muted">Pedidos: datos operativos de ventas. Stock bajo: productos activos con existencias positivas iguales o menores a su mínimo configurado.</p>
         
         <div class="row">
             <!-- Microservicio Comercial -->
@@ -23,26 +24,38 @@
                             <div class="col-6">
                                 <div class="text-center p-3 border rounded">
                                     <h5>Total Pedidos</h5>
-                                    <h2 class="text-primary">{{ total_pedidos }}</h2>
+                                    <h2 class="text-primary">{{ total_pedidos if total_pedidos is not none else '—' }}</h2>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <div class="text-center p-3 border rounded">
                                     <h5>Pendientes</h5>
-                                    <h2 class="text-warning">{{ pedidos_pendientes }}</h2>
+                                    <h2 class="text-warning">{{ pedidos_pendientes if pedidos_pendientes is not none else '—' }}</h2>
+                                </div>
+                            </div>
+                            <div class="col-6 mt-3">
+                                <div class="text-center p-3 border rounded">
+                                    <h5>En proceso</h5>
+                                    <h2 class="text-info">{{ pedidos_en_proceso if pedidos_en_proceso is not none else '—' }}</h2>
+                                </div>
+                            </div>
+                            <div class="col-6 mt-3">
+                                <div class="text-center p-3 border rounded">
+                                    <h5>Completados</h5>
+                                    <h2 class="text-success">{{ pedidos_completados if pedidos_completados is not none else '—' }}</h2>
                                 </div>
                             </div>
                             <div class="col-12 mt-3">
                                 <div class="text-center p-3 border rounded">
-                                    <h5>Confirmados</h5>
-                                    <h2 class="text-success">{{ pedidos_confirmados }}</h2>
+                                    <h5>Cancelados</h5>
+                                    <h2 class="text-danger">{{ pedidos_cancelados if pedidos_cancelados is not none else '—' }}</h2>
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div class="card-footer">
-                        <span class="badge bg-success">✅ Activo</span>
-                        <span class="badge bg-info">Última sincronización: {{ hora_peru().strftime('%d/%m/%Y %H:%M:%S') }}</span>
+                        <span class="badge bg-{{ 'success' if estado_ventas == 'activo' else 'danger' }}">{{ 'Activo' if estado_ventas == 'activo' else 'Sin conexión' }}</span>
+                        <span class="badge bg-info">Consultado: {{ consultado_en.strftime('%d/%m/%Y %H:%M:%S') }}</span>
                     </div>
                 </div>
             </div>
@@ -58,26 +71,26 @@
                             <div class="col-6">
                                 <div class="text-center p-3 border rounded">
                                     <h5>Total Productos</h5>
-                                    <h2 class="text-success">{{ total_productos }}</h2>
+                                    <h2 class="text-success">{{ total_productos if total_productos is not none else '—' }}</h2>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <div class="text-center p-3 border rounded">
-                                    <h5>Bajo Stock (&lt; 10)</h5>
-                                    <h2 class="text-warning">{{ productos_bajo_stock }}</h2>
+                                    <h5>Bajo el mínimo configurado</h5>
+                                    <h2 class="text-warning">{{ productos_bajo_stock if productos_bajo_stock is not none else '—' }}</h2>
                                 </div>
                             </div>
                             <div class="col-12 mt-3">
                                 <div class="text-center p-3 border rounded">
-                                    <h5>Agotados (0)</h5>
-                                    <h2 class="text-danger">{{ productos_agotados }}</h2>
+                                    <h5>Agotados</h5>
+                                    <h2 class="text-danger">{{ productos_agotados if productos_agotados is not none else '—' }}</h2>
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div class="card-footer">
-                        <span class="badge bg-success">✅ Activo</span>
-                        <span class="badge bg-info">Última sincronización: {{ hora_peru().strftime('%d/%m/%Y %H:%M:%S') }}</span>
+                        <span class="badge bg-{{ 'success' if estado_inventario == 'activo' else 'danger' }}">{{ 'Activo' if estado_inventario == 'activo' else 'Sin conexión' }}</span>
+                        <span class="badge bg-info">Consultado: {{ consultado_en.strftime('%d/%m/%Y %H:%M:%S') }}</span>
                     </div>
                 </div>
             </div>
@@ -92,7 +105,11 @@
                     <div class="card-body">
                         <ul class="list-group">
                             <li class="list-group-item">
-                                <strong>Comercial:</strong>
+                                <strong>Pedidos del sistema:</strong>
+                                <code>/pedidos</code>
+                            </li>
+                            <li class="list-group-item">
+                                <strong>API Comercial:</strong>
                                 <code>/api/comercial/pedidos</code>
                                 <code>/api/comercial/pedidos/&lt;id&gt;</code>
                                 <code>/api/comercial/ventas</code>

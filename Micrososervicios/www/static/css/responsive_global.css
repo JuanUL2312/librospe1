@@ -83,4 +83,6 @@
 }
 
 /* Desplegables de la barra lateral: crecer dentro de la columna, sin quedar cortados. */
-#panelSalesiano .dropdown-menu { position: static !important; inset: auto !important; transform: none !important; float: none !important; width: 100% !important; margin: .25rem 0 .35rem !important; box-shadow: none; }
+#panelSalesiano .admin-dashboard-grid .dropdown { flex-direction: column !important; align-items: stretch !important; }
+#panelSalesiano .dropdown-menu { position: static !important; inset: auto !important; transform: none !important; float: none !important; flex: 0 0 auto !important; box-sizing: border-box; width: 100% !important; min-width: 0 !important; margin: .25rem 0 .35rem !important; box-shadow: none; }
+#panelSalesiano .dropdown-menu .dropdown-item { white-space: normal; overflow-wrap: anywhere; }

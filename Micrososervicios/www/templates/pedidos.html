@@ -177,6 +177,13 @@
                         <td class="fw-bold text-success fs-6 fs-md-5 text-center">S/. {{ "%.2f"|format(pedido.total) }}</td>
                         <td class="text-center">
                             <small class="d-block text-muted">{{ (pedido.metodo_pago or 'sin método')|capitalize }}</small>
+                            {% set evidencia_pago = pedido_comprobante_pago(pedido) %}
+                            {% if evidencia_pago and es_admin %}
+                            <a class="btn btn-sm btn-outline-primary mt-1" target="_blank" rel="noopener"
+                               href="{{ url_for('ver_comprobante_pago_pedido', pedido_id=pedido.id) }}">
+                                <i class="fas fa-image me-1"></i>Ver captura
+                            </a>
+                            {% endif %}
                             {% if pedido.pago_confirmado %}
                                 <span class="badge bg-success">Pago confirmado</span>
                                 {% if pedido.pago_confirmado_por %}<small class="d-block text-muted">por {{ pedido.pago_confirmado_por }}</small>{% endif %}
@@ -188,12 +195,21 @@
                                     <i class="fas fa-cash-register me-1"></i>Abrir caja primero
                                 </a>
                                 {% endif %}
+                                {% if (pedido.metodo_pago or '')|lower not in ['yape', 'plin', 'transferencia'] or evidencia_pago %}
                                 <form method="POST" action="{{ url_for('confirmar_pago_pedido', pedido_id=pedido.id) }}"
                                       class="mt-1" onsubmit="return confirm('Confirma solo después de verificar que el dinero llegó. Para efectivo, la caja debe estar abierta. ¿Ya verificaste el pago?');">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                     <button type="submit" class="btn btn-sm btn-outline-success">Verificar y confirmar</button>
                                 </form>
+                                {% else %}
+                                <small class="d-block text-warning mt-1">Esperando captura del cliente</small>
                                 {% endif %}
+                                {% endif %}
+                            {% endif %}
+                            {% if pedido.estado == 'cancelado' and pedido.nota and 'Cancelación por ' in pedido.nota %}
+                            <small class="d-block text-danger mt-1" title="Motivo de cancelación">
+                                <strong>Motivo:</strong> {{ pedido_motivo_cancelacion(pedido) }}
+                            </small>
                             {% endif %}
                         </td>
                         <td class="text-center">
@@ -285,6 +301,6 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script src="{{ url_for('static', filename='js/pedidos.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pedidos.js') }}?v=20261102-cancel1"></script>
 {% endblock %}
 {% endblock %}

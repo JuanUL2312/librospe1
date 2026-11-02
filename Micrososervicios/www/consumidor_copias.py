@@ -36,6 +36,7 @@ RUTAS_SQL = (
 # Columnas de cada copia (las mismas de sincronizar_copias.sql; un test las
 # contrasta con el script para que no se desincronicen).
 COLUMNAS_VENTAS = ("id", "producto_id", "fecha_venta", "cantidad", "vendedor_id",
+                   "precio_unitario", "igv_tipo", "igv_base", "igv_monto", "ipm_monto",
                    "cliente_id", "tipo_comprobante", "numero_comprobante", "estado",
                    "cliente_nombres", "cliente_apellidos", "cliente_documento",
                    "cliente_email", "cliente_direccion", "cliente_direccion_fiscal",

@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from pathlib import Path
 from urllib.parse import quote, quote_plus, urlencode
 from urllib.request import Request, urlopen
@@ -20,6 +21,7 @@ from flask_bcrypt import Bcrypt
 from flask_sqlalchemy import SQLAlchemy
 from functools import wraps
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import func, text, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import scoped_session
@@ -117,25 +119,13 @@ DB_PASSWORD = os.environ.get("DB_PASSWORD")
 DB_HOST = os.environ.get("DB_HOST")
 DB_NAME = os.environ.get("DB_NAME")
 DB_PORT = os.environ.get("DB_PORT", "").strip()
-DB_DRIVER = os.environ.get("DB_DRIVER", "ODBC Driver 17 for SQL Server")
-DB_ENCRYPT = os.environ.get("DB_ENCRYPT", "yes").strip().lower()
-DB_TRUST_CERT = os.environ.get("DB_TRUST_SERVER_CERTIFICATE", "no").strip().lower()
 if not all((DB_USER, DB_PASSWORD, DB_HOST, DB_NAME)):
     raise RuntimeError("Faltan variables de conexión de base de datos")
-
-def _sql_server_url(db_name: str) -> str:
-    _host_puerto = f"{DB_HOST},{DB_PORT}" if DB_PORT else DB_HOST
-    query = {
-        "driver": DB_DRIVER,
-        "Encrypt": "yes" if DB_ENCRYPT in {"1", "true", "yes", "on"} else "no",
-        "TrustServerCertificate": "yes" if DB_TRUST_CERT in {"1", "true", "yes", "on"} else "no",
-    }
-    return (
-        f"mssql+pyodbc://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{_host_puerto}/"
-        f"{quote_plus(db_name)}?{urlencode(query)}"
-    )
-
-app.config["SQLALCHEMY_DATABASE_URI"] = _sql_server_url(DB_NAME)
+# Puerto opcional (3306 por defecto); útil para entornos de prueba.
+_host_puerto = f"{DB_HOST}:{DB_PORT}" if DB_PORT else DB_HOST
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{_host_puerto}/{DB_NAME}"
+)
 
 # =============================================
 # MICROSERVICIOS: UNA BASE DE DATOS POR SERVICIO
@@ -160,9 +150,105 @@ MS_CONFIG = {
     "clientes":   os.environ.get("MS_CLIENTES_DB", _ms_config.get("clientes", DB_NAME)),
 }
 app.config["SQLALCHEMY_BINDS"] = {
-    servicio: _sql_server_url(db_nombre)
+    servicio: f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{_host_puerto}/{quote_plus(db_nombre)}"
     for servicio, db_nombre in MS_CONFIG.items()
 }
+
+def _tasas_igv_ipm(anio=None):
+    """Tasas vigentes de IGV e IPM; la tasa conjunta general es 18%."""
+    anio = anio or hora_actual_peru().year
+    if anio >= 2029:
+        return Decimal("0.14"), Decimal("0.04")
+    if anio == 2028:
+        return Decimal("0.145"), Decimal("0.035")
+    if anio == 2027:
+        return Decimal("0.15"), Decimal("0.03")
+    if anio == 2026:
+        return Decimal("0.155"), Decimal("0.025")
+    return Decimal("0.16"), Decimal("0.02")
+
+
+def _desglosar_igv(precio_final, igv_tipo="gravado"):
+    """Separa base, IGV e IPM incluidos en el precio final del producto."""
+    total = Decimal(str(precio_final or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if igv_tipo != "gravado":
+        return total, Decimal("0.00"), Decimal("0.00")
+    tasa_igv, tasa_ipm = _tasas_igv_ipm()
+    tasa_total = tasa_igv + tasa_ipm
+    base = (total / (Decimal("1.00") + tasa_total)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP)
+    igv = (base * tasa_igv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    ipm = total - base - igv
+    return base, igv, ipm
+
+
+def _resumen_igv_items(productos, descuento=0):
+    """Calcula base imponible e IGV incluido, distribuyendo el descuento por línea."""
+    lineas = []
+    for producto in productos or []:
+        cantidad = int(producto.get("cantidad", 1) or 1)
+        precio = Decimal(str(producto.get("precio_unitario", producto.get("precio", 0)) or 0))
+        total = Decimal(str(producto.get("total", precio * cantidad) or 0)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP)
+        lineas.append((producto.get("igv_tipo", "gravado"), total))
+    bruto = sum((total for _, total in lineas), Decimal("0.00"))
+    descuento = min(Decimal(str(descuento or 0)), bruto).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP)
+    base_gravada = Decimal("0.00")
+    base_exonerada = Decimal("0.00")
+    igv_total = Decimal("0.00")
+    ipm_total = Decimal("0.00")
+    descuento_asignado = Decimal("0.00")
+    for indice, (igv_tipo, total_linea) in enumerate(lineas):
+        if not lineas or bruto <= 0:
+            descuento_linea = Decimal("0.00")
+        elif indice == len(lineas) - 1:
+            descuento_linea = descuento - descuento_asignado
+        else:
+            descuento_linea = (descuento * total_linea / bruto).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP)
+            descuento_asignado += descuento_linea
+        base, igv, ipm = _desglosar_igv(total_linea - descuento_linea, igv_tipo)
+        if indice < len(productos) and isinstance(productos[indice], dict):
+            productos[indice]["igv_base"] = float(base)
+            productos[indice]["igv_monto"] = float(igv)
+            productos[indice]["ipm_monto"] = float(ipm)
+        if igv_tipo == "gravado":
+            base_gravada += base
+        else:
+            base_exonerada += base
+        igv_total += igv
+        ipm_total += ipm
+    return float(base_gravada), float(base_exonerada), float(igv_total), float(ipm_total)
+
+
+def _resumen_igv_detalles_pedido(detalles, descuento=0):
+    """Resume impuestos de pedido desde snapshots; recalcula pedidos anteriores."""
+    lineas = []
+    snapshots_completos = True
+    for fila in detalles or []:
+        detalle = getattr(fila, "DetallePedido", fila)
+        tipo_producto = getattr(fila, "producto_igv_tipo", None)
+        tipo = detalle.igv_tipo or tipo_producto or "gravado"
+        if (detalle.igv_base is None or detalle.igv_monto is None
+                or detalle.ipm_monto is None):
+            snapshots_completos = False
+        lineas.append((detalle, tipo))
+
+    if snapshots_completos:
+        base_gravada = sum(float(d.igv_base or 0) for d, tipo in lineas if tipo == "gravado")
+        base_exonerada = sum(float(d.igv_base or 0) for d, tipo in lineas if tipo == "exonerado")
+        igv_total = sum(float(d.igv_monto or 0) for d, _ in lineas)
+        ipm_total = sum(float(d.ipm_monto or 0) for d, _ in lineas)
+        return base_gravada, base_exonerada, igv_total, ipm_total
+
+    productos = [{
+        "cantidad": detalle.cantidad or 1,
+        "precio_unitario": detalle.precio_unitario or 0,
+        "total": detalle.subtotal or 0,
+        "igv_tipo": tipo,
+    } for detalle, tipo in lineas]
+    return _resumen_igv_items(productos, descuento)
 
 # Comunicacion servicio a servicio (HTTP + token interno)
 SERVICE_TOKEN = (os.environ.get("SERVICE_TOKEN") or
@@ -180,7 +266,7 @@ app.config["INVENTARIO_DB_FALLBACK"] = os.environ.get(
     "INVENTARIO_DB_FALLBACK", "false").strip().lower() in ("1", "true", "yes", "on")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "connect_args": {"autocommit": True},
+    "connect_args": {"ssl": {"ssl_mode": "REQUIRED"}, "init_command": "SET time_zone = '-05:00'"},
     "pool_pre_ping": True,
     "pool_recycle": 280,
 }
@@ -341,6 +427,7 @@ class Producto(db.Model):
     stock_maximo = db.Column(db.Integer, default=100)
     proveedor_id = db.Column(db.Integer, db.ForeignKey("proveedores.id"), nullable=True)
     precio = db.Column(db.Numeric(10,2), default=0.0)
+    igv_tipo = db.Column(db.String(12), nullable=False, default="gravado", server_default="gravado")
     costo = db.Column(db.Numeric(10,2), nullable=True)  # precio de compra (solo admin)
     imagen = db.Column(db.String(255))
     destacado = db.Column(db.Integer, default=0)
@@ -425,6 +512,11 @@ class Venta(db.Model):
     metodo_pago = db.Column(db.String(20), default="efectivo")
     monto_recibido = db.Column(db.Numeric(10,2), nullable=True)
     vuelto = db.Column(db.Numeric(10,2), nullable=True)
+    precio_unitario = db.Column(db.Numeric(10,2), nullable=True)
+    igv_tipo = db.Column(db.String(12), nullable=True)
+    igv_base = db.Column(db.Numeric(10,2), nullable=True)
+    igv_monto = db.Column(db.Numeric(10,2), nullable=True)
+    ipm_monto = db.Column(db.Numeric(10,2), nullable=True)
     # El producto vive en el microservicio de inventario, pero la venta
     # necesita su precio/nombre: se usa la copia local (misma base).
     producto = db.relationship("ProductoEnVentas")
@@ -629,6 +721,10 @@ class DetallePedido(db.Model):
     cantidad = db.Column(db.Integer)
     precio_unitario = db.Column(db.Float)
     subtotal = db.Column(db.Float)
+    igv_tipo = db.Column(db.String(12), nullable=True)
+    igv_base = db.Column(db.Numeric(10,2), nullable=True)
+    igv_monto = db.Column(db.Numeric(10,2), nullable=True)
+    ipm_monto = db.Column(db.Numeric(10,2), nullable=True)
     pedido = db.relationship("Pedido", back_populates="detalles")
 
 class RucEmpresa(db.Model):
@@ -948,13 +1044,16 @@ def registrar_intento_fallido(email, ip, es_cliente=False):
     # ==========================================
     # Verificar si ya está bloqueado permanentemente
     if es_cliente:
-        bloqueo_permanente = db.session.execute(text("""
-            SELECT id FROM bloqueos 
-            WHERE cliente_id = (SELECT id FROM clientes WHERE correo = :email)
-            AND tipo_usuario = 'cliente' 
-            AND estado = 1 
-            AND permanente = 1
-        """), {"email": email}).fetchone()
+        cliente = Cliente.query.filter_by(correo=email).first()
+        bloqueo_permanente = (
+            Bloqueo.query.filter_by(
+                cliente_id=cliente.id,
+                tipo_usuario="cliente",
+                estado=True,
+                permanente=True,
+            ).first()
+            if cliente else None
+        )
     else:
         bloqueo_permanente = db.session.execute(text("""
             SELECT id FROM bloqueos 
@@ -1352,7 +1451,17 @@ def _etiqueta_comprobante(tipo):
 @app.context_processor
 def inject_security_context():
     return {"csrf_token": obtener_token_csrf(),
-            "ventas_etiqueta_comprobante": ETIQUETAS_COMPROBANTE}
+            "ventas_etiqueta_comprobante": ETIQUETAS_COMPROBANTE,
+            "pedido_comprobante_pago": _comprobante_pago_nombre,
+            "pedido_motivo_cancelacion": _motivo_cancelacion_pedido}
+
+
+def _motivo_cancelacion_pedido(pedido):
+    nota = pedido.get("nota") if isinstance(pedido, dict) else getattr(pedido, "nota", None)
+    for linea in (nota or "").splitlines():
+        if linea.startswith(("Cancelación por cliente:", "Cancelación por administrador:")):
+            return linea.split(":", 1)[1].strip()
+    return ""
 
 def csrf_protect(f):
     @wraps(f)
@@ -1398,6 +1507,37 @@ def inject_fecha_actual():
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+_MARCA_COMPROBANTE_PAGO = re.compile(r"\[\[pago_proof:([A-Za-z0-9_.-]+)\]\]")
+
+
+def _comprobante_pago_nombre(pedido):
+    nota = pedido.get("nota") if isinstance(pedido, dict) else getattr(pedido, "nota", None)
+    coincidencia = _MARCA_COMPROBANTE_PAGO.search(nota or "")
+    return coincidencia.group(1) if coincidencia else None
+
+
+def _guardar_comprobante_pago(pedido, nombre_archivo):
+    nota = pedido.nota or ""
+    nota = _MARCA_COMPROBANTE_PAGO.sub("", nota).strip()
+    marca = f"[[pago_proof:{nombre_archivo}]]"
+    pedido.nota = f"{nota}\n{marca}" if nota else marca
+
+
+def _guardar_motivo_cancelacion(pedido, origen, motivo):
+    """Actualiza el motivo sin borrar metadatos, como la captura de pago."""
+    nota = pedido.nota or ""
+    marca_comprobante = _MARCA_COMPROBANTE_PAGO.search(nota)
+    marcador = marca_comprobante.group(0) if marca_comprobante else None
+    lineas = [linea for linea in nota.splitlines()
+              if not linea.startswith("Cancelación por cliente:")
+              and not linea.startswith("Cancelación por administrador:")
+              and not _MARCA_COMPROBANTE_PAGO.fullmatch(linea.strip())]
+    lineas.append(f"Cancelación por {origen}: {motivo}")
+    if marcador:
+        lineas.append(marcador)
+    pedido.nota = "\n".join(lineas)
 
 def generar_token_recuperacion():
     return secrets.token_urlsafe(32)
@@ -1731,9 +1871,15 @@ def generar_comprobante_pdf(tipo_comprobante, numero_comprobante, fecha, cliente
     subtotal = (sum(float(p.get('total', float(p.get('precio_unitario', p.get('precio', 0)) or 0)
                            * int(p.get('cantidad', 1) or 1)) or 0) for p in productos)
                 if subtotal is None else float(subtotal or 0))
+    base_gravada, base_exonerada, igv_incluido, ipm_incluido = _resumen_igv_items(productos, descuento)
     filas.append(["", "", "Subtotal", f"S/ {subtotal:.2f}"])
     if float(descuento or 0) > 0:
         filas.append(["", "", "Descuento", f"-S/ {float(descuento):.2f}"])
+    filas.append(["", "", "Operaciones gravadas", f"S/ {base_gravada:.2f}"])
+    if base_exonerada:
+        filas.append(["", "", "Operaciones exoneradas", f"S/ {base_exonerada:.2f}"])
+    filas.append(["", "", "IGV incluido", f"S/ {igv_incluido:.2f}"])
+    filas.append(["", "", "IPM incluido", f"S/ {ipm_incluido:.2f}"])
     if tipo_entrega == "delivery":
         filas.append(["", "", "Envío", f"S/ {float(costo_envio or 0):.2f}"])
     if (str(metodo_pago or "").strip().lower() == "contraentrega"
@@ -1817,6 +1963,7 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
                               * int(p.get('cantidad', 1) or 1)) or 0) for p in productos)
                     if subtotal is None else float(subtotal or 0))
         descuento = float(descuento or 0)
+        base_gravada, base_exonerada, igv_incluido, ipm_incluido = _resumen_igv_items(productos, descuento)
         costo_envio = float(costo_envio or 0)
         cargo_contraentrega = float(cargo_contraentrega or 0)
         mostrar_contraentrega = (str(metodo_pago or "").strip().lower() == "contraentrega"
@@ -1938,6 +2085,10 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
                                     <td style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;">S/. {subtotal:,.2f}</td>
                                 </tr>
                                 {f'''<tr style="background:#f8fafc;"><td colspan="3" style="padding:8px 12px;text-align:right;color:#15803d;font-size:13px;font-weight:700;">Descuento</td><td style="padding:8px 12px;text-align:right;color:#15803d;font-size:13px;">-S/. {descuento:,.2f}</td></tr>''' if descuento > 0 else ''}
+                                <tr style="background:#f8fafc;"><td colspan="3" style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;font-weight:700;">Operaciones gravadas</td><td style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;">S/. {base_gravada:,.2f}</td></tr>
+                                {f'''<tr style="background:#f8fafc;"><td colspan="3" style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;font-weight:700;">Operaciones exoneradas</td><td style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;">S/. {base_exonerada:,.2f}</td></tr>''' if base_exonerada > 0 else ''}
+                                <tr style="background:#f8fafc;"><td colspan="3" style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;font-weight:700;">IGV incluido</td><td style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;">S/. {igv_incluido:,.2f}</td></tr>
+                                <tr style="background:#f8fafc;"><td colspan="3" style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;font-weight:700;">IPM incluido</td><td style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;">S/. {ipm_incluido:,.2f}</td></tr>
                                 {f'''<tr style="background:#f8fafc;"><td colspan="3" style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;font-weight:700;">Envío</td><td style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;">S/. {costo_envio:,.2f}</td></tr>''' if tipo_entrega == 'delivery' else ''}
                                 {f'''<tr style="background:#f8fafc;"><td colspan="3" style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;font-weight:700;">Contraentrega</td><td style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;">S/. {cargo_contraentrega:,.2f}</td></tr>''' if mostrar_contraentrega else ''}
                                 <tr style="background:#f0fdf4;">
@@ -2032,6 +2183,75 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
         print(f"❌ Error al enviar correo: {e}")
         return False
 
+
+
+def enviar_cancelacion_email(cliente_obj, pedido, motivo, origen):
+    """Envía instrucciones de devolución solo cuando el pago fue verificado."""
+    try:
+        import html
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+
+        if not pedido.pago_confirmado:
+            app.logger.info("Se omite correo de devolución: pago no verificado, pedido_id=%s", pedido.id)
+            return None
+
+        destinatario = (getattr(cliente_obj, "correo", "") or "").strip()
+        if not destinatario or "@" not in destinatario:
+            app.logger.warning("No se envió correo de cancelación: cliente sin correo, pedido_id=%s", pedido.id)
+            return False
+        if not all((EMAIL_HOST, EMAIL_USER, EMAIL_PASSWORD)):
+            app.logger.warning("No se envió correo de cancelación: SMTP no configurado")
+            return False
+
+        nombre = " ".join(filter(None, [getattr(cliente_obj, "nombres", ""),
+                                        getattr(cliente_obj, "apellidos", "")])).strip() or "cliente"
+        e = html.escape
+        bloque_devolucion = (
+            "El pago fue verificado por la tienda. Responde a este correo para coordinar la devolución del dinero. "
+            "La devolución no se procesa automáticamente."
+        )
+        url_pedidos = url_for("mis_pedidos", _external=True)
+        msg = MIMEMultipart("alternative")
+        msg["From"] = EMAIL_FROM or EMAIL_USER
+        msg["To"] = destinatario
+        msg["Reply-To"] = EMAIL_USER
+        msg["Subject"] = f"Pedido #{pedido.id} cancelado - Librería Salesiana"
+        texto = (
+            f"Hola {nombre},\n\nTu pedido #{pedido.id} fue cancelado.\n"
+            f"Motivo registrado ({origen}): {motivo}\n\n{bloque_devolucion}\n\n"
+            f"Puedes revisar tus pedidos en: {url_pedidos}\n"
+            "Librería Salesiana Don Bosco"
+        )
+        cuerpo_html = f"""
+        <!doctype html><html lang="es"><head><meta charset="UTF-8"></head>
+        <body style="margin:0;padding:24px;background:#f3f4f6;font-family:Arial,sans-serif;color:#1f2937">
+          <div style="max-width:600px;margin:auto;background:#fff;border-radius:12px;overflow:hidden">
+            <div style="padding:22px;background:#b91c1c;color:#fff">
+              <h2 style="margin:0">Pedido cancelado</h2><p style="margin:8px 0 0">Pedido # {pedido.id}</p>
+            </div>
+            <div style="padding:24px">
+              <p>Hola <strong>{e(nombre)}</strong>,</p>
+              <p>Tu pedido <strong>#{pedido.id}</strong> fue cancelado.</p>
+              <p><strong>Motivo ({e(origen)}):</strong> {e(motivo)}</p>
+              <p>{e(bloque_devolucion)}</p>
+              <p><a href="{e(url_pedidos)}">Ver mis pedidos</a></p>
+              <p style="color:#6b7280">Si tienes consultas, responde a este correo.</p>
+            </div>
+          </div>
+        </body></html>"""
+        msg.attach(MIMEText(texto, "plain", "utf-8"))
+        msg.attach(MIMEText(cuerpo_html, "html", "utf-8"))
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT, timeout=20) as server:
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASSWORD)
+            server.send_message(msg)
+        app.logger.info("Correo de cancelación enviado pedido_id=%s", pedido.id)
+        return True
+    except Exception:
+        app.logger.exception("No se pudo enviar correo de cancelación pedido_id=%s", pedido.id)
+        return False
 
 
 def enviar_entrega_email(cliente_obj, pedido):
@@ -3555,6 +3775,9 @@ def nuevo_producto():
 @permiso_requerido("gestionar_productos")
 def guardar_producto():
     try:
+        igv_tipo = (request.form.get("igv_tipo") or "gravado").strip().lower()
+        if igv_tipo not in {"gravado", "exonerado"}:
+            raise ValueError("Tratamiento de IGV inválido")
         precio_oferta = request.form.get("precio_oferta")
         precio_oferta = float(precio_oferta) if precio_oferta and precio_oferta.strip() else None
         
@@ -3574,6 +3797,7 @@ def guardar_producto():
             stock_maximo=int(request.form.get("stock_maximo") or 100),
             proveedor_id=request.form.get("proveedor") or None,
             precio=float(request.form["precio"]),
+            igv_tipo=igv_tipo,
             costo=costo,
             id_categoria=id_categoria,  
             precio_oferta=precio_oferta,
@@ -3597,6 +3821,7 @@ def guardar_producto():
         # Evento de dominio: los demas microservicios actualizan su copia.
         _emitir_evento("producto.actualizado", {
             "id": nuevo.id, "nombre": nuevo.nombre, "precio": float(nuevo.precio or 0),
+            "igv_tipo": nuevo.igv_tipo,
             "cantidad": int(nuevo.cantidad or 0), "stock_minimo": int(nuevo.stock_minimo or 0),
             "categoria_id": nuevo.id_categoria, "proveedor_id": nuevo.proveedor_id,
             "estado": 1,
@@ -3637,6 +3862,9 @@ def actualizar_producto(id):
         return redirect(url_for("productos"))
     
     try:
+        igv_tipo = (request.form.get("igv_tipo") or "gravado").strip().lower()
+        if igv_tipo not in {"gravado", "exonerado"}:
+            raise ValueError("Tratamiento de IGV inválido")
         precio_oferta = request.form.get("precio_oferta")
         precio_oferta = float(precio_oferta) if precio_oferta and precio_oferta.strip() else None
         
@@ -3650,6 +3878,7 @@ def actualizar_producto(id):
         producto_obj.stock_maximo = int(request.form.get("stock_maximo") or 100)
         producto_obj.proveedor_id = request.form.get("proveedor") or None
         producto_obj.precio = float(request.form["precio"])
+        producto_obj.igv_tipo = igv_tipo
         costo_val = request.form.get("costo")
         producto_obj.costo = float(costo_val) if costo_val and costo_val.strip() else None
         producto_obj.id_categoria = id_categoria  # ← USAR id_categoria
@@ -3674,6 +3903,7 @@ def actualizar_producto(id):
         _emitir_evento("producto.actualizado", {
             "id": producto_obj.id, "nombre": producto_obj.nombre,
             "precio": float(producto_obj.precio or 0),
+            "igv_tipo": producto_obj.igv_tipo,
             "cantidad": int(producto_obj.cantidad or 0),
             "stock_minimo": int(producto_obj.stock_minimo or 0),
             "categoria_id": producto_obj.id_categoria,
@@ -3752,6 +3982,28 @@ def _hay_caja_abierta():
 
 _METODOS_EFECTIVO = {"efectivo", "contraentrega"}
 _METODOS_DIGITALES = {"yape", "plin", "transferencia", "tarjeta"}
+_ALIAS_METODOS_DIGITALES = _METODOS_DIGITALES | {
+    "transferencia bancaria", "transferencia_bancaria", "bcp", "bbva", "interbank",
+    "tarjeta de credito", "tarjeta de débito", "tarjeta de debito",
+    "tarjeta de crédito", "tarjeta_credito", "tarjeta_debito",
+}
+
+
+def _normalizar_metodo_pago(metodo):
+    valor = unicodedata.normalize("NFKD", str(metodo or "efectivo").strip().lower())
+    valor = "".join(caracter for caracter in valor if not unicodedata.combining(caracter))
+    valor = re.sub(r"[\s_]+", " ", valor)
+    if valor in {"yape", "plin"}:
+        return valor
+    if valor in {"transferencia", "transferencia bancaria", "bcp", "bbva", "interbank"}:
+        return "transferencia"
+    if valor == "tarjeta" or valor.startswith("tarjeta de "):
+        return "tarjeta"
+    if valor == "contraentrega":
+        return valor
+    if valor == "efectivo":
+        return valor
+    return valor
 
 
 def _resumen_ventas_de_caja(caja):
@@ -3772,7 +4024,8 @@ def _resumen_ventas_de_caja(caja):
         # Las ventas web solo cuentan después de que el pago fue verificado.
         if venta.pedido_id and (pedido is None or not pedido.pago_confirmado):
             continue
-        metodo = ((pedido.metodo_pago if pedido else None) or venta.metodo_pago or "efectivo").strip().lower()
+        metodo = _normalizar_metodo_pago(
+            (pedido.metodo_pago if pedido else None) or venta.metodo_pago or "efectivo")
         # El pago digital de pedidos web se informa por fecha de confirmación,
         # aunque ocurriera antes de abrir caja; no duplicarlo como venta de turno.
         if pedido and metodo in _METODOS_DIGITALES:
@@ -3784,32 +4037,43 @@ def _resumen_ventas_de_caja(caja):
     return resumen, round(efectivo, 2)
 
 
-def _pagos_digitales_confirmados_hoy():
-    """Pagos web digitales confirmados hoy, independientes del turno de caja."""
-    hoy = hora_actual_peru().replace(hour=0, minute=0, second=0, microsecond=0)
-    manana = hoy + timedelta(days=1)
-    filas = db.session.query(
+def _pagos_digitales_confirmados_en_caja(caja):
+    """Asigna pagos digitales al primer turno abierto tras su confirmaciÃ³n.
+
+    Si el pago se confirmÃ³ mientras todas las cajas estaban cerradas, queda
+    pendiente y se muestra al abrir la siguiente caja. El cierre anterior
+    sirve como lÃ­mite para no volver a contar pagos de turnos ya cerrados.
+    """
+    hasta = caja.fecha_cierre or hora_actual_peru()
+    inicio_dia = caja.fecha_apertura.replace(hour=0, minute=0, second=0, microsecond=0)
+    cierre_anterior = Caja.query.filter(
+        Caja.estado == "cerrada",
+        Caja.fecha_cierre.isnot(None),
+        Caja.fecha_cierre <= caja.fecha_apertura,
+    ).order_by(Caja.fecha_cierre.desc(), Caja.id.desc()).first()
+    desde = cierre_anterior.fecha_cierre if cierre_anterior else inicio_dia
+    consulta = db.session.query(
         Pedido.metodo_pago.label("metodo"),
         func.count(Pedido.id).label("pedidos"),
         func.coalesce(func.sum(Pedido.total), 0).label("monto"),
     ).filter(
         Pedido.pago_confirmado.is_(True),
-        Pedido.fecha_pago_confirmado >= hoy,
-        Pedido.fecha_pago_confirmado < manana,
-        func.lower(Pedido.metodo_pago).in_(tuple(_METODOS_DIGITALES)),
+        Pedido.fecha_pago_confirmado >= desde,
+        Pedido.fecha_pago_confirmado < hasta,
+        func.lower(Pedido.metodo_pago).in_(tuple(_ALIAS_METODOS_DIGITALES)),
         Pedido.estado != "cancelado",
-    ).group_by(Pedido.metodo_pago).order_by(Pedido.metodo_pago).all()
-    return [{"metodo": row.metodo, "pedidos": int(row.pedidos),
+    )
+    filas = consulta.group_by(Pedido.metodo_pago).order_by(Pedido.metodo_pago).all()
+    return [{"metodo": _normalizar_metodo_pago(row.metodo), "pedidos": int(row.pedidos),
              "monto": float(row.monto or 0)} for row in filas]
 
 
-def _resumen_cobros_del_dia():
-    """Suma cobros del día por método, combinando POS y pedidos web confirmados."""
-    hoy = hora_actual_peru().replace(hour=0, minute=0, second=0, microsecond=0)
-    manana = hoy + timedelta(days=1)
+def _resumen_cobros_de_caja(caja):
+    """Suma cobros desde la apertura de caja por método de pago."""
+    hasta = caja.fecha_cierre or hora_actual_peru()
     ventas = Venta.query.filter(
-        Venta.fecha_venta >= hoy,
-        Venta.fecha_venta < manana,
+        Venta.fecha_venta >= caja.fecha_apertura,
+        Venta.fecha_venta < hasta,
         Venta.estado == 1,
     ).all()
     ids_pedidos = {v.pedido_id for v in ventas if v.pedido_id}
@@ -3822,7 +4086,8 @@ def _resumen_cobros_del_dia():
         pedido = pedidos.get(venta.pedido_id) if venta.pedido_id else None
         if venta.pedido_id and (pedido is None or not pedido.pago_confirmado):
             continue
-        metodo = ((pedido.metodo_pago if pedido else None) or venta.metodo_pago or "efectivo").strip().lower()
+        metodo = _normalizar_metodo_pago(
+            (pedido.metodo_pago if pedido else None) or venta.metodo_pago or "efectivo")
         # Los pedidos web digitales se suman por el total realmente pagado,
         # no por cada línea de venta (evita duplicarlos y respeta descuentos/envío).
         if pedido and metodo in _METODOS_DIGITALES:
@@ -3832,8 +4097,8 @@ def _resumen_cobros_del_dia():
         fila["operaciones"] += 1
         fila["monto"] += monto
 
-    for pago in _pagos_digitales_confirmados_hoy():
-        metodo = (pago["metodo"] or "digital").strip().lower()
+    for pago in _pagos_digitales_confirmados_en_caja(caja):
+        metodo = _normalizar_metodo_pago(pago["metodo"] or "digital")
         fila = totales.setdefault(metodo, {"metodo": metodo, "operaciones": 0, "monto": 0.0})
         fila["operaciones"] += pago["pedidos"]
         fila["monto"] += pago["monto"]
@@ -3950,6 +4215,8 @@ def venta_nueva():
             
             precio_unitario = float(producto.precio or 0)
             total_venta = precio_unitario * cantidad
+            igv_tipo = producto.igv_tipo or "gravado"
+            igv_base, igv_monto, ipm_monto = _desglosar_igv(total_venta, igv_tipo)
             
             # ============================================
             # MÉTODO DE PAGO Y VUELTO (tienda presencial)
@@ -3980,6 +4247,11 @@ def venta_nueva():
                 metodo_pago=metodo_pago,
                 monto_recibido=monto_recibido,
                 vuelto=vuelto,
+                precio_unitario=precio_unitario,
+                igv_tipo=igv_tipo,
+                igv_base=igv_base,
+                igv_monto=igv_monto,
+                ipm_monto=ipm_monto,
                 cliente_nombres=cliente_nombres or None,
                 cliente_apellidos=cliente_apellidos or None,
                 cliente_documento=cliente_documento or None,
@@ -4012,7 +4284,7 @@ def venta_nueva():
                         tipo_comprobante=tipo_comprobante,
                         numero_comprobante=numero_comprobante,
                         fecha=fecha_venta,
-                        productos=[{'nombre': producto.nombre, 'cantidad': cantidad, 'precio_unitario': precio_unitario, 'total': total_venta}],
+                        productos=[{'nombre': producto.nombre, 'cantidad': cantidad, 'precio_unitario': precio_unitario, 'total': total_venta, 'igv_tipo': igv_tipo}],
                         total_venta=total_venta,
                         documento=cliente_documento,
                         tipo_documento="RUC" if tipo_comprobante == "factura" else (tipo_documento_cliente or ("DNI" if cliente_documento else "")),
@@ -4059,7 +4331,9 @@ def ver_caja():
         caja_abierta._resumen = resumen
 
     total_esperado = round(float(caja_abierta.monto_inicial or 0) + total_caja, 2) if caja_abierta else 0
-    cobros_dia, total_recaudado_dia = _resumen_cobros_del_dia()
+    cobros_dia, total_recaudado_dia = (
+        _resumen_cobros_de_caja(caja_abierta) if caja_abierta else ([], 0.0)
+    )
     return render_template("caja.html", caja=caja_abierta, historial=historial,
                            total_caja=total_caja, resumen=resumen,
                            total_esperado=total_esperado,
@@ -4077,7 +4351,11 @@ def abrir_caja():
     try:
         monto_inicial = float(request.form.get("monto_inicial", "0") or 0)
     except ValueError:
-        monto_inicial = 0
+        flash("Ingresa un monto inicial válido y mayor o igual a cero.", "danger")
+        return redirect(url_for("ver_caja"))
+    if monto_inicial < 0:
+        flash("El monto inicial no puede ser negativo.", "danger")
+        return redirect(url_for("ver_caja"))
     caja = Caja(usuario_id=session["usuario_id"], monto_inicial=monto_inicial, estado="abierta")
     db.session.add(caja)
     db.session.commit()
@@ -4098,7 +4376,11 @@ def cerrar_caja():
     try:
         monto_real = float(request.form.get("monto_real", "0") or 0)
     except ValueError:
-        monto_real = 0
+        flash("Ingresa un monto contado válido y mayor o igual a cero.", "danger")
+        return redirect(url_for("ver_caja"))
+    if monto_real < 0:
+        flash("El monto contado no puede ser negativo.", "danger")
+        return redirect(url_for("ver_caja"))
     diferencia = round(monto_real - monto_esperado, 2)
 
     caja.fecha_cierre = hora_actual_peru()
@@ -5103,9 +5385,20 @@ def ver_comprobante(venta_id):
         venta.Venta.vendedor_id, f"Vendedor #{venta.Venta.vendedor_id}")
     partes_vendedor = nombre_vendedor.split(" ", 1)
     
-    total = venta.Venta.cantidad * venta.precio
+    precio_unitario = float(venta.Venta.precio_unitario or venta.precio or 0)
+    total = round(venta.Venta.cantidad * precio_unitario, 2)
+    igv_tipo = venta.Venta.igv_tipo or "gravado"
+    if venta.Venta.igv_base is not None and venta.Venta.igv_monto is not None:
+        base_linea = float(venta.Venta.igv_base)
+        igv_incluido = float(venta.Venta.igv_monto)
+        ipm_incluido = float(venta.Venta.ipm_monto or 0)
+    else:
+        base, igv, ipm = _desglosar_igv(total, igv_tipo)
+        base_linea, igv_incluido, ipm_incluido = map(float, (base, igv, ipm))
     
     return render_template("comprobante.html", venta=venta, cliente=cliente, total=total,
+                           base_linea=base_linea, igv_incluido=igv_incluido,
+                           ipm_incluido=ipm_incluido,
                            vendedor_nombres=partes_vendedor[0],
                            vendedor_apellidos=partes_vendedor[1] if len(partes_vendedor) > 1 else "")
 
@@ -5130,7 +5423,16 @@ def comprobante_pdf(venta_id):
         return redirect(url_for("ventas"))
 
     v = venta.Venta
-    total = v.cantidad * venta.precio
+    precio_unitario = float(v.precio_unitario or venta.precio or 0)
+    total = round(v.cantidad * precio_unitario, 2)
+    igv_tipo = v.igv_tipo or "gravado"
+    if v.igv_base is not None and v.igv_monto is not None:
+        base_linea = float(v.igv_base)
+        igv_incluido = float(v.igv_monto)
+        ipm_incluido = float(v.ipm_monto or 0)
+    else:
+        base, igv, ipm = _desglosar_igv(total, igv_tipo)
+        base_linea, igv_incluido, ipm_incluido = map(float, (base, igv, ipm))
     nombre_vendedor = _nombres_vendedores_por_id([v.vendedor_id]).get(
         v.vendedor_id, f"Vendedor #{v.vendedor_id}")
 
@@ -5143,7 +5445,10 @@ def comprobante_pdf(venta_id):
         "cliente_nombre": v.cliente_nombre_completo or "",
         "productos": [{"nombre": venta.producto_nombre,
                        "cantidad": v.cantidad,
-                       "precio_unitario": venta.precio}],
+                       "precio_unitario": precio_unitario,
+                       "igv_tipo": igv_tipo,
+                       "igv_base": base_linea,
+                       "igv_monto": igv_incluido}],
     })
     codigo_autorizacion = sunat["autorizacion"]
 
@@ -5168,7 +5473,10 @@ def comprobante_pdf(venta_id):
         ["Vendedor", nombre_vendedor],
         ["Producto", venta.producto_nombre],
         ["Cantidad", str(v.cantidad)],
-        ["Precio Unit.", f"S/ {float(venta.precio or 0):.2f}"],
+        ["Precio Unit.", f"S/ {precio_unitario:.2f}"],
+        ["Valor exonerado" if igv_tipo == "exonerado" else "Base imponible", f"S/ {base_linea:.2f}"],
+        ["IGV incluido" if igv_tipo == "gravado" else "IGV (exonerado)", f"S/ {igv_incluido:.2f}"],
+        ["IPM incluido", f"S/ {ipm_incluido:.2f}"],
         ["TOTAL", f"S/ {total:.2f}"],
     ]
     t = Table(datos, colWidths=[80*mm, 100*mm])
@@ -5465,6 +5773,8 @@ def venta_rapida():
             producto = Producto.query.get(item["id"])
             precio_unitario = float(producto.precio or 0)
             total_item = precio_unitario * item["cantidad"]
+            igv_tipo = producto.igv_tipo or "gravado"
+            igv_base, igv_monto, ipm_monto = _desglosar_igv(total_item, igv_tipo)
             venta = Venta(
                 producto_id=producto.id,
                 cantidad=item["cantidad"],
@@ -5476,6 +5786,11 @@ def venta_rapida():
                 monto_recibido=monto_recibido,
                 vuelto=(round(monto_recibido - total_item, 2)
                         if monto_recibido is not None else None),
+                precio_unitario=precio_unitario,
+                igv_tipo=igv_tipo,
+                igv_base=igv_base,
+                igv_monto=igv_monto,
+                ipm_monto=ipm_monto,
                 cliente_nombres=data.get("cliente_nombre", ""),
                 cliente_apellidos=data.get("cliente_apellido", ""),
                 cliente_documento=data.get("cliente_dni", ""),
@@ -5496,6 +5811,11 @@ def venta_rapida():
                 "cantidad": cantidad,
                 "precio": precio,
                 "total": total_item,
+                "precio_unitario": precio,
+                "igv_tipo": venta.igv_tipo,
+                "igv_base": float(venta.igv_base or 0),
+                "igv_monto": float(venta.igv_monto or 0),
+                "ipm_monto": float(venta.ipm_monto or 0),
                 "tipo_comprobante": "boleta",
                 "numero_comprobante": numero_pos,
                 "metodo_pago": metodo_pago,
@@ -6197,6 +6517,50 @@ def api_mi_carrito():
         app.logger.exception("No se pudo guardar el carrito persistente")
         return jsonify({"success": False, "error": "No se pudo guardar el carrito"}), 500
 
+
+@app.route("/api/carrito/resumen-igv", methods=["POST"])
+def api_resumen_igv_carrito():
+    """Previsualiza impuestos con precios y clasificación del catálogo servidor."""
+    data = request.get_json(silent=True) or {}
+    items = data.get("items")
+    if not isinstance(items, list) or len(items) > 100:
+        return jsonify({"error": "Lista de productos inválida"}), 400
+    try:
+        descuento = float(data.get("descuento") or 0)
+        if not math.isfinite(descuento) or descuento < 0:
+            raise ValueError
+        cantidades = {}
+        for item in items:
+            producto_id = int(item.get("id"))
+            cantidad = int(item.get("cantidad", 1))
+            if producto_id <= 0 or cantidad <= 0 or cantidad > 999:
+                raise ValueError
+            cantidades[producto_id] = cantidades.get(producto_id, 0) + cantidad
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return jsonify({"error": "Productos, cantidades o descuento inválidos"}), 400
+
+    productos_db = {p.id: p for p in Producto.query.filter(
+        Producto.id.in_(cantidades.keys())).all()} if cantidades else {}
+    if set(productos_db) != set(cantidades):
+        return jsonify({"error": "Producto no encontrado"}), 404
+    lineas = [{
+        "precio_unitario": float(p.precio_oferta or p.precio or 0),
+        "cantidad": cantidades[producto_id],
+        "total": float(p.precio_oferta or p.precio or 0) * cantidades[producto_id],
+        "igv_tipo": p.igv_tipo or "gravado",
+    } for producto_id, p in productos_db.items()]
+    subtotal = sum(item["total"] for item in lineas)
+    descuento = min(descuento, subtotal)
+    base_gravada, base_exonerada, igv_total, ipm_total = _resumen_igv_items(
+        lineas, descuento)
+    return jsonify({
+        "subtotal": round(subtotal, 2),
+        "base_gravada": base_gravada,
+        "base_exonerada": base_exonerada,
+        "igv": igv_total,
+        "ipm": ipm_total,
+    })
+
 @app.route("/checkout")
 @login_required_cliente
 def checkout():
@@ -6222,6 +6586,112 @@ def pago():
 def mis_pedidos():
     pedidos = Pedido.query.filter_by(cliente_id=session["cliente_id"]).order_by(Pedido.fecha_pedido.desc()).all()
     return render_template("mis_pedidos.html", pedidos=pedidos)
+
+
+@app.route("/mis-pedidos/comprobante-pago/<int:pedido_id>", methods=["POST"])
+@login_required_cliente
+@csrf_protect
+def subir_comprobante_pago_pedido(pedido_id):
+    pedido = Pedido.query.filter_by(id=pedido_id).with_for_update().first_or_404()
+    if pedido.cliente_id != session.get("cliente_id"):
+        abort(403)
+    ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    mensaje_error = None
+    metodo = (pedido.metodo_pago or "").strip().lower()
+    if metodo not in {"yape", "plin", "transferencia"}:
+        mensaje_error = "La carga de captura solo está disponible para Yape, Plin o transferencia."
+    elif pedido.pago_confirmado:
+        mensaje_error = "El pago de este pedido ya fue verificado."
+    elif pedido.estado not in ("pendiente", "confirmado", "preparando"):
+        mensaje_error = "Este pedido ya no admite comprobantes de pago."
+
+    archivo = request.files.get("comprobante_pago")
+    if not mensaje_error and (not archivo or not archivo.filename):
+        mensaje_error = "Selecciona la captura de la transacción."
+    extension = (os.path.splitext(archivo.filename)[1].lower() if archivo and archivo.filename else "")
+    extensiones = {".png", ".jpg", ".jpeg", ".webp"}
+    if not mensaje_error and extension not in extensiones:
+        mensaje_error = "Usa una imagen PNG, JPG o WEBP."
+
+    datos = b""
+    if not mensaje_error:
+        datos = archivo.read(5 * 1024 * 1024 + 1)
+        if len(datos) > 5 * 1024 * 1024:
+            mensaje_error = "La captura no debe superar 5 MB."
+        else:
+            firma_valida = (
+                (extension == ".png" and datos.startswith(b"\x89PNG\r\n\x1a\n"))
+                or (extension in {".jpg", ".jpeg"} and datos.startswith(b"\xff\xd8\xff"))
+                or (extension == ".webp" and len(datos) >= 12
+                    and datos[:4] == b"RIFF" and datos[8:12] == b"WEBP")
+            )
+            if not firma_valida:
+                mensaje_error = "El archivo no parece ser una imagen PNG, JPG o WEBP válida."
+
+    if mensaje_error:
+        if ajax:
+            return jsonify({"success": False, "error": mensaje_error}), 400
+        flash(mensaje_error, "warning")
+        return redirect(url_for("mis_pedidos"))
+
+    carpeta = os.path.join(app.instance_path, "comprobantes_pago")
+    os.makedirs(carpeta, mode=0o700, exist_ok=True)
+    nombre_archivo = f"pedido_{pedido.id}_{secrets.token_hex(16)}{extension}"
+    ruta_archivo = os.path.join(carpeta, nombre_archivo)
+    anterior = _comprobante_pago_nombre(pedido)
+    try:
+        with open(ruta_archivo, "wb") as destino:
+            destino.write(datos)
+        try:
+            os.chmod(ruta_archivo, 0o600)
+        except OSError:
+            pass
+        _guardar_comprobante_pago(pedido, nombre_archivo)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        try:
+            os.remove(ruta_archivo)
+        except OSError:
+            pass
+        app.logger.exception("No se pudo guardar captura de pago pedido_id=%s", pedido.id)
+        if ajax:
+            return jsonify({"success": False, "error": "No se pudo guardar la captura. Inténtalo de nuevo."}), 500
+        flash("No se pudo guardar la captura. Inténtalo de nuevo.", "danger")
+        return redirect(url_for("mis_pedidos"))
+
+    if anterior and anterior != nombre_archivo:
+        try:
+            os.remove(os.path.join(carpeta, anterior))
+        except OSError:
+            pass
+    if ajax:
+        return jsonify({"success": True, "message": "Captura recibida. El pago queda pendiente de verificación."})
+    flash("Captura recibida. El pago queda pendiente de verificación por la tienda.", "success")
+    return redirect(url_for("mis_pedidos"))
+
+
+@app.route("/pedidos/comprobante-pago/<int:pedido_id>")
+def ver_comprobante_pago_pedido(pedido_id):
+    pedido = Pedido.query.get_or_404(pedido_id)
+    es_admin = bool(session.get("usuario_id") and session.get("rol") == "administrador")
+    es_dueno = bool(session.get("cliente_id") and
+                    int(session.get("cliente_id")) == int(pedido.cliente_id or 0))
+    if not (es_admin or es_dueno):
+        abort(403)
+    nombre_archivo = _comprobante_pago_nombre(pedido)
+    if not nombre_archivo or os.path.basename(nombre_archivo) != nombre_archivo:
+        abort(404)
+    ruta_archivo = os.path.join(app.instance_path, "comprobantes_pago", nombre_archivo)
+    if not os.path.isfile(ruta_archivo):
+        abort(404)
+    mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".webp": "image/webp"}.get(os.path.splitext(nombre_archivo)[1].lower())
+    respuesta = send_file(ruta_archivo, mimetype=mime, as_attachment=False,
+                          download_name=f"comprobante-pedido-{pedido.id}{os.path.splitext(nombre_archivo)[1]}")
+    respuesta.headers["Cache-Control"] = "private, no-store"
+    respuesta.headers["X-Content-Type-Options"] = "nosniff"
+    return respuesta
 
 @app.route("/pedidos/confirmar-recepcion/<int:pedido_id>", methods=["POST"])
 @login_required_cliente
@@ -6287,6 +6757,53 @@ def confirmar_recepcion_pedido(pedido_id):
         return jsonify({"success": True, "message": "¡Gracias por confirmar la recepción!"})
 
     flash("✅ ¡Gracias por confirmar la recepción de tu pedido!", "success")
+    return redirect(url_for("mis_pedidos"))
+
+
+@app.route("/mis-pedidos/cancelar/<int:pedido_id>", methods=["POST"])
+@login_required_cliente
+@csrf_protect
+def cancelar_pedido_cliente(pedido_id):
+    """El cliente puede cancelar antes del despacho, mientras el pedido avanza en tienda."""
+    pedido = Pedido.query.filter_by(id=pedido_id).with_for_update().first_or_404()
+    if pedido.cliente_id != session.get("cliente_id"):
+        abort(403)
+
+    motivo = (request.form.get("motivo_cancelacion") or "").strip()
+    if len(motivo) < 5 or len(motivo) > 500:
+        flash("Escribe un motivo de cancelación de entre 5 y 500 caracteres.", "warning")
+        return redirect(url_for("mis_pedidos"))
+    estados_cancelables = ("pendiente", "confirmado", "preparando", "procesando")
+    if pedido.estado not in estados_cancelables:
+        flash("Este pedido ya fue despachado o finalizado y no se puede cancelar desde tu cuenta.", "warning")
+        return redirect(url_for("mis_pedidos"))
+
+    _guardar_motivo_cancelacion(pedido, "cliente", motivo)
+    pedido.estado = "cancelando"
+    db.session.commit()
+    if pedido.clave_idempotencia:
+        devolucion = cancelar_stock_confirmado(
+            pedido.clave_idempotencia, pedido.id, documento_tipo="pedido")
+        if not devolucion.get("ok"):
+            app.logger.error("Cancelación pendiente pedido_id=%s codigo=%s",
+                             pedido.id, devolucion.get("codigo", "error"))
+            flash("La cancelación quedó pendiente porque no se pudo devolver el inventario. La tienda la revisará.", "warning")
+            return redirect(url_for("mis_pedidos"))
+
+    pedido.estado = "cancelado"
+    db.session.commit()
+    try:
+        cliente = Cliente.query.get(pedido.cliente_id)
+        correo_enviado = enviar_cancelacion_email(cliente, pedido, motivo, "cliente")
+    except Exception:
+        app.logger.exception("Error preparando correo de cancelación pedido_id=%s", pedido.id)
+        correo_enviado = False
+    if correo_enviado is True:
+        flash(f"El pedido #{pedido.id} fue cancelado. Te enviamos un correo para coordinar la devolución si corresponde.", "success")
+    elif correo_enviado is False:
+        flash(f"El pedido #{pedido.id} fue cancelado, pero no se pudo enviar el correo. Contacta con la tienda si necesitas coordinar una devolución.", "warning")
+    else:
+        flash(f"El pedido #{pedido.id} fue cancelado. El motivo quedó registrado en Mis Pedidos.", "success")
     return redirect(url_for("mis_pedidos"))
 
 
@@ -6484,6 +7001,7 @@ def crear_pedido():
             # Nunca persistir el precio o nombre enviados por el navegador.
             item["precio"] = float(producto.precio_oferta or producto.precio or 0)
             item["nombre"] = producto.nombre
+            item["igv_tipo"] = producto.igv_tipo or "gravado"
         
         # ============================================
         # 2. EXTRAER DATOS DEL CHECKOUT
@@ -6571,6 +7089,17 @@ def crear_pedido():
             return jsonify({"success": False, "error": "Importes fuera de rango"}), 400
         total_calculado = round(subtotal_pedido - descuento_pedido + costo_envio_pedido
                                 + cargo_contraentrega_pedido, 2)
+        # Conserva el desglose por producto para la venta y el comprobante.
+        productos_igv = [{"precio_unitario": item["precio"],
+                          "cantidad": item["cantidad"],
+                          "total": item["precio"] * item["cantidad"],
+                          "igv_tipo": item["igv_tipo"]}
+                         for item in data["items"]]
+        _resumen_igv_items(productos_igv, descuento_pedido)
+        for item, linea_igv in zip(data["items"], productos_igv):
+            item["igv_base"] = linea_igv["igv_base"]
+            item["igv_monto"] = linea_igv["igv_monto"]
+            item["ipm_monto"] = linea_igv["ipm_monto"]
         metodo_pago_pedido = (data.get("metodo_pago") or "").strip() or None
         distrito_pedido = (data.get("distrito") or "").strip() or None
         # En los pedidos DELIVERY el pago se recibe al momento de la entrega:
@@ -6658,6 +7187,10 @@ def crear_pedido():
                 cantidad=int(item["cantidad"]),
                 precio_unitario=float(item["precio"]),
                 subtotal=subtotal,
+                igv_tipo=item["igv_tipo"],
+                igv_base=item["igv_base"],
+                igv_monto=item["igv_monto"],
+                ipm_monto=item["ipm_monto"],
             )
             db.session.add(detalle)
             
@@ -6673,6 +7206,11 @@ def crear_pedido():
                 tipo_comprobante=tipo_comp,
                 numero_comprobante=numero_comprobante,
                 pedido_id=pedido.id,
+                precio_unitario=float(item["precio"]),
+                igv_tipo=item["igv_tipo"],
+                igv_base=item["igv_base"],
+                igv_monto=item["igv_monto"],
+                ipm_monto=item["ipm_monto"],
                 cliente_nombres=cliente_nombres,
                 cliente_apellidos=cliente_apellidos,
                 cliente_documento=cliente_documento,
@@ -6694,7 +7232,11 @@ def crear_pedido():
                 'nombre': producto.nombre,
                 'cantidad': int(item["cantidad"]),
                 'precio_unitario': float(item["precio"]),
-                'total': subtotal
+                'total': subtotal,
+                'igv_tipo': item["igv_tipo"],
+                'igv_base': item["igv_base"],
+                'igv_monto': item["igv_monto"],
+                'ipm_monto': item["ipm_monto"],
             })
         
         # ============================================
@@ -6943,6 +7485,7 @@ def ver_pedidos():
         Pedido.tipo_entrega,
         Pedido.direccion_entrega,
         Pedido.reporto_no_recibido,
+        Pedido.nota,
     )
 
     clientes_busqueda = None
@@ -7021,6 +7564,7 @@ def ver_pedidos():
             "reporto_no_recibido": p.reporto_no_recibido,
             "metodo_pago": p.metodo_pago,
             "pago_confirmado": bool(p.pago_confirmado),
+            "nota": p.nota,
         })
     
     # ============================================
@@ -7237,17 +7781,27 @@ def delivery_ubicar(pedido_id):
 @login_required
 def detalle_pedido(pedido_id):
     pedido = Pedido.query.get_or_404(pedido_id)
-    detalles = db.session.query(DetallePedido, ProductoEnVentas.nombre.label("producto_nombre")).join(ProductoEnVentas).filter(DetallePedido.pedido_id == pedido_id).all()
+    detalles = db.session.query(
+        DetallePedido,
+        ProductoEnVentas.nombre.label("producto_nombre"),
+        ProductoEnVentas.igv_tipo.label("producto_igv_tipo"),
+    ).join(ProductoEnVentas).filter(DetallePedido.pedido_id == pedido_id).all()
     cliente = Cliente.query.get(pedido.cliente_id)
     # Buscar venta asociada (opcional, solo si existe)
     venta = Venta.query.filter_by(pedido_id=pedido_id).first()
     es_admin = session.get("rol") == "administrador"
+    base_gravada, base_exonerada, igv_total, ipm_total = _resumen_igv_detalles_pedido(
+        detalles, pedido.descuento or 0)
     
     return render_template("pedido_detalle.html", 
                           pedido=pedido, 
                           detalles=detalles, 
                           cliente=cliente,  # ← PASAR EL CLIENTE
                           venta=venta,      # ← PASAR LA VENTA (opcional)
+                          base_gravada=base_gravada,
+                          base_exonerada=base_exonerada,
+                          igv_total=igv_total,
+                          ipm_total=ipm_total,
                           es_admin=es_admin)
 def _registrar_cobro_pedido_en_caja(pedido):
     """Vincula las ventas de un pedido cobrado en efectivo al turno de caja abierto.
@@ -7301,6 +7855,9 @@ def confirmar_pago_pedido(pedido_id):
         return redirect(url_for("ver_pedidos"))
 
     metodo = (pedido.metodo_pago or "efectivo").strip().lower()
+    if metodo in {"yape", "plin", "transferencia"} and not _comprobante_pago_nombre(pedido):
+        flash("El cliente aún no adjunta la captura de la transacción. Pídesela antes de verificar el pago.", "warning")
+        return redirect(url_for("ver_pedidos"))
     es_efectivo = metodo in ("efectivo", "contraentrega") or float(
         pedido.cargo_contraentrega or 0) > 0
     if es_efectivo:
@@ -7325,6 +7882,7 @@ def confirmar_pago_pedido(pedido_id):
 
 @app.route("/pedidos/cambiar-estado/<int:pedido_id>", methods=["POST"])
 @login_required
+@csrf_protect
 def cambiar_estado_pedido(pedido_id):
     # Verificar si es una petición AJAX
     is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
@@ -7336,6 +7894,7 @@ def cambiar_estado_pedido(pedido_id):
         return redirect(url_for("ver_pedidos"))
     
     pedido = Pedido.query.get_or_404(pedido_id)
+    estado_anterior = pedido.estado
     nuevo_estado = request.form.get("estado")
     
     # Estados válidos
@@ -7363,6 +7922,16 @@ def cambiar_estado_pedido(pedido_id):
     }
     
     if nuevo_estado in estados_validos:
+        motivo_cancelacion = (request.form.get("motivo_cancelacion") or "").strip()
+        if nuevo_estado == "cancelado" and pedido.estado != "cancelado":
+            if len(motivo_cancelacion) < 5 or len(motivo_cancelacion) > 500:
+                mensaje_error = "Escribe un motivo de cancelación de entre 5 y 500 caracteres."
+                if is_ajax:
+                    return jsonify({"success": False, "error": mensaje_error}), 400
+                flash(mensaje_error, "warning")
+                return redirect(url_for("ver_pedidos"))
+            _guardar_motivo_cancelacion(pedido, "administrador", motivo_cancelacion)
+
         if nuevo_estado in ("entregado", "recogido") and not pedido.pago_confirmado:
             mensaje_error = ("Confirma el pago después de verificarlo. "
                              "Para efectivo, abre la caja y registra el cobro primero.")
@@ -7425,7 +7994,21 @@ def cambiar_estado_pedido(pedido_id):
             pedido.estado = nuevo_estado
             db.session.commit()
 
+        correo_cancelacion_enviado = None
+        if nuevo_estado == "cancelado" and estado_anterior != "cancelado":
+            try:
+                cliente = Cliente.query.get(pedido.cliente_id)
+                correo_cancelacion_enviado = enviar_cancelacion_email(
+                    cliente, pedido, motivo_cancelacion, "administrador")
+            except Exception:
+                app.logger.exception("Error preparando correo de cancelación pedido_id=%s", pedido.id)
+                correo_cancelacion_enviado = False
+
         mensaje = mensajes.get(nuevo_estado, f"✅ Pedido #{pedido_id} actualizado a: {nuevo_estado}")
+        if correo_cancelacion_enviado is True:
+            mensaje += ". Se envió el correo al cliente"
+        elif correo_cancelacion_enviado is False:
+            mensaje += ". No se pudo enviar el correo al cliente"
         
         # Al entregar un delivery: correo al cliente con solicitud de confirmación de recepción
         # (se envía antes de responder, tanto en AJAX como en navegación normal)
@@ -7443,7 +8026,8 @@ def cambiar_estado_pedido(pedido_id):
                 "success": True,
                 "message": mensaje,
                 "estado": nuevo_estado,
-                "pedido_id": pedido_id
+                "pedido_id": pedido_id,
+                "correo_cancelacion_enviado": correo_cancelacion_enviado
             })
         
         # Si es normal, mostrar flash
@@ -8289,7 +8873,11 @@ def cliente_detalle_pedido(pedido_id):
         return redirect(url_for("mis_pedidos"))
     
 
-    detalles = db.session.query(DetallePedido, ProductoEnVentas.nombre.label("producto_nombre")).join(ProductoEnVentas).filter(DetallePedido.pedido_id == pedido_id).all()
+    detalles = db.session.query(
+        DetallePedido,
+        ProductoEnVentas.nombre.label("producto_nombre"),
+        ProductoEnVentas.igv_tipo.label("producto_igv_tipo"),
+    ).join(ProductoEnVentas).filter(DetallePedido.pedido_id == pedido_id).all()
     
 
     cliente = Cliente.query.get(pedido.cliente_id)
@@ -8309,6 +8897,9 @@ def cliente_detalle_pedido(pedido_id):
         venta = Venta.query.filter_by(cliente_email=cliente.correo).order_by(Venta.fecha_venta.desc()).first()
     
 
+    base_gravada, base_exonerada, igv_total, ipm_total = _resumen_igv_detalles_pedido(
+        detalles, pedido.descuento or 0)
+
     app.logger.info("Detalle de pedido consultado: pedido_id=%s cliente_id=%s venta_id=%s",
                     pedido_id, cliente.id if cliente else None,
                     venta.id if venta else None)
@@ -8317,7 +8908,11 @@ def cliente_detalle_pedido(pedido_id):
                           pedido=pedido, 
                           detalles=detalles, 
                           cliente=cliente, 
-                          venta=venta)
+                          venta=venta,
+                          base_gravada=base_gravada,
+                          base_exonerada=base_exonerada,
+                          igv_total=igv_total,
+                          ipm_total=ipm_total)
 
 
 
@@ -8440,40 +9035,51 @@ def microservicios_dashboard():
         flash("❌ Solo administradores pueden ver este panel", "danger")
         return redirect(url_for("dashboard"))
 
-    # Motores de microservicios (dueños de datos) - no librospe_db
+    # Los pedidos reales viven en pedidos, no en comercial_pedidos (tabla demo).
     try:
-        engine_ventas = db.get_engine(bind="ventas")
+        total_pedidos = Pedido.query.count()
+        pedidos_pendientes = Pedido.query.filter_by(estado="pendiente").count()
+        pedidos_en_proceso = Pedido.query.filter(Pedido.estado.in_(
+            ("confirmado", "preparando", "enviado", "listo_tienda", "cancelando"))).count()
+        pedidos_completados = Pedido.query.filter(Pedido.estado.in_(
+            ("entregado", "recogido"))).count()
+        pedidos_cancelados = Pedido.query.filter_by(estado="cancelado").count()
+        estado_ventas = "activo"
     except Exception:
-        engine_ventas = db.engines.get("ventas") if hasattr(db, "engines") else None
+        db.session.rollback()
+        app.logger.exception("No se pudieron consultar los pedidos del microservicio de ventas")
+        total_pedidos = pedidos_pendientes = pedidos_en_proceso = None
+        pedidos_completados = pedidos_cancelados = None
+        estado_ventas = "error"
+
+    # El mínimo de stock es configurable por producto; solo cuenta catálogo activo.
     try:
-        engine_inventario = db.get_engine(bind="inventario")
+        productos_activos = Producto.query.filter_by(estado=1).all()
+        total_productos = len(productos_activos)
+        productos_bajo_stock = sum(
+            1 for p in productos_activos
+            if 0 < int(p.cantidad or 0) <= int(p.stock_minimo if p.stock_minimo is not None else 5)
+        )
+        productos_agotados = sum(1 for p in productos_activos if int(p.cantidad or 0) <= 0)
+        estado_inventario = "activo"
     except Exception:
-        engine_inventario = db.engines.get("inventario") if hasattr(db, "engines") else None
-
-    def _count(sql, engine):
-        try:
-            return db.session.execute(text(sql), bind_arguments={"bind": engine}).scalar() or 0
-        except Exception:
-            # Fallback temporal mientras se eliminan espejos: intenta librospe_db
-            try:
-                return db.session.execute(text(sql)).scalar() or 0
-            except Exception:
-                return 0
-
-    total_pedidos = _count("SELECT COUNT(*) FROM comercial_pedidos", engine_ventas)
-    pedidos_pendientes = _count("SELECT COUNT(*) FROM comercial_pedidos WHERE estado = 'pendiente'", engine_ventas)
-    pedidos_confirmados = _count("SELECT COUNT(*) FROM comercial_pedidos WHERE estado = 'confirmado'", engine_ventas)
-    total_productos = _count("SELECT COUNT(*) FROM inventario_productos", engine_inventario)
-    productos_bajo_stock = _count("SELECT COUNT(*) FROM inventario_productos WHERE cantidad < 10", engine_inventario)
-    productos_agotados = _count("SELECT COUNT(*) FROM inventario_productos WHERE cantidad = 0", engine_inventario)
+        db.session.rollback()
+        app.logger.exception("No se pudo consultar el inventario del microservicio")
+        total_productos = productos_bajo_stock = productos_agotados = None
+        estado_inventario = "error"
     
     return render_template("microservicios_dashboard.html",
                           total_pedidos=total_pedidos,
                           pedidos_pendientes=pedidos_pendientes,
-                          pedidos_confirmados=pedidos_confirmados,
+                          pedidos_en_proceso=pedidos_en_proceso,
+                          pedidos_completados=pedidos_completados,
+                          pedidos_cancelados=pedidos_cancelados,
                           total_productos=total_productos,
                           productos_bajo_stock=productos_bajo_stock,
-                          productos_agotados=productos_agotados)
+                          productos_agotados=productos_agotados,
+                          estado_ventas=estado_ventas,
+                          estado_inventario=estado_inventario,
+                          consultado_en=hora_actual_peru())
 
 # =============================================
 # ADMIN CLIENTES - Gestión real desde microservicio (dueño librospe_ms_clientes)
@@ -8618,6 +9224,7 @@ class ProductoEnVentas(db.Model):
     stock_maximo = db.Column(db.Integer, default=100)
     proveedor_id = db.Column(db.Integer, nullable=True)
     precio = db.Column(db.Numeric(10,2), default=0.0)
+    igv_tipo = db.Column(db.String(12), nullable=False, default="gravado")
     costo = db.Column(db.Numeric(10,2), nullable=True)  # precio de compra (solo admin)
     imagen = db.Column(db.String(255))
     destacado = db.Column(db.Integer, default=0)
@@ -8661,6 +9268,11 @@ class VentaEnInventario(db.Model):
     vendedor_id = db.Column(db.Integer, nullable=False)
     fecha_venta = db.Column(db.DateTime, nullable=False, default=hora_actual_peru)
     cantidad = db.Column(db.Integer, default=1)
+    precio_unitario = db.Column(db.Numeric(10,2), nullable=True)
+    igv_tipo = db.Column(db.String(12), nullable=True)
+    igv_base = db.Column(db.Numeric(10,2), nullable=True)
+    igv_monto = db.Column(db.Numeric(10,2), nullable=True)
+    ipm_monto = db.Column(db.Numeric(10,2), nullable=True)
     tipo_comprobante = db.Column(db.String(20), default="boleta")
     numero_comprobante = db.Column(db.String(50), nullable=True)
     cliente_id = db.Column(db.Integer, nullable=True)

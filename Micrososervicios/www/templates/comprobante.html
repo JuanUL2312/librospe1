@@ -54,6 +54,20 @@
                                     </tr>
                                 </tbody>
                                 <tfoot>
+                                    <tr class="small">
+                                        <td colspan="3" class="text-end">{% if venta.Venta.igv_tipo == 'exonerado' %}Valor exonerado:{% else %}Base imponible:{% endif %}</td>
+                                        <td class="text-end">S/. {{ "%.2f"|format(base_linea) }}</td>
+                                    </tr>
+                                    <tr class="small">
+                                        <td colspan="3" class="text-end">{% if venta.Venta.igv_tipo != 'exonerado' %}IGV incluido:{% else %}IGV exonerado:{% endif %}</td>
+                                        <td class="text-end">S/. {{ "%.2f"|format(igv_incluido) }}</td>
+                                    </tr>
+                                    {% if venta.Venta.igv_tipo != 'exonerado' %}
+                                    <tr class="small">
+                                        <td colspan="3" class="text-end">IPM incluido:</td>
+                                        <td class="text-end">S/. {{ "%.2f"|format(ipm_incluido) }}</td>
+                                    </tr>
+                                    {% endif %}
                                     <tr class="fw-bold">
                                         <td colspan="3" class="text-end">TOTAL:</td>
                                         <td class="text-end text-success fs-6 fs-md-5">S/. {{ "%.2f"|format(total) }}</td>

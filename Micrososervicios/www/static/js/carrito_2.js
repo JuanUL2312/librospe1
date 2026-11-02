@@ -7,6 +7,7 @@
     let descuento = 0;
     let tipoEntregaSeleccionado = 'recojo';
     let direccionEntrega = '';
+    let solicitudResumenIgv = 0;
     let mapaCarrito = null;
     let marcadorCarrito = null;
     let circuloPrecision = null;  // margen de error del último geolocalizado
@@ -1071,6 +1072,46 @@
     // ===============================
     // ACTUALIZAR TOTALES
     // ===============================
+    async function actualizarResumenIgv(descuentoAplicado) {
+        const solicitud = ++solicitudResumenIgv;
+        const exoneradoRow = document.getElementById('baseExoneradaCarritoRow');
+        const ipmRow = document.getElementById('ipmCarritoRow');
+        if (!carrito.length) {
+            ['baseGravadaCarrito', 'baseExoneradaCarrito', 'igvCarrito', 'ipmCarrito']
+                .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = 'S/. 0.00'; });
+            if (exoneradoRow) exoneradoRow.style.display = 'none';
+            if (ipmRow) ipmRow.style.display = 'none';
+            return;
+        }
+        try {
+            const response = await fetch('/api/carrito/resumen-igv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    items: carrito.map(item => ({ id: item.id, cantidad: item.cantidad })),
+                    descuento: descuentoAplicado
+                })
+            });
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const resumen = await response.json();
+            if (solicitud !== solicitudResumenIgv) return;
+            const valores = {
+                baseGravadaCarrito: resumen.base_gravada,
+                baseExoneradaCarrito: resumen.base_exonerada,
+                igvCarrito: resumen.igv,
+                ipmCarrito: resumen.ipm
+            };
+            Object.entries(valores).forEach(([id, monto]) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = 'S/. ' + Number(monto || 0).toFixed(2);
+            });
+            if (exoneradoRow) exoneradoRow.style.display = resumen.base_exonerada > 0 ? 'flex' : 'none';
+            if (ipmRow) ipmRow.style.display = resumen.ipm > 0 ? 'flex' : 'none';
+        } catch (error) {
+            console.warn('[carrito] no se pudo calcular el desglose IGV:', error);
+        }
+    }
+
     function actualizarTotales() {
         let subtotal = calcularSubtotal();
         let costoEnvio = 0;
@@ -1086,6 +1127,7 @@
 
         let descuentoAplicado = (cuponAplicado?.tipo === 'envio' && tipoEntregaSeleccionado === 'delivery') ? 0 : Math.min(descuento, subtotal);
         let total = subtotal - descuentoAplicado + costoEnvio;
+        actualizarResumenIgv(descuentoAplicado);
 
         document.getElementById('subtotalCarrito').innerHTML = 'S/. ' + subtotal.toFixed(2);
         document.getElementById('totalFinal').innerHTML = 'S/. ' + total.toFixed(2);

@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS librospe_ms_inventario.inventario_productos (
     cantidad INT(11) DEFAULT 0,
     proveedor_id INT(11) NULL,
     precio DECIMAL(10,2) DEFAULT 0.00,
+    igv_tipo VARCHAR(12) NOT NULL DEFAULT 'gravado',
     imagen VARCHAR(255) NULL,
     id_categoria INT(11) NULL,
     precio_oferta DECIMAL(10,2) NULL,
@@ -226,5 +227,5 @@ UNION ALL SELECT 'CLIENTES registrados', (SELECT COUNT(*) FROM librospe_ms_clien
 CREATE OR REPLACE VIEW librospe_ms_ventas.productos AS
 SELECT id, nombre, descripcion, cantidad, proveedor_id, precio, imagen,
        id_categoria, precio_oferta, destacado, codigo_barras, estado,
-       stock_minimo, stock_maximo, costo
+       stock_minimo, stock_maximo, costo, igv_tipo
 FROM librospe_ms_inventario.inventario_productos;

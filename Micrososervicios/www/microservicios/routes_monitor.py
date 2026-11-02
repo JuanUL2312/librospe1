@@ -18,7 +18,7 @@ from . import monitor_bp, get_db, get_service_engine
 db = get_db()
 
 TABLAS_SERVICIOS = {
-    "ventas": {"tabla": "comercial_pedidos", "bind": "ventas"},
+    "ventas": {"tabla": "pedidos", "bind": "ventas"},
     "inventario": {"tabla": "inventario_productos", "bind": "inventario"},
     "usuarios": {"tabla": "usuarios_sistema", "bind": "usuarios"},
     "clientes": {"tabla": "clientes", "bind": "clientes"},

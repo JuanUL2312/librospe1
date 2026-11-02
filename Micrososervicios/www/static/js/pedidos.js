@@ -56,6 +56,33 @@
         }
         
         // Enviar petición AJAX
+        if (nuevoEstado === 'cancelado') {
+            const { value: motivo } = await Swal.fire({
+                title: 'Cancelar pedido #' + pedidoId,
+                input: 'textarea',
+                inputLabel: 'Motivo de cancelación',
+                inputPlaceholder: 'Indica por qué se cancela (mínimo 5 caracteres)',
+                inputAttributes: { maxlength: 500, 'aria-label': 'Motivo de cancelación' },
+                showCancelButton: true,
+                confirmButtonText: 'Cancelar pedido',
+                cancelButtonText: 'Volver',
+                confirmButtonColor: '#dc3545',
+                inputValidator: (value) => {
+                    if ((value || '').trim().length < 5) return 'Escribe un motivo de al menos 5 caracteres';
+                }
+            });
+            if (!motivo) {
+                select.value = oldValue || 'pendiente';
+                select.disabled = false;
+                select.style.opacity = '';
+                return false;
+            }
+            extra += '&motivo_cancelacion=' + encodeURIComponent(motivo.trim());
+        }
+
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        extra += '&csrf_token=' + encodeURIComponent(csrfToken);
+
         try {
             const response = await fetch(`/pedidos/cambiar-estado/${pedidoId}`, {
                 method: 'POST',

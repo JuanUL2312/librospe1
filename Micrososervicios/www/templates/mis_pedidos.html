@@ -128,9 +128,52 @@
                                 <a href="/mis-pedidos/detalle/{{ pedido.id }}" class="btn btn-outline-primary btn-sm">
                                     <i class="fas fa-eye me-1"></i>Ver detalles
                                 </a>
+                                {% if (pedido.metodo_pago or '')|lower in ['yape', 'plin', 'transferencia'] and not pedido.pago_confirmado and estado_ui in ['pendiente', 'confirmado', 'preparando'] %}
+                                {% set evidencia_pago = pedido_comprobante_pago(pedido) %}
+                                <div class="alert alert-info mt-2 mb-0 p-2 text-start">
+                                    {% if evidencia_pago %}
+                                    <a class="d-block small mb-2" href="{{ url_for('ver_comprobante_pago_pedido', pedido_id=pedido.id) }}" target="_blank" rel="noopener">
+                                        <i class="fas fa-image me-1"></i>Captura enviada; pendiente de verificación
+                                    </a>
+                                    {% else %}
+                                    <small class="d-block mb-2">Adjunta la captura de tu transferencia para que la tienda pueda verificar el pago.</small>
+                                    {% endif %}
+                                    <form method="POST" enctype="multipart/form-data"
+                                          action="{{ url_for('subir_comprobante_pago_pedido', pedido_id=pedido.id) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        <input class="form-control form-control-sm mb-2" type="file" name="comprobante_pago"
+                                               accept="image/png,image/jpeg,image/webp" required>
+                                        <button type="submit" class="btn btn-outline-primary btn-sm w-100">
+                                            {% if evidencia_pago %}Reemplazar captura{% else %}Enviar captura{% endif %}
+                                        </button>
+                                    </form>
+                                </div>
+                                {% endif %}
+                                {% if estado_ui in ['pendiente', 'confirmado', 'preparando', 'procesando'] %}
+                                <details class="mt-2 text-start">
+                                    <summary class="btn btn-outline-danger btn-sm d-inline-block">
+                                        <i class="fas fa-times-circle me-1"></i>Cancelar pedido
+                                    </summary>
+                                    <form method="POST" action="{{ url_for('cancelar_pedido_cliente', pedido_id=pedido.id) }}"
+                                          class="mt-2" onsubmit="return confirm('¿Confirmas que deseas cancelar este pedido?');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        <label class="form-label small mb-1" for="motivo-cancelacion-{{ pedido.id }}">Motivo de cancelación</label>
+                                        <textarea class="form-control form-control-sm mb-2" id="motivo-cancelacion-{{ pedido.id }}"
+                                                  name="motivo_cancelacion" rows="2" minlength="5" maxlength="500"
+                                                  placeholder="Ej.: me equivoqué en la dirección" required></textarea>
+                                        <button type="submit" class="btn btn-danger btn-sm w-100">Confirmar cancelación</button>
+                                    </form>
+                                </details>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
+
+                    {% if estado_ui == 'cancelado' and pedido.nota and 'Cancelación por ' in pedido.nota %}
+                    <div class="alert alert-secondary mt-3 mb-0 py-2 small">
+                        <strong>Motivo de cancelación:</strong> {{ pedido_motivo_cancelacion(pedido) }}
+                    </div>
+                    {% endif %}
                     
                     <!-- Barra de progreso del pedido -->
                     {% if estado_ui not in ['cancelado', 'entregado', 'recogido'] %}

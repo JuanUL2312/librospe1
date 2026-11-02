@@ -10,6 +10,7 @@ var costoEnvio = 0;
 var ubigeoCliente = null;
 var datosDni = null; // nombre real desde RENIEC (APIPERU) al ingresar DNI
 var preferenciaComprobante = 'correo'; // correo | sms | whatsapp (dónde recibir el comprobante)
+var solicitudResumenIgvCheckout = 0;
 
 // ============================================
 // DÓNDE RECIBIR EL COMPROBANTE (correo / SMS / WhatsApp)
@@ -500,6 +501,52 @@ function actualizarTotales() {
     document.getElementById('descuento').textContent = '-S/. 0.00';
     document.getElementById('envio').textContent = 'S/. ' + costoEnvio.toFixed(2);
     document.getElementById('total').textContent = 'S/. ' + (subtotal + costoEnvio).toFixed(2);
+    actualizarResumenIgvCheckout();
+}
+
+async function actualizarResumenIgvCheckout() {
+    var solicitud = ++solicitudResumenIgvCheckout;
+    var exoneradoRow = document.getElementById('baseExoneradaCheckoutRow');
+    var ipmRow = document.getElementById('ipmCheckoutRow');
+    if (!carrito.length) {
+        ['baseGravadaCheckout', 'baseExoneradaCheckout', 'igvCheckout', 'ipmCheckout']
+            .forEach(function(id) {
+                var elemento = document.getElementById(id);
+                if (elemento) elemento.textContent = 'S/. 0.00';
+            });
+        if (exoneradoRow) exoneradoRow.style.display = 'none';
+        if (ipmRow) ipmRow.style.display = 'none';
+        return;
+    }
+    try {
+        var response = await fetch('/api/carrito/resumen-igv', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                items: carrito.map(function(item) {
+                    return { id: item.id, cantidad: item.cantidad };
+                }),
+                descuento: 0
+            })
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        var resumen = await response.json();
+        if (solicitud !== solicitudResumenIgvCheckout) return;
+        var valores = {
+            baseGravadaCheckout: resumen.base_gravada,
+            baseExoneradaCheckout: resumen.base_exonerada,
+            igvCheckout: resumen.igv,
+            ipmCheckout: resumen.ipm
+        };
+        Object.entries(valores).forEach(function(par) {
+            var elemento = document.getElementById(par[0]);
+            if (elemento) elemento.textContent = 'S/. ' + Number(par[1] || 0).toFixed(2);
+        });
+        if (exoneradoRow) exoneradoRow.style.display = resumen.base_exonerada > 0 ? 'flex' : 'none';
+        if (ipmRow) ipmRow.style.display = resumen.ipm > 0 ? 'flex' : 'none';
+    } catch (error) {
+        console.warn('[checkout] no se pudo calcular el desglose IGV:', error);
+    }
 }
 
 // ============================================

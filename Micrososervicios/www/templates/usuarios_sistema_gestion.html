@@ -189,7 +189,7 @@
                                 <div class="modal fade" id="modalCambiarClave{{ usuario.id }}" tabindex="-1">
                                     <div class="modal-dialog">
                                         <div class="modal-content">
-                                            <form action="{{ url_for('cambiar_clave_usuario', usuario_id=usuario.id) }}" method="POST">
+                                            <form action="{{ url_for('cambiar_clave_usuario', usuario_id=usuario.id) }}" method="POST" class="form-cambio-clave">
                                                 <div class="modal-header">
                                                     <h5 class="modal-title">Cambiar contraseña</h5>
                                                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -198,11 +198,18 @@
                                                     <p><strong>Usuario:</strong> {{ usuario.nombres }} {{ usuario.apellidos }}</p>
                                                     <div class="mb-3">
                                                         <label class="form-label">Nueva contraseña</label>
-                                                        <input type="password" name="nueva" class="form-control" minlength="8" required>
+                                                        <div class="input-group">
+                                                            <input type="password" name="nueva" id="nuevaClave{{ usuario.id }}" class="form-control" minlength="8" autocomplete="new-password" required>
+                                                            <button class="btn btn-outline-secondary" type="button" data-password-toggle="nuevaClave{{ usuario.id }}" aria-label="Mostrar nueva contraseña" title="Mostrar contraseña"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                                        </div>
                                                     </div>
                                                     <div class="mb-3">
                                                         <label class="form-label">Confirmar contraseña</label>
-                                                        <input type="password" name="confirmar" class="form-control" minlength="8" required>
+                                                        <div class="input-group">
+                                                            <input type="password" name="confirmar" id="confirmarClave{{ usuario.id }}" class="form-control" minlength="8" autocomplete="new-password" required>
+                                                            <button class="btn btn-outline-secondary" type="button" data-password-toggle="confirmarClave{{ usuario.id }}" aria-label="Mostrar confirmación de contraseña" title="Mostrar contraseña"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                                                        </div>
+                                                        <div class="form-text" data-coincidencia-clave aria-live="polite"></div>
                                                     </div>
                                                     <div class="form-text">
                                                         <i class="fas fa-info-circle me-1"></i>
@@ -229,5 +236,5 @@
 </div>
 
 <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
-<script src="{{ url_for('static', filename='js/usuarios_sistema_gestion_2.js') }}"></script>
+<script src="{{ url_for('static', filename='js/usuarios_sistema_gestion_2.js') }}?v=20261102-passwordmatch1"></script>
 {% endblock %}

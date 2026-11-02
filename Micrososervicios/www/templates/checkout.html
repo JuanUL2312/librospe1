@@ -245,6 +245,22 @@
                             <span id="descuento">-S/. 0.00</span>
                         </div>
                         <div class="total-line">
+                            <span>Base imponible gravada</span>
+                            <span id="baseGravadaCheckout">S/. 0.00</span>
+                        </div>
+                        <div class="total-line" id="baseExoneradaCheckoutRow" style="display:none">
+                            <span>Valor exonerado</span>
+                            <span id="baseExoneradaCheckout">S/. 0.00</span>
+                        </div>
+                        <div class="total-line">
+                            <span>IGV incluido</span>
+                            <span id="igvCheckout">S/. 0.00</span>
+                        </div>
+                        <div class="total-line" id="ipmCheckoutRow" style="display:none">
+                            <span>IPM incluido</span>
+                            <span id="ipmCheckout">S/. 0.00</span>
+                        </div>
+                        <div class="total-line">
                             <span>Envío</span>
                             <span id="envio">S/. 0.00</span>
                         </div>
@@ -265,7 +281,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script src="{{ url_for('static', filename='js/checkout_2.js') }}"></script>
+<script src="{{ url_for('static', filename='js/checkout_2.js') }}?v=20261102-igv1"></script>
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/checkout_2.css') }}">
 

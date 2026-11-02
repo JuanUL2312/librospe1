@@ -211,6 +211,26 @@
                                     <td class="text-end text-success">-S/. {{ "%.2f"|format(pedido.descuento) }}</td>
                                 </tr>
                                 {% endif %}
+                                <tr class="table-active">
+                                    <td colspan="3" class="text-end">Base imponible gravada:</td>
+                                    <td class="text-end">S/. {{ "%.2f"|format(base_gravada) }}</td>
+                                </tr>
+                                {% if base_exonerada > 0 %}
+                                <tr class="table-active">
+                                    <td colspan="3" class="text-end">Valor exonerado:</td>
+                                    <td class="text-end">S/. {{ "%.2f"|format(base_exonerada) }}</td>
+                                </tr>
+                                {% endif %}
+                                <tr class="table-active">
+                                    <td colspan="3" class="text-end">IGV incluido:</td>
+                                    <td class="text-end">S/. {{ "%.2f"|format(igv_total) }}</td>
+                                </tr>
+                                {% if ipm_total > 0 %}
+                                <tr class="table-active">
+                                    <td colspan="3" class="text-end">IPM incluido:</td>
+                                    <td class="text-end">S/. {{ "%.2f"|format(ipm_total) }}</td>
+                                </tr>
+                                {% endif %}
                                 {% if pedido.tipo_entrega == 'delivery' %}
                                 <tr class="table-active">
                                     <td colspan="3" class="text-end fw-bold">

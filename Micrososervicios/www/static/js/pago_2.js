@@ -10,6 +10,32 @@ let descuento=0;
 let costoEnvio=0;
 let cargoContraentrega=0;
 let total=0;
+let solicitudResumenIgvPago=0;
+
+async function actualizarResumenIgvPago(){
+    const solicitud=++solicitudResumenIgvPago;
+    const exoneradoRow=document.getElementById('baseExoneradaPagoRow');
+    const ipmRow=document.getElementById('ipmPagoRow');
+    if(!carrito.length){
+        ['baseGravadaPago','baseExoneradaPago','igvPago','ipmPago'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent='S/. 0.00'});
+        if(exoneradoRow)exoneradoRow.style.display='none';
+        if(ipmRow)ipmRow.style.display='none';
+        return;
+    }
+    try{
+        const response=await fetch('/api/carrito/resumen-igv',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({items:carrito.map(item=>({id:item.id,cantidad:item.cantidad})),descuento})
+        });
+        if(!response.ok)throw new Error('HTTP '+response.status);
+        const resumen=await response.json();
+        if(solicitud!==solicitudResumenIgvPago)return;
+        const valores={baseGravadaPago:resumen.base_gravada,baseExoneradaPago:resumen.base_exonerada,igvPago:resumen.igv,ipmPago:resumen.ipm};
+        Object.entries(valores).forEach(([id,monto])=>{const el=document.getElementById(id);if(el)el.textContent='S/. '+Number(monto||0).toFixed(2)});
+        if(exoneradoRow)exoneradoRow.style.display=resumen.base_exonerada>0?'flex':'none';
+        if(ipmRow)ipmRow.style.display=resumen.ipm>0?'flex':'none';
+    }catch(error){console.warn('[checkout] no se pudo calcular el desglose IGV:',error)}
+}
 
 // ===============================
 // INICIALIZACIÓN
@@ -226,6 +252,7 @@ function cargarDatos(){
 function actualizarTotal(){
     total=subtotal-descuento+costoEnvio+cargoContraentrega;
     document.getElementById('totalFinal').innerHTML=`S/. ${total.toFixed(2)}`;
+    actualizarResumenIgvPago();
 }
 
 function selectPaymentMethod(metodo){
@@ -235,6 +262,12 @@ function selectPaymentMethod(metodo){
     document.getElementById(`${metodo}Radio`).checked=true;
     document.querySelectorAll('.payment-form').forEach(f=>f.style.display='none');
     document.getElementById(`${metodo}Form`).style.display='block';
+    const comprobanteWrap=document.getElementById('comprobantePagoWrap');
+    if(comprobanteWrap){
+        const requiereComprobante=['yape','transferencia'].includes(metodo);
+        comprobanteWrap.style.display=requiereComprobante?'block':'none';
+        document.getElementById('comprobantePago').required=requiereComprobante;
+    }
     const cCosto=document.getElementById('contraentregaCosto');
     const tipo=localStorage.getItem('tipoEntrega')||'recojo';
     if(metodo==='contraentrega'&&tipo==='delivery'){cargoContraentrega=3;cCosto.style.display='flex'}
@@ -278,6 +311,13 @@ async function confirmarPedido(){    if(!metodoSeleccionado){
     const tipoEntrega=localStorage.getItem('tipoEntrega')||'recojo';
     if(metodoSeleccionado==='contraentrega'&&tipoEntrega!=='delivery'){
         Swal.fire({icon:'warning',title:'No disponible',text:'Contraentrega solo para delivery'});
+        return;
+    }
+
+    const requiereCaptura=['yape','transferencia'].includes(metodoSeleccionado);
+    const capturaPago=document.getElementById('comprobantePago')?.files?.[0];
+    if(requiereCaptura&&!capturaPago){
+        Swal.fire({icon:'warning',title:'Adjunta la captura',text:'Para Yape/Plin o transferencia, adjunta la captura de la transacción antes de confirmar el pedido.'});
         return;
     }
     
@@ -338,6 +378,21 @@ async function confirmarPedido(){    if(!metodoSeleccionado){
         });
         const data=await res.json();
         if(data.success){
+            let capturaSubida=true;
+            if(requiereCaptura&&data.pedido_id){
+                try{
+                    const formCaptura=new FormData();
+                    formCaptura.append('comprobante_pago',capturaPago);
+                    const csrf=document.querySelector('meta[name="csrf-token"]')?.content||'';
+                    const respuestaCaptura=await fetch(`/mis-pedidos/comprobante-pago/${data.pedido_id}`,{
+                        method:'POST',
+                        headers:{'X-CSRF-Token':csrf,'X-Requested-With':'XMLHttpRequest'},
+                        body:formCaptura
+                    });
+                    const resultadoCaptura=await respuestaCaptura.json();
+                    capturaSubida=respuestaCaptura.ok&&resultadoCaptura.success;
+                }catch(e){capturaSubida=false;}
+            }
             sessionStorage.removeItem('checkoutIdempotencia');
             if (window.guardarCarritoCliente) await window.guardarCarritoCliente([]);
             else localStorage.removeItem('carritoCliente');
@@ -357,6 +412,12 @@ async function confirmarPedido(){    if(!metodoSeleccionado){
                 aviso='<br><br>💬 Para recibir tu comprobante, abre WhatsApp y toca <b>Enviar</b>. El mensaje ya está listo.';
             }else{
                 aviso=data.numero_comprobante ? '<br><br>📄 Comprobante: <b>'+escapeHtml(data.numero_comprobante)+'</b>' : '';
+            }
+
+            if(requiereCaptura&&!capturaSubida){
+                aviso+='<br><br><span class="text-danger">No se pudo subir la captura. El pedido quedó registrado; vuelve a Mis Pedidos para adjuntarla antes de solicitar la verificación.</span>';
+            }else if(requiereCaptura){
+                aviso+='<br><br>La captura de pago se recibió y el pago queda pendiente de verificación.';
             }
 
             if(waUrl){
