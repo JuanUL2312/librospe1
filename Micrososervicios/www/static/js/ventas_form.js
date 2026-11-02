@@ -5,18 +5,12 @@ const API_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6IkkyMzExNTYx
 // FUNCIÓN PARA OBTENER HORA DE PERÚ (CORREGIDA)
 // ============================================
 function obtenerHoraPeru() {
-    const ahora = new Date();
-    
-    // Opción 1: USAR LA HORA LOCAL DEL NAVEGADOR (recomendado)
-    // Si el usuario está en Perú, esto ya es hora Perú
-    const dia = String(ahora.getDate()).padStart(2, '0');
-    const mes = String(ahora.getMonth() + 1).padStart(2, '0');
-    const anio = ahora.getFullYear();
-    const horas = String(ahora.getHours()).padStart(2, '0');
-    const minutos = String(ahora.getMinutes()).padStart(2, '0');
-    const segundos = String(ahora.getSeconds()).padStart(2, '0');
-    
-    return `${dia}/${mes}/${anio} ${horas}:${minutos}:${segundos}`;
+    const partes = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    }).formatToParts(new Date());
+    const valores = Object.fromEntries(partes.map(({type, value}) => [type, value]));
+    return `${valores.day}/${valores.month}/${valores.year} ${valores.hour}:${valores.minute}:${valores.second}`;
 }
 
 // ============================================

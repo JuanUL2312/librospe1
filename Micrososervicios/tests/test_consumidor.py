@@ -29,32 +29,21 @@ def limpio():
 def test_producto_actualizado():
     sents = C._sentencias_dirigidas("producto.actualizado",
                                     {"id": 5, "nombre": "Libro", "cantidad": 3})
-    assert sents is not None and len(sents) == 2
-    insert, update = sents
-    assert "INSERT IGNORE INTO `librospe_ms_ventas`.`productos`" in insert[0]
-    assert "FROM `librospe_ms_inventario`.`productos`" in insert[0]
-    assert insert[1] == {"pid": 5}
-    assert "UPDATE `librospe_ms_ventas`.`productos` d" in update[0]
-    assert "s.`id` = :pid" in update[0]
-    assert update[1] == {"pid": 5}
+    assert sents == []
 
 
 def test_alerta_stock_tambien_refresca_el_producto():
     sents = C._sentencias_dirigidas("producto.alerta_stock", {"id": 9, "cantidad": 1})
-    assert sents is not None and len(sents) == 2
-    assert all("productos" in sql for sql, _ in sents)
+    assert sents == []
 
 
 def test_venta_registrada_toca_la_venta_y_el_stock():
     sents = C._sentencias_dirigidas("venta.registrada",
                                     {"venta_id": 77, "producto_id": 5, "cantidad": 2})
-    assert sents is not None and len(sents) == 4
+    assert sents is not None and len(sents) == 2
     # la fila de la venta: ventas -> inventario
     assert "INSERT IGNORE INTO `librospe_ms_inventario`.`ventas`" in sents[0][0]
     assert sents[0][1] == {"vid": 77}
-    # el stock cambio en inventario: refrescar la copia del producto en ventas
-    assert "INSERT IGNORE INTO `librospe_ms_ventas`.`productos`" in sents[2][0]
-    assert sents[2][1] == {"pid": 5}
 
 
 def test_venta_registrada_sin_producto_no_falla():
@@ -62,13 +51,11 @@ def test_venta_registrada_sin_producto_no_falla():
     assert sents is not None and len(sents) == 2
 
 
-def test_cliente_registrado_por_correo():
-    sents = C._sentencias_dirigidas("cliente.registrado", {"email": "ana@x.com",
-                                                           "nombres": "Ana"})
-    assert sents is not None and len(sents) == 2
-    assert "INSERT IGNORE INTO `librospe_ms_ventas`.`clientes`" in sents[0][0]
-    assert "`correo` = :correo" in sents[0][0]
-    assert sents[0][1] == {"correo": "ana@x.com"}
+def test_cliente_registrado_no_crea_copia_en_ventas():
+    # No existe librospe_ms_ventas.clientes; ventas usa datos del evento/pedido.
+    assert C._sentencias_dirigidas(
+        "cliente.registrado", {"email": "ana@x.com", "nombres": "Ana"}
+    ) == []
 
 
 def test_pedido_creado_copia_sus_ventas_y_sus_productos():
@@ -76,18 +63,16 @@ def test_pedido_creado_copia_sus_ventas_y_sus_productos():
         "pedido_id": 12,
         "items": [{"id": 3, "cantidad": 1}, {"id": 5, "cantidad": 2}, {"id": "x"}],
     })
-    assert sents is not None and len(sents) == 4
+    assert sents is not None and len(sents) == 2
     assert "INSERT IGNORE INTO `librospe_ms_inventario`.`ventas`" in sents[0][0]
     assert "`pedido_id` = :pedido" in sents[0][0]
     assert sents[0][1] == {"pedido": 12}
-    assert "`id` IN (:p0, :p1)" in sents[2][0]
-    assert sents[2][1] == {"p0": 3, "p1": 5}
 
 
 def test_eventos_no_resolubles_dan_none():
     assert C._sentencias_dirigidas("servicio.ping", {"cualquier": 1}) is None
-    assert C._sentencias_dirigidas("producto.actualizado", {"nombre": "sin id"}) is None
-    assert C._sentencias_dirigidas("cliente.registrado", {"nombres": "sin correo"}) is None
+    assert C._sentencias_dirigidas("producto.actualizado", {"nombre": "sin id"}) == []
+    assert C._sentencias_dirigidas("cliente.registrado", {"nombres": "sin correo"}) == []
     assert C._sentencias_dirigidas("pedido.creado", {"items": []}) is None
     assert C._sentencias_dirigidas("pedido.creado", {"pedido_id": "x", "items": []}) is None
     assert C._sentencias_dirigidas("pedido.creado", None) is None
@@ -102,9 +87,8 @@ def test_columnas_igual_que_el_script_de_sincronizacion():
         assert m, f"no esta la copia {destino}.{tabla} en sincronizar_copias.sql"
         return tuple(c.strip().strip("`") for c in m.group(1).split(","))
 
-    assert C.COLUMNAS_PRODUCTOS == columnas_script("librospe_ms_ventas", "productos")
     assert C.COLUMNAS_VENTAS == columnas_script("librospe_ms_inventario", "ventas")
-    assert C.COLUMNAS_CLIENTES == columnas_script("librospe_ms_ventas", "clientes")
+    assert "librospe_ms_ventas`.`clientes" not in sql
 
 
 def test_dedupe_del_mismo_evento(monkeypatch):

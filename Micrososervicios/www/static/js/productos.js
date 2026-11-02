@@ -18,9 +18,11 @@
             if (busqueda && !rowNombre.includes(busqueda)) mostrar = false;
             
             if (mostrar) {
+                row.removeAttribute('data-filtro-oculto');
                 row.style.display = '';
                 contador++;
             } else {
+                row.setAttribute('data-filtro-oculto', '1');
                 row.style.display = 'none';
             }
         });

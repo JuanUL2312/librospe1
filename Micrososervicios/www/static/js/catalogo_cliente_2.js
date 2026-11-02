@@ -202,11 +202,11 @@ async function verificarStock(productoId, cantidadDeseada) {
     try {
         const response = await fetch(`/api/productos/${productoId}/stock`);
         const data = await response.json();
-        if (!response.ok) return { disponible: true, stock: 999 };
+        if (!response.ok) return { disponible: false, stock: 0 };
         return { disponible: cantidadDeseada <= data.stock, stock: data.stock, nombre: data.nombre };
     } catch (error) {
         console.error("Error verificando stock:", error);
-        return { disponible: true, stock: 999 };
+        return { disponible: false, stock: 0 };
     }
 }
 
@@ -214,6 +214,7 @@ async function verificarStock(productoId, cantidadDeseada) {
 // AGREGAR AL CARRITO
 // ===============================
 async function agregarAlCarrito(id, nombre, precio, stockDisponible) {
+    if (window.carritoServidorListo) await window.carritoServidorListo;
     const stockInfo = await verificarStock(id, 1);
     
     if (!stockInfo.disponible) {
@@ -258,7 +259,8 @@ async function agregarAlCarrito(id, nombre, precio, stockDisponible) {
         });
     }
     
-    localStorage.setItem('carritoCliente', JSON.stringify(carrito));
+    if (window.guardarCarritoCliente) window.guardarCarritoCliente(carrito);
+    else localStorage.setItem('carritoCliente', JSON.stringify(carrito));
     actualizarContadorCarrito();
     
     var toast = document.createElement('div');
@@ -466,6 +468,7 @@ document.addEventListener('DOMContentLoaded', function() {
 window.addEventListener('storage', function(e) {
     if (e.key === 'carritoCliente') actualizarContadorCarrito();
 });
+window.addEventListener('carritoClienteActualizado', actualizarContadorCarrito);
 
 // Estilos adicionales
 var style = document.createElement('style');

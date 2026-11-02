@@ -6,6 +6,7 @@ Valida stock consultando a INVENTARIO por HTTP + token (nunca toca su BD).
 import hmac
 import json
 import os
+import time
 import sys
 from functools import wraps
 from pathlib import Path
@@ -37,6 +38,9 @@ def cargar_entorno():
 
 
 cargar_entorno()
+os.environ["TZ"] = "America/Lima"
+if hasattr(time, "tzset"):
+    time.tzset()
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-ventas")
 DB_USER = os.environ.get("DB_USER", "root")
@@ -61,6 +65,7 @@ INVENTARIO_URL = os.environ.get("MS_INVENTARIO_URL", "http://127.0.0.1:8001")
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"
 )
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"init_command": "SET time_zone = '-05:00'"}}
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
@@ -191,7 +196,7 @@ def _aplicar_evento(tipo, datos):
     """Aplica un evento recibido del agente de mensajes (RabbitMQ).
 
     - producto.actualizado: actualiza la copia local del producto.
-    - cliente.registrado: actualiza la copia local del cliente.
+    - cliente.registrado: evento informativo; clientes conserva la propiedad.
     - pedido.creado / venta.registrada: deja registro en el servicio.
     """
     try:
@@ -205,23 +210,7 @@ def _aplicar_evento(tipo, datos):
             db.session.commit()
             return True
         if tipo == "cliente.registrado":
-            # Copia local del cliente (si la tabla aun no existe en este
-            # servicio, el evento se responde OK para no re-encolarlo).
-            try:
-                db.session.execute(text("""
-                    INSERT INTO clientes (nombres, apellidos, correo, telefono, estado)
-                    VALUES (:n, :a, :c, :t, 1)
-                    ON DUPLICATE KEY UPDATE
-                        nombres = VALUES(nombres), apellidos = VALUES(apellidos),
-                        telefono = VALUES(telefono)
-                """), {
-                    "n": datos.get("nombres"), "a": datos.get("apellidos"),
-                    "c": datos.get("email"), "t": datos.get("telefono"),
-                })
-                db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                print(f"[ventas] sin copia local de clientes ({str(e)[:90]})")
+            # Ventas no tiene clientes espejo; consultar al servicio dueño.
             return True
         if tipo in ("pedido.creado", "venta.registrada"):
             print(f"[ventas] evento '{tipo}' recibido "

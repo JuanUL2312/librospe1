@@ -1,10 +1,11 @@
 """Servicio INVENTARIO (puerto 8001). BD propia: librospe_ms_inventario.
 
-Tablas: inventario_productos, inventario_categorias, inventario_proveedores.
+Tablas: inventario_productos, categorias, proveedores.
 Se comunica con otros servicios SOLO por HTTP + X-Service-Token.
 """
 import hmac
 import os
+import time
 import re
 import sys
 from functools import wraps
@@ -37,6 +38,9 @@ def cargar_entorno():
 
 
 cargar_entorno()
+os.environ["TZ"] = "America/Lima"
+if hasattr(time, "tzset"):
+    time.tzset()
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-inventario")
 DB_USER = os.environ.get("DB_USER", "root")
@@ -60,6 +64,7 @@ def proteger_servicio():
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"
 )
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"init_command": "SET time_zone = '-05:00'"}}
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
@@ -156,7 +161,7 @@ def eliminar_producto(pid):
 
 @app.route("/proveedores", methods=["GET"])
 def listar_proveedores():
-    rows = db.session.execute(text("SELECT * FROM inventario_proveedores ORDER BY nombre")).mappings().all()
+    rows = db.session.execute(text("SELECT * FROM proveedores ORDER BY nombre")).mappings().all()
     return jsonify([dict(r) for r in rows])
 
 @app.route("/proveedores", methods=["POST"])
@@ -167,7 +172,7 @@ def crear_proveedor():
         if not data.get("nombre") or not data.get("email") or not data.get("contacto"):
             return jsonify({"error": "nombre, email y contacto requeridos"}), 400
         res = db.session.execute(text("""
-            INSERT INTO inventario_proveedores (nombre, email, contacto, empresa, ruc_empresa_id, estado)
+            INSERT INTO proveedores (nombre, email, contacto, empresa, ruc_empresa_id, estado)
             VALUES (:nombre, :email, :contacto, :empresa, :ruc_empresa_id, :estado)
         """), {
             "nombre": data["nombre"], "email": data["email"], "contacto": data["contacto"],
@@ -191,7 +196,7 @@ def editar_proveedor(pid):
         return jsonify({"error": "Sin campos"}), 400
     set_clause = ", ".join([f"{k}=:{k}" for k in campos.keys()])
     try:
-        res = db.session.execute(text(f"UPDATE inventario_proveedores SET {set_clause} WHERE id=:pid"), {**campos, "pid": pid})
+        res = db.session.execute(text(f"UPDATE proveedores SET {set_clause} WHERE id=:pid"), {**campos, "pid": pid})
         db.session.commit()
         if res.rowcount == 0:
             return jsonify({"error": "No encontrado"}), 404
@@ -204,7 +209,7 @@ def editar_proveedor(pid):
 @servicio_requerido
 def eliminar_proveedor(pid):
     try:
-        res = db.session.execute(text("DELETE FROM inventario_proveedores WHERE id=:id"), {"id": pid})
+        res = db.session.execute(text("DELETE FROM proveedores WHERE id=:id"), {"id": pid})
         db.session.commit()
         if res.rowcount == 0:
             return jsonify({"error": "No encontrado"}), 404

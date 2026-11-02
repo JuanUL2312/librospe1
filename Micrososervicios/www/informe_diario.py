@@ -15,6 +15,11 @@ Programacion (ver programar_informe_diario.sh):
 import os
 import sys
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+_ZONA_PERU = ZoneInfo("America/Lima")
+def hora_actual_peru():
+    return datetime.now(_ZONA_PERU).replace(tzinfo=None)
 
 RUTA_WWW = os.path.dirname(os.path.abspath(__file__))
 
@@ -38,11 +43,12 @@ _cargar_env(os.path.join(os.path.dirname(RUTA_WWW), ".env"))
 from app import (  # noqa: E402  (import despues de cargar el entorno)
     app, db, Venta, Producto, Caja, Pedido, ConteoStock,
     UsuarioSistema, _enviar_correo_html,
+    _stock_inventario_actual,
 )
 
 
 def _resumen_24h():
-    desde = datetime.now() - timedelta(days=1)
+    desde = hora_actual_peru() - timedelta(days=1)
 
     ventas = Venta.query.filter(Venta.fecha_venta >= desde, Venta.estado == 1).all()
     total_ventas = sum(
@@ -52,10 +58,11 @@ def _resumen_24h():
     boletas = sum(1 for v in ventas if v.tipo_comprobante == "boleta")
     facturas = sum(1 for v in ventas if v.tipo_comprobante == "factura")
 
-    bajos = Producto.query.filter(
-        Producto.estado == 1,
-        Producto.cantidad <= db.func.coalesce(Producto.stock_minimo, 5),
-    ).all()
+    stock_actual = _stock_inventario_actual()
+    bajos = [p for p in Producto.query.filter(Producto.estado == 1).all()
+             if stock_actual.get(int(p.id), 0) <= (p.stock_minimo or 5)]
+    for producto in bajos:
+        producto.stock_disponible = stock_actual.get(int(producto.id), 0)
 
     caja = Caja.query.order_by(Caja.id.desc()).first()
 
@@ -82,7 +89,7 @@ def _resumen_24h():
 
 def _html(r):
     lineas_bajo = "".join(
-        f"<li>{p.nombre}: {p.cantidad} uds (mín. "
+        f"<li>{p.nombre}: {p.stock_disponible} uds (mín. "
         f"{p.stock_minimo if p.stock_minimo is not None else 5})</li>"
         for p in r["bajos"][:40]
     ) or "<li>✅ Sin alertas de stock bajo</li>"
@@ -102,7 +109,7 @@ def _html(r):
 
     return f"""
     <h3>Informe diario de LibrosPE</h3>
-    <p>Periodo: {r['desde'].strftime('%d/%m/%Y %H:%M')} → {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
+    <p>Periodo: {r['desde'].strftime('%d/%m/%Y %H:%M')} → {hora_actual_peru().strftime('%d/%m/%Y %H:%M')}</p>
     <ul>
       <li><b>Ventas (24 h):</b> {r['n_ventas']} — S/ {r['total_ventas']:.2f}
           ({r['boletas']} boletas, {r['facturas']} facturas)</li>

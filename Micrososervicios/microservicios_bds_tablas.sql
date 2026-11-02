@@ -108,6 +108,10 @@ CREATE TABLE IF NOT EXISTS librospe_ms_inventario.inventario_productos (
     precio_oferta DECIMAL(10,2) NULL,
     destacado INT(11) DEFAULT 0,
     codigo_barras VARCHAR(50) NULL,
+    estado TINYINT(1) NOT NULL DEFAULT 1,
+    stock_minimo INT(11) DEFAULT 5,
+    stock_maximo INT(11) DEFAULT 100,
+    costo DECIMAL(10,2) NULL,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -185,7 +189,7 @@ CREATE TABLE IF NOT EXISTS librospe_ms_clientes.clientes (
     telefono VARCHAR(15) NULL,
     direccion TEXT NULL,
     clave VARCHAR(255) NOT NULL,
-    fecha_registro DATETIME NULL,
+    fecha_registro DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
     estado TINYINT(1) NOT NULL DEFAULT 1,
     ruc VARCHAR(11) NULL,
     departamento VARCHAR(100) NULL,
@@ -217,3 +221,10 @@ UNION ALL SELECT 'INVENTARIO proveedores', (SELECT COUNT(*) FROM librospe_ms_inv
 UNION ALL SELECT 'USUARIOS sistema', (SELECT COUNT(*) FROM librospe_ms_usuarios.usuarios_sistema)
 UNION ALL SELECT 'USUARIOS roles',   (SELECT COUNT(*) FROM librospe_ms_usuarios.roles)
 UNION ALL SELECT 'CLIENTES registrados', (SELECT COUNT(*) FROM librospe_ms_clientes.clientes);
+
+-- Lectura de productos desde ventas sin una segunda tabla/copia.
+CREATE OR REPLACE VIEW librospe_ms_ventas.productos AS
+SELECT id, nombre, descripcion, cantidad, proveedor_id, precio, imagen,
+       id_categoria, precio_oferta, destacado, codigo_barras, estado,
+       stock_minimo, stock_maximo, costo
+FROM librospe_ms_inventario.inventario_productos;

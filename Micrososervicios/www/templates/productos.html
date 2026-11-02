@@ -3,7 +3,7 @@
 {% block titulito %}📦 Productos Salesianos{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/productos.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/productos.css', v='20261030') }}">
 {% endblock %}
 
 {% block contenido %}
@@ -130,14 +130,14 @@
                                 {{ pr.descripcion[:40] }}{% if pr.descripcion|length > 40 %}...{% endif %}
                             </td>
                             <td class="text-center">
-                                <span class="fw-bold small {% if pr.cantidad == 0 %}text-danger{% elif pr.cantidad <= (pr.stock_minimo or 5) %}text-warning{% elif pr.cantidad >= (pr.stock_maximo or 100) %}text-info{% else %}text-success{% endif %}">
-                                    {{ pr.cantidad }}
+                                <span class="fw-bold small {% if pr.stock_disponible == 0 %}text-danger{% elif pr.stock_disponible <= (pr.stock_minimo or 5) %}text-warning{% elif pr.stock_disponible >= (pr.stock_maximo or 100) %}text-info{% else %}text-success{% endif %}">
+                                    {{ pr.stock_disponible }}
                                 </span>
-                                {% if pr.cantidad == 0 %}
+                                {% if pr.stock_disponible == 0 %}
                                 <span class="d-block badge bg-danger mt-1" style="font-size:0.6rem;">AGOTADO</span>
-                                {% elif pr.cantidad <= (pr.stock_minimo or 5) %}
+                                {% elif pr.stock_disponible <= (pr.stock_minimo or 5) %}
                                 <span class="d-block badge bg-warning text-dark mt-1" style="font-size:0.6rem;">⚠️ Stock bajo</span>
-                                {% elif pr.cantidad >= (pr.stock_maximo or 100) %}
+                                {% elif pr.stock_disponible >= (pr.stock_maximo or 100) %}
                                 <span class="d-block badge bg-info mt-1" style="font-size:0.6rem;">📦 Exceso</span>
                                 {% endif %}
                             </td>
@@ -198,5 +198,5 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/productos.js') }}"></script>
+<script src="{{ url_for('static', filename='js/productos.js', v='20261030') }}"></script>
 {% endblock %}

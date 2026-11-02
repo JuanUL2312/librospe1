@@ -1,5 +1,6 @@
 """Servicio CLIENTES (puerto 8004). BD propia: librospe_ms_clientes."""
 import os
+import time
 import sys
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -32,6 +33,9 @@ def cargar_entorno():
 
 
 cargar_entorno()
+os.environ["TZ"] = "America/Lima"
+if hasattr(time, "tzset"):
+    time.tzset()
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-clientes")
 DB_USER = os.environ.get("DB_USER", "root")
@@ -41,6 +45,7 @@ DB_NAME = os.environ.get("MS_CLIENTES_DB", "librospe_ms_clientes")
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"
 )
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"init_command": "SET time_zone = '-05:00'"}}
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
@@ -127,9 +132,9 @@ def crear():
         hashed = bcrypt.generate_password_hash(clave).decode("utf-8")
         db.session.execute(text("""
             INSERT INTO clientes (dni, ce, nombres, apellidos, correo, telefono, direccion,
-                                  departamento, provincia, distrito, clave, estado)
+                                  departamento, provincia, distrito, clave, fecha_registro, estado)
             VALUES (:dni, :ce, :nombres, :apellidos, :correo, :telefono, :direccion,
-                    :departamento, :provincia, :distrito, :clave, 1)
+                    :departamento, :provincia, :distrito, :clave, NOW(), 1)
         """), {
             "dni": dni_val, "ce": ce_val, "nombres": nombres, "apellidos": apellidos,
             "correo": email, "telefono": telefono, "direccion": direccion,

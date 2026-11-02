@@ -68,16 +68,19 @@
         var filas = filasDe(tabla);
         if (!filas.length) { quitarControl(tabla); return; }
 
-        // 1) Deshacer lo que el paginador ocultó (restaura el estado real del filtro)
+        // 1) Deshacer solo lo que ocultó el paginador; los filtros tienen
+        //    su propio marcador y deben seguir ocultos.
         filas.forEach(function (f) {
             if (f.getAttribute('data-pag-oculto') !== null) {
-                f.style.display = '';
+                f.style.display = f.hasAttribute('data-filtro-oculto') ? 'none' : '';
                 f.removeAttribute('data-pag-oculto');
             }
         });
 
         // 2) Filas visibles = las que el filtro de búsqueda dejó pasar
-        var visibles = filas.filter(function (f) { return f.style.display !== 'none'; });
+        var visibles = filas.filter(function (f) {
+            return !f.hasAttribute('data-filtro-oculto') && f.style.display !== 'none';
+        });
 
         if (visibles.length <= UMBRAL) {
             quitarControl(tabla);

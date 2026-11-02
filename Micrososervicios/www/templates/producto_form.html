@@ -94,7 +94,7 @@
                       <i class="fas fa-boxes me-2 text-warning"></i>Cantidad
                     </label>
                     <input type="number" name="cantidad" class="form-control form-control-lg" min="0" required
-                      value="{% if producto %}{{ producto.cantidad }}{% endif %}"
+                      value="{% if producto %}{{ producto.stock_disponible }}{% endif %}"
                       style="-webkit-appearance: none; -moz-appearance: none; appearance: none;">
                     <div class="invalid-feedback">
                       Ingresa la cantidad disponible

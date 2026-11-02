@@ -41,7 +41,7 @@
         </div>
         <div class="col-6 col-md-3">
             <div class="card bg-info text-white text-center py-2 py-md-3">
-                <h3 class="mb-0 fs-4 fs-md-3">{{ (pedidos|selectattr('estado', 'equalto', 'confirmado')|list|length) + (pedidos|selectattr('estado', 'equalto', 'preparando')|list|length) + (pedidos|selectattr('estado', 'equalto', 'enviado')|list|length) }}</h3>
+                <h3 class="mb-0 fs-4 fs-md-3">{{ (pedidos|selectattr('estado', 'equalto', 'confirmado')|list|length) + (pedidos|selectattr('estado', 'equalto', 'preparando')|list|length) + (pedidos|selectattr('estado', 'equalto', 'enviado')|list|length) + (pedidos|selectattr('estado', 'equalto', 'listo_tienda')|list|length) + (pedidos|selectattr('estado', 'equalto', 'listo')|list|length) }}</h3>
                 <small class="small">En proceso</small>
             </div>
         </div>
@@ -52,6 +52,7 @@
     {% if pedidos %}
     <div class="row">
         {% for pedido in pedidos %}
+        {% set estado_ui = 'listo_tienda' if pedido.estado == 'listo' else pedido.estado %}
         <div class="col-12 mb-3 mb-md-4">
             <div class="card border-0 shadow-lg hover-card rounded-3 overflow-hidden">
                 <div class="card-header bg-gradient-primary text-white py-2 py-md-3">
@@ -63,23 +64,23 @@
                         </div>
                         <span class="badge fs-6 px-2 px-md-3 py-1 py-md-2">
                             <i class="fas 
-                                {% if pedido.estado == 'pendiente' %}fa-clock
-                                {% elif pedido.estado == 'confirmado' %}fa-check-circle
-                                {% elif pedido.estado == 'preparando' %}fa-box
-                                {% elif pedido.estado == 'enviado' %}fa-shipping-fast
-                                {% elif pedido.estado == 'listo_tienda' %}fa-store
-                                {% elif pedido.estado == 'entregado' %}fa-gift
-                                {% elif pedido.estado == 'recogido' %}fa-hand-peace
-                                {% elif pedido.estado == 'cancelado' %}fa-times-circle
+                                {% if estado_ui == 'pendiente' %}fa-clock
+                                {% elif estado_ui == 'confirmado' %}fa-check-circle
+                                {% elif estado_ui == 'preparando' %}fa-box
+                                {% elif estado_ui == 'enviado' %}fa-shipping-fast
+                                {% elif estado_ui == 'listo_tienda' %}fa-store
+                                {% elif estado_ui == 'entregado' %}fa-gift
+                                {% elif estado_ui == 'recogido' %}fa-hand-peace
+                                {% elif estado_ui == 'cancelado' %}fa-times-circle
                                 {% else %}fa-receipt{% endif %} me-1"></i>
-                            {% if pedido.estado == 'pendiente' %}PENDIENTE
-                            {% elif pedido.estado == 'confirmado' %}CONFIRMADO
-                            {% elif pedido.estado == 'preparando' %}PREPARANDO
-                            {% elif pedido.estado == 'enviado' %}ENVIADO
-                            {% elif pedido.estado == 'listo_tienda' %}LISTO EN TIENDA
-                            {% elif pedido.estado == 'entregado' %}ENTREGADO
-                            {% elif pedido.estado == 'recogido' %}RECOGIDO
-                            {% elif pedido.estado == 'cancelado' %}CANCELADO
+                            {% if estado_ui == 'pendiente' %}PENDIENTE
+                            {% elif estado_ui == 'confirmado' %}CONFIRMADO
+                            {% elif estado_ui == 'preparando' %}PREPARANDO
+                            {% elif estado_ui == 'enviado' %}ENVIADO
+                            {% elif estado_ui == 'listo_tienda' %}LISTO EN TIENDA
+                            {% elif estado_ui == 'entregado' %}ENTREGADO
+                            {% elif estado_ui == 'recogido' %}RECOGIDO
+                            {% elif estado_ui == 'cancelado' %}CANCELADO
                             {% else %}{{ pedido.estado|upper }}{% endif %}
                         </span>
                     </div>
@@ -132,24 +133,24 @@
                     </div>
                     
                     <!-- Barra de progreso del pedido -->
-                    {% if pedido.estado not in ['cancelado', 'entregado', 'recogido'] %}
+                    {% if estado_ui not in ['cancelado', 'entregado', 'recogido'] %}
                     <div class="mt-3 pt-2">
                         <div class="progress" style="height: 6px; height-md:8px;">
                             {% if pedido.tipo_entrega == 'delivery' %}
                                 {% set progress = {'pendiente': 0, 'confirmado': 25, 'preparando': 50, 'enviado': 75, 'entregado': 100} %}
-                                <div class="progress-bar bg-{% if pedido.estado == 'pendiente' %}warning{% elif pedido.estado == 'confirmado' %}info{% elif pedido.estado == 'preparando' %}primary{% elif pedido.estado == 'enviado' %}info{% else %}secondary{% endif %}" 
+                                <div class="progress-bar bg-{% if estado_ui == 'pendiente' %}warning{% elif estado_ui == 'confirmado' %}info{% elif estado_ui == 'preparando' %}primary{% elif estado_ui == 'enviado' %}info{% else %}secondary{% endif %}"
                                      role="progressbar" 
-                                     style="width: {{ progress.get(pedido.estado, 0) }}%;" 
-                                     aria-valuenow="{{ progress.get(pedido.estado, 0) }}" 
+                                     style="width: {{ progress.get(estado_ui, 0) }}%;"
+                                     aria-valuenow="{{ progress.get(estado_ui, 0) }}"
                                      aria-valuemin="0" 
                                      aria-valuemax="100">
                                 </div>
                             {% else %}
                                 {% set progress = {'pendiente': 0, 'confirmado': 25, 'preparando': 50, 'listo_tienda': 75, 'recogido': 100} %}
-                                <div class="progress-bar bg-{% if pedido.estado == 'pendiente' %}warning{% elif pedido.estado == 'confirmado' %}info{% elif pedido.estado == 'preparando' %}primary{% elif pedido.estado == 'listo_tienda' %}success{% else %}secondary{% endif %}" 
+                                <div class="progress-bar bg-{% if estado_ui == 'pendiente' %}warning{% elif estado_ui == 'confirmado' %}info{% elif estado_ui == 'preparando' %}primary{% elif estado_ui == 'listo_tienda' %}success{% else %}secondary{% endif %}"
                                      role="progressbar" 
-                                     style="width: {{ progress.get(pedido.estado, 0) }}%;" 
-                                     aria-valuenow="{{ progress.get(pedido.estado, 0) }}" 
+                                     style="width: {{ progress.get(estado_ui, 0) }}%;"
+                                     aria-valuenow="{{ progress.get(estado_ui, 0) }}"
                                      aria-valuemin="0" 
                                      aria-valuemax="100">
                                 </div>
@@ -158,25 +159,25 @@
                         
                         {% if pedido.tipo_entrega == 'delivery' %}
                             <div class="d-flex justify-content-between mt-2 small text-muted flex-wrap gap-1">
-                                <span class="{% if pedido.estado in ['pendiente', 'confirmado', 'preparando', 'enviado', 'entregado'] %}text-success{% endif %}">⏳ Pendiente</span>
-                                <span class="{% if pedido.estado in ['confirmado', 'preparando', 'enviado', 'entregado'] %}text-success{% endif %}">✅ Confirmado</span>
-                                <span class="{% if pedido.estado in ['preparando', 'enviado', 'entregado'] %}text-success{% endif %}">📦 Preparando</span>
-                                <span class="{% if pedido.estado in ['enviado', 'entregado'] %}text-success{% endif %}">🚚 Enviado</span>
-                                <span class="{% if pedido.estado == 'entregado' %}text-success{% endif %}">🏠 Entregado</span>
+                                <span class="{% if estado_ui in ['pendiente', 'confirmado', 'preparando', 'enviado', 'entregado'] %}text-success{% endif %}">⏳ Pendiente</span>
+                                <span class="{% if estado_ui in ['confirmado', 'preparando', 'enviado', 'entregado'] %}text-success{% endif %}">✅ Confirmado</span>
+                                <span class="{% if estado_ui in ['preparando', 'enviado', 'entregado'] %}text-success{% endif %}">📦 Preparando</span>
+                                <span class="{% if estado_ui in ['enviado', 'entregado'] %}text-success{% endif %}">🚚 Enviado</span>
+                                <span class="{% if estado_ui == 'entregado' %}text-success{% endif %}">🏠 Entregado</span>
                             </div>
                         {% else %}
                             <div class="d-flex justify-content-between mt-2 small text-muted flex-wrap gap-1">
-                                <span class="{% if pedido.estado in ['pendiente', 'confirmado', 'preparando', 'listo_tienda', 'recogido'] %}text-success{% endif %}">⏳ Pendiente</span>
-                                <span class="{% if pedido.estado in ['confirmado', 'preparando', 'listo_tienda', 'recogido'] %}text-success{% endif %}">✅ Confirmado</span>
-                                <span class="{% if pedido.estado in ['preparando', 'listo_tienda', 'recogido'] %}text-success{% endif %}">📦 Preparando</span>
-                                <span class="{% if pedido.estado in ['listo_tienda', 'recogido'] %}text-success{% endif %}">🏪 Listo</span>
-                                <span class="{% if pedido.estado == 'recogido' %}text-success{% endif %}">🙌 Recogido</span>
+                                <span class="{% if estado_ui in ['pendiente', 'confirmado', 'preparando', 'listo_tienda', 'recogido'] %}text-success{% endif %}">⏳ Pendiente</span>
+                                <span class="{% if estado_ui in ['confirmado', 'preparando', 'listo_tienda', 'recogido'] %}text-success{% endif %}">✅ Confirmado</span>
+                                <span class="{% if estado_ui in ['preparando', 'listo_tienda', 'recogido'] %}text-success{% endif %}">📦 Preparando</span>
+                                <span class="{% if estado_ui in ['listo_tienda', 'recogido'] %}text-success{% endif %}">🏪 Listo</span>
+                                <span class="{% if estado_ui == 'recogido' %}text-success{% endif %}">🙌 Recogido</span>
                             </div>
                         {% endif %}
                     </div>
                     {% endif %}
 
-                    {% if pedido.tipo_entrega == 'delivery' and pedido.estado == 'entregado' %}
+                    {% if pedido.tipo_entrega == 'delivery' and estado_ui == 'entregado' %}
                     <div class="mt-3 pt-2 border-top">
                         {% if pedido.cliente_confirmo %}
                             <div class="alert alert-success mb-0 py-2">

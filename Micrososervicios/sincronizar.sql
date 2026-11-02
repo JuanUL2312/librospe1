@@ -261,7 +261,7 @@ WHERE NOT (
 );
 
 -- =============================================
--- 6.2 INVENTARIO: categorias, productos, proveedores
+-- 6.2 INVENTARIO: categorias y proveedores
 -- =============================================
 
 -- Categorias nuevas
@@ -282,52 +282,6 @@ WHERE NOT (
     ic.nombre <=> c.nombre AND
     ic.descripcion <=> c.descripcion AND
     ic.activo <=> c.activo
-);
-
--- Productos nuevos
-INSERT IGNORE INTO librospe_ms_inventario.inventario_productos
-    (id, nombre, descripcion, cantidad, proveedor_id, precio, imagen,
-     id_categoria, precio_oferta, destacado, codigo_barras,
-     estado, stock_minimo, stock_maximo, costo)
-SELECT p.id, p.nombre, p.descripcion, p.cantidad, p.proveedor_id, p.precio, p.imagen,
-       p.id_categoria, p.precio_oferta, p.destacado, p.codigo_barras,
-       p.estado, p.stock_minimo, p.stock_maximo, p.costo
-FROM librospe_db.productos p
-LEFT JOIN librospe_ms_inventario.inventario_productos ip ON ip.id = p.id
-WHERE ip.id IS NULL;
-
--- Productos existentes (precio, stock y costo cambian)
-UPDATE librospe_ms_inventario.inventario_productos ip
-JOIN librospe_db.productos p ON ip.id = p.id
-SET ip.nombre = p.nombre,
-    ip.descripcion = p.descripcion,
-    ip.cantidad = p.cantidad,
-    ip.proveedor_id = p.proveedor_id,
-    ip.precio = p.precio,
-    ip.imagen = p.imagen,
-    ip.id_categoria = p.id_categoria,
-    ip.precio_oferta = p.precio_oferta,
-    ip.destacado = p.destacado,
-    ip.codigo_barras = p.codigo_barras,
-    ip.estado = p.estado,
-    ip.stock_minimo = p.stock_minimo,
-    ip.stock_maximo = p.stock_maximo,
-    ip.costo = p.costo
-WHERE NOT (
-    ip.nombre <=> p.nombre AND
-    ip.descripcion <=> p.descripcion AND
-    ip.cantidad <=> p.cantidad AND
-    ip.proveedor_id <=> p.proveedor_id AND
-    ip.precio <=> p.precio AND
-    ip.imagen <=> p.imagen AND
-    ip.id_categoria <=> p.id_categoria AND
-    ip.precio_oferta <=> p.precio_oferta AND
-    ip.destacado <=> p.destacado AND
-    ip.codigo_barras <=> p.codigo_barras AND
-    ip.estado <=> p.estado AND
-    ip.stock_minimo <=> p.stock_minimo AND
-    ip.stock_maximo <=> p.stock_maximo AND
-    ip.costo <=> p.costo
 );
 
 -- Proveedores nuevos (empresa = nombre: columna solo del espejo)
@@ -680,12 +634,6 @@ SELECT
     (SELECT COUNT(*) FROM librospe_db.categorias),
     (SELECT COUNT(*) FROM librospe_ms_inventario.inventario_categorias),
     ((SELECT COUNT(*) FROM librospe_db.categorias) - (SELECT COUNT(*) FROM librospe_ms_inventario.inventario_categorias))
-UNION ALL
-SELECT
-    'PRODUCTOS_MS',
-    (SELECT COUNT(*) FROM librospe_db.productos),
-    (SELECT COUNT(*) FROM librospe_ms_inventario.inventario_productos),
-    ((SELECT COUNT(*) FROM librospe_db.productos) - (SELECT COUNT(*) FROM librospe_ms_inventario.inventario_productos))
 UNION ALL
 SELECT
     'PROVEEDORES_MS',

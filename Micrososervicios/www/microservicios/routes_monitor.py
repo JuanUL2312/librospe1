@@ -6,6 +6,9 @@ existencia de su tabla representativa. Cada servicio reporta en que
 BD y schema vive.
 """
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_ZONA_PERU = ZoneInfo("America/Lima")
 
 from flask import current_app, jsonify
 from sqlalchemy import text
@@ -86,12 +89,12 @@ def api_health():
             "services": estado_bd,
             "http_servicios": estado_http,
             "agente_mensajes": mensajeria,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now(_ZONA_PERU).isoformat(timespec="seconds")
         }), 200 if bd_ok else 503
     except Exception as e:
         db.session.rollback()
         return jsonify({
             "status": "ERROR",
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now(_ZONA_PERU).isoformat(timespec="seconds")
         }), 500

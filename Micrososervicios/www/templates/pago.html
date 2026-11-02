@@ -81,13 +81,12 @@
                         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
                             <div class="d-flex align-items-center gap-2">
                                 <div class="payment-icon"><i class="fas fa-mobile-alt fa-2x fa-md-3x text-success"></i></div>
-                                <div><strong class="small">Yape / Plin</strong><p class="text-muted small mb-0">Paga al instante desde tu celular</p></div>
+                                <div><strong class="small">Yape / Plin</strong><p class="text-muted small mb-0">Pago sujeto a verificación manual</p></div>
                             </div>
                             <div class="payment-radio"><div class="form-check"><input class="form-check-input" type="radio" name="metodoPago" id="yapeRadio" value="yape"></div></div>
                         </div>
                         <div class="payment-form mt-3" id="yapeForm" style="display: none;">
-                            <div class="alert alert-info py-2"><i class="fas fa-info-circle me-2"></i>Escanea el código QR o usa: <strong>999 888 777</strong></div>
-                            <div class="text-center"><div class="bg-light p-3 p-md-4 rounded d-inline-block"><i class="fas fa-qrcode fa-3x fa-md-5x text-secondary"></i></div></div>
+                            <div class="alert alert-info py-2"><i class="fas fa-info-circle me-2"></i>Transfiere solo a la cuenta oficial de la tienda. El personal verificará el abono antes de entregar el pedido.</div>
                         </div>
                     </div>
 
@@ -99,8 +98,7 @@
                             <div class="payment-radio"><div class="form-check"><input class="form-check-input" type="radio" name="metodoPago" id="transferenciaRadio" value="transferencia"></div></div>
                         </div>
                         <div class="payment-form mt-3" id="transferenciaForm" style="display: none;">
-                            <div class="alert alert-warning py-2 small"><strong>Datos para transferencia:</strong></div>
-                            <div class="p-2 p-md-3 bg-light rounded small"><p class="mb-1"><strong>Banco:</strong> BCP</p><p class="mb-1"><strong>Titular:</strong> Librería Salesiana Don Bosco</p><p class="mb-1"><strong>Cuenta soles:</strong> 123-4567890-123</p><p class="mb-0"><strong>CCI:</strong> 123-456-789012345678-90</p></div>
+                            <div class="alert alert-warning py-2 small">Usa únicamente los datos bancarios oficiales de la tienda. El personal debe comprobar el abono antes de confirmar el pago y entregar el pedido.</div>
                         </div>
                     </div>
 
@@ -145,7 +143,7 @@
                     <div class="d-flex justify-content-between mb-2 small" id="envioRow" style="display:none">
                         <span>Envío:</span><span id="envioTexto">S/. 0.00</span>
                     </div>
-                    <div class="d-flex justify-content-between mb-2 small" id="contraentregaCosto" style="display:none">
+                    <div class="justify-content-between mb-2 small" id="contraentregaCosto" style="display:none">
                         <span>Cargo contraentrega:</span><span>S/. 3.00</span>
                     </div>
                     <hr class="my-2 my-md-3">

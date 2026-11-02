@@ -143,6 +143,45 @@
         </div>
     </div>
 
+    <!-- Métodos de pago más elegidos -->
+    <div class="row g-3 mb-4">
+        <div class="col-12">
+            <div class="card shadow">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-credit-card me-2 text-primary"></i>Métodos de pago más elegidos <small class="text-muted">(últimos 30 días)</small></h5>
+                </div>
+                <div class="card-body">
+                    {% if metodos_pago_top %}
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-2">
+                            <thead><tr><th>Método</th><th>Operaciones</th><th style="min-width: 180px;">Preferencia</th></tr></thead>
+                            <tbody>
+                                {% for item in metodos_pago_top %}
+                                <tr>
+                                    <td class="text-capitalize">{{ item.metodo|replace('_', ' ') }}</td>
+                                    <td>{{ item.operaciones }}</td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="progress flex-grow-1" style="height: 10px;" role="progressbar" aria-valuenow="{{ item.porcentaje|round|int }}" aria-valuemin="0" aria-valuemax="100">
+                                                <div class="progress-bar" style="width: {{ item.porcentaje }}%"></div>
+                                            </div>
+                                            <small class="text-muted">{{ "%.1f"|format(item.porcentaje) }}%</small>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <small class="text-muted">{{ total_operaciones_pago }} operaciones en total</small>
+                    {% else %}
+                    <p class="text-muted mb-0">Aún no hay operaciones con método de pago registrado en los últimos 30 días.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Gráficos con Plotly -->
     <div class="row g-3 mb-4">
         <div class="col-12">
@@ -230,7 +269,7 @@
                         {% for producto in stock_bajo %}
                         <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom stock-bajo p-2 rounded gap-2">
                             <div class="small"><i class="fas fa-box me-2"></i>{{ producto.nombre[:35] }}{% if producto.nombre|length > 35 %}...{% endif %}</div>
-                            <span class="badge bg-warning text-dark">{{ producto.cantidad }} unidades</span>
+                            <span class="badge bg-warning text-dark">{{ producto.stock_disponible }} unidades</span>
                         </div>
                         {% endfor %}
                     {% else %}
@@ -268,7 +307,7 @@
                         {% for producto in stock_exceso %}
                         <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom p-2 rounded gap-2">
                             <div class="small"><i class="fas fa-boxes me-2"></i>{{ producto.nombre[:35] }}{% if producto.nombre|length > 35 %}...{% endif %}</div>
-                            <span class="badge bg-info">{{ producto.cantidad }} unidades</span>
+                            <span class="badge bg-info">{{ producto.stock_disponible }} unidades</span>
                         </div>
                         {% endfor %}
                     {% else %}

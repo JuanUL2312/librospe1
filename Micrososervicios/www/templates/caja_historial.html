@@ -130,7 +130,7 @@
                   → {{ c.fecha_cierre.strftime('%H:%M') if c.fecha_cierre else '—' }}
                 </td>
                 <td>
-                  {{ (c.usuario.nombres ~ ' ' ~ (c.usuario.apellidos or ''))|trim if c.usuario else '—' }}
+                  {{ c.usuario_nombre or '—' }}
                 </td>
                 <td class="text-end">S/ {{ "%.2f"|format(c.monto_inicial or 0) }}</td>
                 <td class="text-end">S/ {{ "%.2f"|format(c.monto_esperado or 0) }}</td>

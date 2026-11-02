@@ -97,7 +97,7 @@
                   <small class="text-muted"><i class="fas fa-barcode me-1"></i>{{ p.codigo_barras }}</small>
                   {% endif %}
                 </td>
-                <td class="text-center fw-bold">{{ p.cantidad if p.cantidad is not none else 0 }}</td>
+                <td class="text-center fw-bold">{{ p.stock_disponible if p.stock_disponible is not none else 0 }}</td>
                 <td>
                   <form method="post" action="/conteo/registrar" class="d-flex gap-1 justify-content-center">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -151,7 +151,7 @@
               <tr>
                 <td class="small">{{ c.fecha.strftime('%d/%m/%Y %H:%M') if c.fecha else '—' }}</td>
                 <td class="fw-bold">{{ c.producto.nombre if c.producto else '—' }}</td>
-                <td>{{ c.usuario.nombres if c.usuario else '—' }}</td>
+                <td>{{ c.usuario_nombre or '—' }}</td>
                 <td class="text-center">{{ c.cantidad_sistema }}</td>
                 <td class="text-center fw-bold">{{ c.cantidad_contada }}</td>
                 <td class="text-center">

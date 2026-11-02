@@ -31,6 +31,7 @@ import json
 import os
 import secrets
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -98,7 +99,7 @@ def _payload_invoice(venta):
     Estructura según la documentación de APIsPERU (facturacion.apisperu.com);
     validar contra el Swagger oficial la primera vez con credenciales reales.
     """
-    hoy = date.today().isoformat()
+    hoy = datetime.now(ZoneInfo("America/Lima")).date().isoformat()
     tipo = TIPOS_COMPROBANTE.get(venta.get("tipo_comprobante") or "boleta", "03")
     es_factura = tipo == "01"
     documento = str(venta.get("cliente_documento") or "").strip()

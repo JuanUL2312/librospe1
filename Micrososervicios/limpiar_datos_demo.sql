@@ -1,145 +1,166 @@
--- =====================================================================
---  LIMPIEZA DE DATOS DE DEMOSTRACION
---  Deja solo el usuario admin@mail.com en usuarios_sistema y vacia
---  clientes / pedidos / ventas, reiniciando los AUTO_INCREMENT en 1.
---
---  IMPORTANTE
---   1. Haz un RESPALDO antes de ejecutar.
---   2. Hay una sincronizacion por cron (0 * * * * sincronizar_completo.sh).
---      Para clientes, librospe_ms_clientes es la BD DUENA y se copia hacia
---      librospe_db. Por eso el script borra en AMBAS: si borras solo en
---      librospe_db, los clientes reaparecen a la hora siguiente.
---   3. Este script borra tambien el historial (pedidos/ventas) porque
---      tienen FK hacia clientes. Si quieres conservar las ventas, usa la
---      variante "ANULAR EN LUGAR DE BORRAR" al final del archivo.
---   4. Si @admin_id queda NULL (no existe ese correo), los DELETE de
---      usuarios NO se ejecutan: es una salvaguarda para no quedarse
---      sin acceso al sistema.
--- =====================================================================
+-- LIMPIEZA DE DATOS DE DEMOSTRACION PARA EL ESQUEMA ACTUAL
+-- Bases autorizadas: librospe_ms_clientes, librospe_ms_inventario,
+-- librospe_ms_usuarios y librospe_ms_ventas.
+-- Conserva catalogo, tablas de referencia y el usuario admin@mail.com.
+-- Vaciar por completo un cliente/pedidos/ventas es irreversible: hacer backup.
+-- Antes: detener temporalmente sitio/worker/cron; respaldar y purgar mensajes viejos del broker.
+-- Si una sentencia falla: ejecutar ROLLBACK; SET FOREIGN_KEY_CHECKS = 1; y no continuar.
+-- La base antigua librospe_db no se usa aqui (el usuario SQL no tiene permisos).
 
-SET FOREIGN_KEY_CHECKS = 0;
-SET @admin    := 'admin@mail.com';
-SET @admin_id := (SELECT id FROM librospe_db.usuarios_sistema WHERE correo = @admin);
+SET @admin := 'admin@mail.com';
+SET @admin_id := (
+    SELECT id FROM librospe_ms_usuarios.usuarios_sistema WHERE CONVERT(correo USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(@admin USING utf8mb4) COLLATE utf8mb4_general_ci LIMIT 1
+);
 
--- ---------------------------------------------------------------------
--- 0. COMPROBACION OBLIGATORIA antes de seguir
---    Debe devolver 1 fila con el id del admin. Si devuelve 0 filas,
---    DETENTE: no continues, el admin no existe con ese correo.
--- ---------------------------------------------------------------------
+-- PREVUELO: confirmar que existe el admin. Debe devolver una fila.
 SELECT id, correo, nombres, apellidos, rol, estado
-FROM librospe_db.usuarios_sistema
-WHERE correo = @admin;
+FROM librospe_ms_usuarios.usuarios_sistema
+WHERE CONVERT(correo USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(@admin USING utf8mb4) COLLATE utf8mb4_general_ci;
 
-SELECT 'clientes a borrar' AS vista, COUNT(*) AS filas
-FROM librospe_db.clientes
-UNION ALL SELECT 'usuarios a borrar', COUNT(*) FROM librospe_db.usuarios_sistema WHERE correo <> @admin;
+-- Conteos antes de borrar.
+SELECT 'clientes' AS tabla, COUNT(*) AS filas
+FROM librospe_ms_clientes.clientes
+UNION ALL SELECT 'pedidos', COUNT(*) FROM librospe_ms_ventas.pedidos
+UNION ALL SELECT 'ventas', COUNT(*) FROM librospe_ms_ventas.ventas
+UNION ALL SELECT 'pedidos_comerciales', COUNT(*) FROM librospe_ms_ventas.comercial_pedidos
+UNION ALL SELECT 'ventas_comerciales', COUNT(*) FROM librospe_ms_ventas.comercial_ventas
+UNION ALL SELECT 'usuarios_no_admin', COUNT(*)
+    FROM librospe_ms_usuarios.usuarios_sistema WHERE CONVERT(correo USING utf8mb4) COLLATE utf8mb4_general_ci <> CONVERT(@admin USING utf8mb4) COLLATE utf8mb4_general_ci;
 
--- ---------------------------------------------------------------------
--- 1. HISTORIAL que depende de clientes y usuarios (FK)
--- ---------------------------------------------------------------------
--- Detalle y cabecera de pedidos
-DELETE FROM librospe_ms_ventas.comercial_detalle_pedido;
-DELETE FROM librospe_db.detalle_pedido;
-DELETE FROM librospe_ms_ventas.comercial_pedidos;
-DELETE FROM librospe_db.pedidos;
+-- Si @admin_id es NULL, las condiciones impiden borrar cualquier fila.
+-- Pausar procesos que escriben/consumen eventos antes de ejecutar esta seccion.
+SET FOREIGN_KEY_CHECKS = 0;
+START TRANSACTION;
 
--- Ventas: primero las que tienen cliente, luego las de otros vendedores
-DELETE FROM librospe_db.ventas
- WHERE cliente_id IS NOT NULL
-    OR (vendedor_id <> @admin_id AND @admin_id IS NOT NULL);
-DELETE FROM librospe_ms_ventas.comercial_ventas
- WHERE cliente_id IS NOT NULL
-    OR (vendedor_id <> @admin_id AND @admin_id IS NOT NULL);
+-- Devolver cantidades que aun estaban reservadas/descontadas por pedidos
+-- activos, antes de eliminar las reservas y los pedidos del demo.
+SET @hay_conteos := (
+    SELECT COUNT(*) FROM information_schema.tables
+    WHERE table_schema = 'librospe_ms_inventario' AND table_name = 'conteos_stock'
+);
+SET @sql_borrar_conteos := IF(
+    @hay_conteos > 0,
+    'DELETE FROM librospe_ms_inventario.conteos_stock WHERE @admin_id IS NOT NULL',
+    'SELECT 1'
+);
+PREPARE stmt_borrar_conteos FROM @sql_borrar_conteos;
+EXECUTE stmt_borrar_conteos;
+DEALLOCATE PREPARE stmt_borrar_conteos;
 
--- Cajas, auditoria e intentos de login
-DELETE FROM librospe_ms_usuarios.auditoria
- WHERE usuario_id IS NOT NULL AND usuario_id <> @admin_id AND @admin_id IS NOT NULL;
-DELETE FROM librospe_db.auditoria
- WHERE usuario_id IS NOT NULL AND usuario_id <> @admin_id AND @admin_id IS NOT NULL;
-DELETE FROM librospe_db.cajas
- WHERE usuario_id <> @admin_id AND @admin_id IS NOT NULL;
-DELETE FROM librospe_db.intentos_login
- WHERE cliente_id IS NOT NULL
-    OR (usuario_sistema_id <> @admin_id AND @admin_id IS NOT NULL);
-DELETE FROM librospe_db.bloqueos
- WHERE cliente_id IS NOT NULL
-    OR (usuario_sistema_id <> @admin_id AND @admin_id IS NOT NULL);
-DELETE FROM librospe_ms_usuarios.intentos_login
- WHERE cliente_id IS NOT NULL
-    OR (usuario_sistema_id IS NOT NULL AND usuario_sistema_id <> @admin_id AND @admin_id IS NOT NULL);
-DELETE FROM librospe_ms_usuarios.bloqueos
- WHERE cliente_id IS NOT NULL
-    OR (usuario_sistema_id IS NOT NULL AND usuario_sistema_id <> @admin_id AND @admin_id IS NOT NULL);
+SET @hay_reservas := (
+    SELECT COUNT(*) FROM information_schema.tables
+    WHERE table_schema = 'librospe_ms_inventario' AND table_name = 'reservas_stock'
+);
+SET @sql_reponer := IF(
+    @hay_reservas > 0,
+    'UPDATE librospe_ms_inventario.inventario_productos AS p
+     JOIN (SELECT producto_id, SUM(cantidad) AS unidades
+           FROM librospe_ms_inventario.reservas_stock
+           WHERE estado IN (''reservado'', ''confirmado'')
+           GROUP BY producto_id) AS r ON r.producto_id = p.id
+     SET p.cantidad = p.cantidad + r.unidades
+     WHERE @admin_id IS NOT NULL',
+    'SELECT 1'
+);
+PREPARE stmt_reponer FROM @sql_reponer;
+EXECUTE stmt_reponer;
+DEALLOCATE PREPARE stmt_reponer;
 
--- ---------------------------------------------------------------------
--- 2. CLIENTES  (las dos BDs: la duena y la principal)
--- ---------------------------------------------------------------------
-DELETE FROM librospe_ms_clientes.clientes;
-DELETE FROM librospe_db.clientes;
+-- Detalles antes de cabeceras.
+DELETE FROM librospe_ms_ventas.detalle_pedido WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_ventas.comercial_detalle_pedido WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_ventas.pedidos WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_ventas.comercial_pedidos WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_ventas.ventas WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_ventas.comercial_ventas WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_ventas.cajas WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_ventas.pos_ventas_idempotencia WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_ventas.eventos_pendientes WHERE @admin_id IS NOT NULL;
 
--- ---------------------------------------------------------------------
--- 3. USUARIOS DE SISTEMA  (solo queda admin@mail.com)
---    La condicion "@admin_id IS NOT NULL" evita borrar a todos si el
---    correo del admin no existe.
--- ---------------------------------------------------------------------
+-- Copias locales usadas para JOIN dentro de cada microservicio.
+DELETE FROM librospe_ms_ventas.clientes WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_inventario.ventas WHERE @admin_id IS NOT NULL;
+
+-- Datos de cliente y registros de seguridad/auditoria del demo.
+DELETE FROM librospe_ms_clientes.clientes WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_usuarios.auditoria WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_usuarios.intentos_login WHERE @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_usuarios.bloqueos WHERE @admin_id IS NOT NULL;
 DELETE FROM librospe_ms_usuarios.usuarios_sistema
- WHERE correo <> @admin AND @admin_id IS NOT NULL;
-DELETE FROM librospe_db.usuarios_sistema
- WHERE correo <> @admin AND @admin_id IS NOT NULL;
+WHERE CONVERT(correo USING utf8mb4) COLLATE utf8mb4_general_ci <> CONVERT(@admin USING utf8mb4) COLLATE utf8mb4_general_ci
+  AND @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_ventas.usuarios_sistema
+WHERE CONVERT(correo USING utf8mb4) COLLATE utf8mb4_general_ci <> CONVERT(@admin USING utf8mb4) COLLATE utf8mb4_general_ci
+  AND @admin_id IS NOT NULL;
+DELETE FROM librospe_ms_inventario.usuarios_sistema
+WHERE CONVERT(correo USING utf8mb4) COLLATE utf8mb4_general_ci <> CONVERT(@admin USING utf8mb4) COLLATE utf8mb4_general_ci
+  AND @admin_id IS NOT NULL;
 
--- ---------------------------------------------------------------------
--- 4. REINICIAR AUTO_INCREMENT en 1
---    (solo surte efecto si la tabla quedo vacia; por eso va al final)
--- ---------------------------------------------------------------------
-ALTER TABLE librospe_ms_clientes.clientes              AUTO_INCREMENT = 1;
-ALTER TABLE librospe_db.clientes                       AUTO_INCREMENT = 1;
-ALTER TABLE librospe_db.pedidos                        AUTO_INCREMENT = 1;
-ALTER TABLE librospe_db.detalle_pedido                 AUTO_INCREMENT = 1;
-ALTER TABLE librospe_ms_ventas.comercial_pedidos       AUTO_INCREMENT = 1;
-ALTER TABLE librospe_ms_ventas.comercial_detalle_pedido AUTO_INCREMENT = 1;
-ALTER TABLE librospe_db.ventas                         AUTO_INCREMENT = 1;
-ALTER TABLE librospe_ms_ventas.comercial_ventas        AUTO_INCREMENT = 1;
-ALTER TABLE librospe_db.cajas                          AUTO_INCREMENT = 1;
-ALTER TABLE librospe_db.auditoria                      AUTO_INCREMENT = 1;
-ALTER TABLE librospe_ms_usuarios.auditoria             AUTO_INCREMENT = 1;
-ALTER TABLE librospe_db.intentos_login                 AUTO_INCREMENT = 1;
-ALTER TABLE librospe_db.bloqueos                       AUTO_INCREMENT = 1;
-ALTER TABLE librospe_ms_usuarios.usuarios_sistema      AUTO_INCREMENT = 1;
-ALTER TABLE librospe_db.usuarios_sistema               AUTO_INCREMENT = 1;
+-- La tabla de reservas se crea al primer checkout; borrarla solo si existe.
+SET @sql_borrar_reservas := IF(
+    @hay_reservas > 0,
+    'DELETE FROM librospe_ms_inventario.reservas_stock WHERE @admin_id IS NOT NULL',
+    'SELECT 1'
+);
+PREPARE stmt_borrar_reservas FROM @sql_borrar_reservas;
+EXECUTE stmt_borrar_reservas;
+DEALLOCATE PREPARE stmt_borrar_reservas;
 
+COMMIT;
 SET FOREIGN_KEY_CHECKS = 1;
 
--- ---------------------------------------------------------------------
--- 5. VERIFICACION (clientes/pedidos/ventas deben dar 0;
---    usuarios_sistema debe dar 1)
--- ---------------------------------------------------------------------
-SELECT 'clientes'      AS tabla, COUNT(*) AS filas FROM librospe_db.clientes
-UNION ALL SELECT 'ms_clientes',   COUNT(*) FROM librospe_ms_clientes.clientes
-UNION ALL SELECT 'pedidos',       COUNT(*) FROM librospe_db.pedidos
-UNION ALL SELECT 'detalle_pedido',COUNT(*) FROM librospe_db.detalle_pedido
-UNION ALL SELECT 'ventas',        COUNT(*) FROM librospe_db.ventas
-UNION ALL SELECT 'cajas',         COUNT(*) FROM librospe_db.cajas
-UNION ALL SELECT 'usuarios',      COUNT(*) FROM librospe_db.usuarios_sistema
-UNION ALL SELECT 'ms_usuarios',   COUNT(*) FROM librospe_ms_usuarios.usuarios_sistema;
+-- Reiniciar AUTO_INCREMENT en tablas que quedaron vacias.
+-- Usuarios no se reinicia: se conserva el admin y su ID.
+ALTER TABLE librospe_ms_clientes.clientes AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_ventas.detalle_pedido AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_ventas.comercial_detalle_pedido AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_ventas.pedidos AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_ventas.comercial_pedidos AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_ventas.ventas AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_ventas.comercial_ventas AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_ventas.cajas AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_ventas.clientes AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_ventas.eventos_pendientes AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_inventario.ventas AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_usuarios.auditoria AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_usuarios.intentos_login AUTO_INCREMENT = 1;
+ALTER TABLE librospe_ms_usuarios.bloqueos AUTO_INCREMENT = 1;
 
-SELECT id, correo, nombres, rol, estado FROM librospe_db.usuarios_sistema;
+SET @sql_reset_reservas := IF(
+    @hay_reservas > 0,
+    'ALTER TABLE librospe_ms_inventario.reservas_stock AUTO_INCREMENT = 1',
+    'SELECT 1'
+);
+PREPARE stmt_reset_reservas FROM @sql_reset_reservas;
+EXECUTE stmt_reset_reservas;
+DEALLOCATE PREPARE stmt_reset_reservas;
 
--- ---------------------------------------------------------------------
--- VARIANTE: si prefieres CONSERVAR el historial de ventas
--- Reemplaza el bloque de ventas del paso 1 por esto.
--- ventas.cliente_id es NULLABLE, pero pedidos.cliente_id es NOT NULL,
--- asi que los pedidos se borran de todas formas:
---
---   DELETE FROM librospe_db.detalle_pedido;
---   DELETE FROM librospe_db.pedidos;
---   DELETE FROM librospe_ms_ventas.comercial_detalle_pedido;
---   DELETE FROM librospe_ms_ventas.comercial_pedidos;
---   UPDATE librospe_db.ventas SET cliente_id = NULL WHERE cliente_id IS NOT NULL;
---   UPDATE librospe_ms_ventas.comercial_ventas SET cliente_id = NULL WHERE cliente_id IS NOT NULL;
---   UPDATE librospe_db.ventas SET vendedor_id = @admin_id WHERE vendedor_id <> @admin_id;
---   UPDATE librospe_ms_ventas.comercial_ventas SET vendedor_id = @admin_id WHERE vendedor_id <> @admin_id;
---   DELETE FROM librospe_db.ventas WHERE cliente_id IS NULL;
---
--- ...y en el paso 4 omite el ALTER de ventas/comercial_ventas para no
--- reiniciar el historial de ventas.
--- ---------------------------------------------------------------------
+SET @sql_reset_conteos := IF(
+    @hay_conteos > 0,
+    'ALTER TABLE librospe_ms_inventario.conteos_stock AUTO_INCREMENT = 1',
+    'SELECT 1'
+);
+PREPARE stmt_reset_conteos FROM @sql_reset_conteos;
+EXECUTE stmt_reset_conteos;
+DEALLOCATE PREPARE stmt_reset_conteos;
+
+-- Verificacion final. Las tablas operativas deben quedar en cero;
+-- el usuario admin debe permanecer. El catalogo se conserva.
+SELECT 'clientes' AS tabla, COUNT(*) AS filas FROM librospe_ms_clientes.clientes
+UNION ALL SELECT 'pedidos', COUNT(*) FROM librospe_ms_ventas.pedidos
+UNION ALL SELECT 'ventas', COUNT(*) FROM librospe_ms_ventas.ventas
+UNION ALL SELECT 'pedidos_comerciales', COUNT(*) FROM librospe_ms_ventas.comercial_pedidos
+UNION ALL SELECT 'ventas_comerciales', COUNT(*) FROM librospe_ms_ventas.comercial_ventas
+;
+SET @sql_verif_reservas := IF(
+    @hay_reservas > 0,
+    'SELECT ''reservas_activas'' AS tabla, COUNT(*) AS filas
+     FROM librospe_ms_inventario.reservas_stock
+     WHERE estado IN (''reservado'', ''confirmado'')',
+    'SELECT ''reservas_stock'' AS tabla, 0 AS filas'
+);
+PREPARE stmt_verif_reservas FROM @sql_verif_reservas;
+EXECUTE stmt_verif_reservas;
+DEALLOCATE PREPARE stmt_verif_reservas;
+SELECT id, correo, nombres, rol, estado
+FROM librospe_ms_usuarios.usuarios_sistema WHERE CONVERT(correo USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(@admin USING utf8mb4) COLLATE utf8mb4_general_ci;

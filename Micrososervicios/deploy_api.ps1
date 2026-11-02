@@ -1,5 +1,5 @@
 # Despliegue de la fase "API Gateway JWT" de LibrosPE a Alwaysdata.
-# - Sube www/ (app_api, gateways/, jwt_auth, api_demo, api_cliente.js)
+# - Sube www/ (Gateway y tienda), sincronizar_copias.sql y migraciones
 # - Sube los 4 microservicios standalone (con sus correcciones)
 # - Instala PyJWT + requests en ~/www/venv
 # NO modifica el sitio activo de la tienda (app.py sigue corriendo).
@@ -29,7 +29,8 @@ if ($falta) {
 # ---------------- [1/5] Empaquetar ----------------
 Write-Host "[1/5] Creando paquete www/ + servicios ..."
 tar.exe -czf $tarFile -C $PSScriptRoot --exclude=__pycache__ --exclude=.env `
-    www $servicios
+    www $servicios sincronizar_copias.sql migracion_eliminar_clientes_inventario.sql `
+    migracion_ventas_espejo_inventario.sql
 if ($LASTEXITCODE -ne 0) { throw "Error al crear el tarball" }
 
 # ---------------- [2/5] Subir ----------------
@@ -47,7 +48,8 @@ host = r'$SSH_HOST'; user = r'$SSH_USER'; key = r'$SSH_KEY'
 tar = r'$tarFile'
 servicios = r'$($servicios -join " ")'
 client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+client.load_system_host_keys()
+client.set_missing_host_key_policy(paramiko.RejectPolicy())
 client.connect(host, username=user, key_filename=key, timeout=60)
 sftp = client.open_sftp()
 sftp.put(tar, '/home/librospe/api_deploy.tar.gz')
@@ -59,6 +61,9 @@ cmds = [
 for s in servicios.split():
     cmds.append('rsync -a --exclude __pycache__ --exclude .env ~/api_stage/%s/ ~/%s/' % (s, s))
 cmds += [
+    'rsync -a ~/api_stage/sincronizar_copias.sql ~/sincronizar_copias.sql',
+    'rsync -a ~/api_stage/migracion_eliminar_clientes_inventario.sql ~/migracion_eliminar_clientes_inventario.sql',
+    'rsync -a ~/api_stage/migracion_ventas_espejo_inventario.sql ~/migracion_ventas_espejo_inventario.sql',
     'mkdir -p ~/www/tmp && touch ~/www/tmp/restart.txt',
     'rm -rf ~/api_stage ~/api_deploy.tar.gz',
 ]
@@ -91,7 +96,8 @@ except Exception:
     pass
 import paramiko
 client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+client.load_system_host_keys()
+client.set_missing_host_key_policy(paramiko.RejectPolicy())
 client.connect(r'$SSH_HOST', username=r'$SSH_USER', key_filename=r'$SSH_KEY', timeout=60)
 cmds = [
     '~/www/venv/bin/pip install --quiet PyJWT requests gunicorn',

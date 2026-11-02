@@ -67,7 +67,7 @@ def test_bind_correcto_de_cada_modelo():
 def test_modelos_espejo_declarados():
     """Las copias locales de claves foraneas deben existir."""
     nombres = {c for c, t, b in _modelos()}
-    for espejo in ("ProductoEnVentas", "UsuarioEnVentas", "ClienteEnVentas",
+    for espejo in ("ProductoEnVentas", "UsuarioEnVentas",
                    "VentaEnInventario", "UsuarioEnInventario"):
         assert espejo in nombres, f"falta el modelo espejo {espejo}"
 
@@ -86,16 +86,43 @@ def test_enrutado_de_sql_crudo():
 def test_sincronizacion_cubre_las_copias():
     """El script de sincronizacion debe reflejar cada copia local."""
     sql = (RAIZ / "sincronizar_copias.sql").read_text(encoding="utf-8")
+    assert (WWW / "sincronizar_copias.sql").read_text(encoding="utf-8") == sql
     for destino, origen in [
-        ("librospe_ms_ventas.productos", "librospe_ms_inventario.productos"),
-        ("librospe_ms_ventas.clientes", "librospe_ms_clientes.clientes"),
-        ("librospe_ms_ventas.usuarios_sistema", "librospe_ms_usuarios.usuarios_sistema"),
+        ("librospe_ms_ventas.proveedores", "librospe_ms_inventario.proveedores"),
         ("librospe_ms_inventario.ventas", "librospe_ms_ventas.ventas"),
     ]:
         bd_dest, tabla_dest = destino.split(".")
         bd_ori, tabla_ori = origen.split(".")
         assert f"`{bd_dest}`.`{tabla_dest}`" in sql, f"falta la copia hacia {destino}"
         assert f"`{bd_ori}`.`{tabla_ori}`" in sql, f"falta el origen {origen}"
+    assert "`librospe_ms_ventas`.`clientes`" not in sql
+    assert "`librospe_ms_ventas`.`productos`" not in sql
+    assert "`librospe_ms_ventas`.`categorias`" not in sql
+    assert "`librospe_ms_ventas`.`usuarios_sistema`" not in sql
+    assert "`librospe_ms_ventas`.`roles`" not in sql
+    vista = (RAIZ / "migracion_productos_fuente_unica.sql").read_text(encoding="utf-8")
+    assert "FROM librospe_ms_inventario.inventario_productos" in vista
+
+
+def test_lista_pedidos_no_une_clientes_de_otra_base():
+    """La pantalla de pedidos resuelve clientes con su bind propietario."""
+    codigo = (WWW / "app.py").read_text(encoding="utf-8-sig")
+    inicio = codigo.index("def ver_pedidos():")
+    fin = codigo.index("# ========================================================================", inicio)
+    ruta = codigo[inicio:fin]
+    assert "ClienteEnVentas" not in ruta
+    assert "Cliente.query" in ruta
+    assert "Pedido.cliente_id.in_(ids_clientes_busqueda)" in ruta
+
+
+def test_reporte_ubicacion_no_consulta_tabla_espejo_de_clientes():
+    codigo = (WWW / "app.py").read_text(encoding="utf-8-sig")
+    inicio = codigo.index("def _listar_ubicaciones_distrito_clientes():")
+    fin = codigo.index("@app.route(\"/reportes/ventas_por_ubicacion\"", inicio)
+    reporte = codigo[inicio:fin]
+    assert "ClienteEnVentas" not in reporte
+    assert "LEFT JOIN clientes" not in reporte
+    assert "Cliente.query" in reporte
 
 
 def test_no_se_consulta_librospe_db():

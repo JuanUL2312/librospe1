@@ -75,6 +75,14 @@ function formatearFechaExpiracion(input) {
     validarFechaExpiracion();
 }
 
+function fechaActualPeru() {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Lima', year: 'numeric', month: '2-digit'
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map(({type, value}) => [type, value]));
+    return new Date(Number(values.year), Number(values.month) - 1);
+}
+
 function validarFechaExpiracion() {
     const fechaInput = document.getElementById('fechaExpiracion');
     const fechaError = document.getElementById('fechaError');
@@ -84,8 +92,7 @@ function validarFechaExpiracion() {
         if (partes.length === 2) {
             const mes = parseInt(partes[0]);
             const anio = 2000 + parseInt(partes[1]);
-            const ahora = new Date();
-            const fechaActual = new Date(ahora.getFullYear(), ahora.getMonth());
+            const fechaActual = fechaActualPeru();
             const fechaTarjeta = new Date(anio, mes - 1);
             if (mes < 1 || mes > 12) {
                 fechaError.innerHTML = '<i class="fas fa-exclamation-triangle text-warning"></i> Mes inválido (01-12)';
@@ -145,8 +152,7 @@ function validarDatosTarjeta() {
     }
     const mes = parseInt(fechaPartes[0]);
     const anio = 2000 + parseInt(fechaPartes[1]);
-    const ahora = new Date();
-    const fechaActual = new Date(ahora.getFullYear(), ahora.getMonth());
+    const fechaActual = fechaActualPeru();
     const fechaTarjeta = new Date(anio, mes - 1);
     if (mes < 1 || mes > 12) {
         Swal.fire({icon:'warning',title:'Datos inválidos',text:'El mes debe estar entre 01 y 12'});
@@ -333,7 +339,8 @@ async function confirmarPedido(){    if(!metodoSeleccionado){
         const data=await res.json();
         if(data.success){
             sessionStorage.removeItem('checkoutIdempotencia');
-            localStorage.removeItem('carritoCliente');
+            if (window.guardarCarritoCliente) await window.guardarCarritoCliente([]);
+            else localStorage.removeItem('carritoCliente');
             localStorage.removeItem('checkoutData');
             localStorage.removeItem('cuponAplicado');
             localStorage.removeItem('descuento');

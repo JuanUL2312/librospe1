@@ -1,9 +1,8 @@
 /* ============================================
    POS RÁPIDO - INTERFAZ TÁCTIL
    ============================================ */
-/* En el POS ocultamos la cabecera administrativa para máxima pantalla */
+/* En el POS ocultamos la barra superior, pero conservamos el panel de navegación. */
 body.pos-tactil .navbar { display: none; }
-body.pos-tactil .panel-salesiano-wrapper { display: none; }
 
 .pos-wrap { padding: 0.5rem 0 2rem; }
 

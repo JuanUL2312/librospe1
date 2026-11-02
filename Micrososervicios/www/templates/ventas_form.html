@@ -213,13 +213,13 @@
                                         {% for p in productos %}
                                         <option value="{{ p.id }}" 
                                                 data-precio="{{ p.precio }}" 
-                                                data-stock="{{ p.cantidad }}" 
+                                                data-stock="{{ p.stock_disponible }}"
                                                 data-nombre="{{ p.nombre }}"
                                                 data-imagen="{{ p.imagen if p.imagen else '' }}">
                                             {{ p.nombre }} - S/.{{ p.precio }}
-                                            {% if p.cantidad == 0 %}(❌ Sin stock)
-                                            {% elif p.cantidad <= 5 %}(⚠️ {{ p.cantidad }})
-                                            {% else %}(✅ {{ p.cantidad }})
+                                            {% if p.stock_disponible == 0 %}(❌ Sin stock)
+                                            {% elif p.stock_disponible <= 5 %}(⚠️ {{ p.stock_disponible }})
+                                            {% else %}(✅ {{ p.stock_disponible }})
                                             {% endif %}
                                         </option>
                                         {% endfor %}
@@ -334,7 +334,7 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/ventas_form.js') }}"></script>
+<script src="{{ url_for('static', filename='js/ventas_form.js') }}?v=2026102902"></script>
 
 <script src="{{ url_for('static', filename='js/ventas_form_2.js') }}"></script>
 

@@ -8,6 +8,9 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+_ZONA_PERU = ZoneInfo("America/Lima")
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -65,7 +68,7 @@ def registrar(accion, metodo, ruta, estado, usuario=None, payload=None,
     """Escribe un evento de auditoría (JSON por línea). Nunca lanza errores."""
     try:
         evento = {
-            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "ts": datetime.now(_ZONA_PERU).isoformat(timespec="seconds"),
             "accion": accion,
             "metodo": metodo,
             "ruta": ruta,

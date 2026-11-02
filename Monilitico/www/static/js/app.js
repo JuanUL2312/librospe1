@@ -49,26 +49,24 @@
             // FECHA Y HORA ACTUAL
             // ============================================
             const now = new Date();
-
-            function pad(n) {
-                return n.toString().padStart(2, '0');
+            function partesPeru(fecha) {
+                return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+                    timeZone: 'America/Lima', year: 'numeric', month: '2-digit',
+                    day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+                }).formatToParts(fecha).map(({type, value}) => [type, value]));
             }
-
-            const year = now.getFullYear();
-            const month = now.getMonth() + 1;
-            const day = now.getDate();
-            const hour = now.getHours();
-            const min = now.getMinutes();
-
-            const datetimeLocal = `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(min)}`;
+            const actual = partesPeru(now);
+            const year = actual.year, month = actual.month, day = actual.day;
+            const hour = actual.hour, min = actual.minute;
+            const datetimeLocal = `${year}-${month}-${day}T${hour}:${min}`;
 
             const fechaHoraInput = document.getElementById('fecha_hora');
             if (fechaHoraInput) {
                 fechaHoraInput.value = datetimeLocal;
             }
 
-            const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-            const maxDate = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T23:59`;
+            const tomorrow = partesPeru(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+            const maxDate = `${tomorrow.year}-${tomorrow.month}-${tomorrow.day}T23:59`;
             if (fechaHoraInput) {
                 fechaHoraInput.max = maxDate;
             }

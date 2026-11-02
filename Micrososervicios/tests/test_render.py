@@ -108,3 +108,34 @@ def test_pedidos_muestran_el_reporte():
         assert "NO RECIBIDO" in html
         assert 'name="reporte"' in html       # filtro de solo reportados
 
+
+def test_reporte_ubicacion_muestra_un_solo_selector_geografico():
+    from flask import render_template
+    from app import app
+    ubicacion = {"departamento": "JUNIN", "provincia": "HUANCAYO", "distrito": "EL TAMBO"}
+    with app.test_request_context("/"):
+        html = render_template(
+            "reporte_ventas_ubicacion.html", periodo="todo",
+            departamento="JUNIN", provincia="HUANCAYO", distrito="EL TAMBO",
+            ubicaciones=[ubicacion], filas=[],
+            totales={"num_ventas": 0, "unidades": 0, "total": 0},
+        )
+    assert 'id="filtroDistrito"' in html
+    assert 'id="filtroDepartamento"' not in html
+    assert 'id="filtroProvincia"' not in html
+    assert "EL TAMBO" in html and "HUANCAYO" in html and "JUNIN" in html
+
+
+def test_mapa_delivery_muestra_logo_en_el_marcador_de_tienda():
+    from flask import render_template
+    from app import app
+    tienda = {"lat": -12.08, "lng": -75.21, "nombre": "Librería Salesiana"}
+    with app.test_request_context("/"):
+        html = render_template(
+            "delivery_mapa.html", puntos=[], tienda=tienda,
+            sin_ubicar=0, csrf_token="csrf-test",
+        )
+    assert "LogoSalesiano.png" in html
+    assert "tienda-logo-pin" in html
+    assert "L.divIcon" in html
+

@@ -17,6 +17,9 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+_ZONA_PERU = ZoneInfo("America/Lima")
 
 from flask import g, jsonify, redirect, request
 from werkzeug.exceptions import HTTPException
@@ -164,7 +167,7 @@ def _cuerpo_salud(app, profundo):
         "status": "OK",
         "servicio": "api-gateway",
         "version": os.environ.get("APP_VERSION", "api-jwt-1.0"),
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "timestamp": datetime.now(_ZONA_PERU).isoformat(timespec="seconds"),
         "jwt_minutos": app.config["JWT_MINUTOS"],
     }
     if profundo:

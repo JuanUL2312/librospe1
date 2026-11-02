@@ -1,6 +1,10 @@
 import os
 import sys
 import time
+
+os.environ["TZ"] = "America/Lima"
+if hasattr(time, "tzset"):
+    time.tzset()
 import hmac
 import hashlib
 import json
@@ -149,7 +153,8 @@ app.config["SQLALCHEMY_BINDS"] = {
 }
 
 # Comunicacion servicio a servicio (HTTP + token interno)
-SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", _ms_config.get("service_token", "librospe-interno-dev"))
+SERVICE_TOKEN = (os.environ.get("SERVICE_TOKEN") or
+                 _ms_config.get("service_token", "")).strip()
 app.config["SERVICE_TOKEN"] = SERVICE_TOKEN
 app.config["MS_INVENTARIO_URL"] = os.environ.get(
     "MS_INVENTARIO_URL", _ms_config.get("inventario_url", "http://127.0.0.1:8001"))
@@ -163,7 +168,7 @@ app.config["INVENTARIO_DB_FALLBACK"] = os.environ.get(
     "INVENTARIO_DB_FALLBACK", "false").strip().lower() in ("1", "true", "yes", "on")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "connect_args": {"ssl": {"ssl_mode": "REQUIRED"}},
+    "connect_args": {"ssl": {"ssl_mode": "REQUIRED"}, "init_command": "SET time_zone = '-05:00'"},
     "pool_pre_ping": True,
     "pool_recycle": 280,
 }
@@ -192,7 +197,7 @@ TABLAS_POR_SERVICIO = {
     ],
     "inventario": [
         "productos", "categorias", "proveedores", "conteos_stock",
-        "inventario_productos", "inventario_categorias", "inventario_proveedores",
+        "inventario_productos",
     ],
     "usuarios": [
         "usuarios_sistema", "roles", "permisos", "rol_permisos",
@@ -275,7 +280,8 @@ class Bloqueo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tipo_usuario = db.Column(db.Enum('sistema', 'cliente'), nullable=False)
     usuario_sistema_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=True)
-    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=True)
+    # El cliente pertenece a otro microservicio; guardar solo su ID.
+    cliente_id = db.Column(db.Integer, nullable=True)
     motivo = db.Column(db.String(255), nullable=True)
     bloqueado_por = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=True)
     fecha_bloqueo = db.Column(db.DateTime, default=datetime.now)
@@ -290,7 +296,7 @@ class IntentosLogin(db.Model):
     __bind_key__ = "usuarios"
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(150))
-    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=True)  # ← NUEVO
+    cliente_id = db.Column(db.Integer, nullable=True)  # ← NUEVO
     usuario_sistema_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=True)  # ← NUEVO
     ip = db.Column(db.String(45))
     intentos = db.Column(db.Integer, default=1)
@@ -305,14 +311,15 @@ class Proveedor(db.Model):
     __bind_key__ = "inventario"
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(100), nullable=False)
+    empresa = db.Column(db.String(150), nullable=True)
     email = db.Column(db.String(150), nullable=False)
     contacto = db.Column(db.String(20), nullable=False)
-    ruc_empresa_id = db.Column(db.Integer, db.ForeignKey("ruc_empresas.id"), nullable=True)
+    ruc_empresa_id = db.Column(db.Integer, nullable=True)
     estado = db.Column(db.Integer, default=1)
     productos = db.relationship("Producto", back_populates="proveedor")
 
 class Producto(db.Model):
-    __tablename__ = "productos"
+    __tablename__ = "inventario_productos"
     __bind_key__ = "inventario"
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(150), nullable=False)
@@ -327,9 +334,7 @@ class Producto(db.Model):
     destacado = db.Column(db.Integer, default=0)
     precio_oferta = db.Column(db.Numeric(10,2), nullable=True) 
     codigo_barras = db.Column(db.String(50), nullable=True)
-    # La columna existe en la tabla productos (BD_Libros.sql) pero faltaba en el
-    # modelo: /inventario y /stock-bajo filtran por ella y reventaban con
-    # AttributeError. Sin esto ninguna de las dos rutas carga.
+    # Los datos de producto y stock tienen una única fuente propietaria.
     estado = db.Column(db.Integer, default=1)
     id_categoria = db.Column(db.Integer, db.ForeignKey("categorias.id_categoria"), nullable=True)
     
@@ -337,7 +342,7 @@ class Producto(db.Model):
     categoria_rel = db.relationship("Categoria", back_populates="productos")  
 
 def _descontar_stock_atomico(producto_id, cantidad):
-    """Descuenta solo cuando el inventario cubre la cantidad solicitada."""
+    """Descuenta atómicamente desde inventario_productos."""
     resultado = db.session.query(Producto).filter(
         Producto.id == producto_id,
         Producto.cantidad >= cantidad,
@@ -361,6 +366,18 @@ class UsuarioSistema(db.Model):
     documento = db.Column(db.String(20), nullable=True)  # DNI o Carnet de Extranjería
     debe_cambiar_clave = db.Column(db.Integer, default=0)  # 1 = debe cambiar la contraseña al entrar
 
+def _nombres_vendedores_por_id(ids):
+    """Consulta vendedores en su base propietaria y devuelve id -> nombre."""
+    ids = {int(uid) for uid in ids if uid is not None}
+    if not ids:
+        return {}
+    usuarios = UsuarioSistema.query.filter(UsuarioSistema.id.in_(ids)).all()
+    return {
+        usuario.id: (f"{usuario.nombres or ''} {usuario.apellidos or ''}".strip()
+                     or f"Vendedor #{usuario.id}")
+        for usuario in usuarios
+    }
+
 class Categoria(db.Model):
     __tablename__ = "categorias"
     __bind_key__ = "inventario"
@@ -375,12 +392,12 @@ class Venta(db.Model):
     __bind_key__ = "ventas"
     id = db.Column(db.Integer, primary_key=True)
     producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=False)
-    vendedor_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
-    fecha_venta = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    vendedor_id = db.Column(db.Integer, nullable=False)
+    fecha_venta = db.Column(db.DateTime, nullable=False, default=hora_actual_peru)
     cantidad = db.Column(db.Integer, default=1)
     tipo_comprobante = db.Column(db.String(20), default="boleta")
     numero_comprobante = db.Column(db.String(50), nullable=True)
-    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=True)
+    cliente_id = db.Column(db.Integer, nullable=True)
     pedido_id = db.Column(db.Integer, nullable=True)
     estado = db.Column(db.Integer, default=1)
     # Datos de facturación del cliente (boleta/factura)
@@ -420,13 +437,13 @@ class PosVentaIdempotencia(db.Model):
     referencia_stock = db.Column(db.String(64), nullable=False, unique=True)
     respuesta = db.Column(db.Text, nullable=False)
     stock_confirmado = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text("0"))
-    creado_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    creado_en = db.Column(db.DateTime, nullable=False, default=hora_actual_peru)
 
 class Caja(db.Model):
     __tablename__ = "cajas"
     __bind_key__ = "ventas"
     id = db.Column(db.Integer, primary_key=True)
-    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
+    usuario_id = db.Column(db.Integer, nullable=False)
     monto_inicial = db.Column(db.Numeric(10,2), default=0)
     fecha_apertura = db.Column(db.DateTime, default=datetime.now)
     fecha_cierre = db.Column(db.DateTime, nullable=True)
@@ -434,9 +451,7 @@ class Caja(db.Model):
     monto_real = db.Column(db.Numeric(10,2), nullable=True)
     diferencia = db.Column(db.Numeric(10,2), nullable=True)
     estado = db.Column(db.String(20), default="abierta")
-    # El usuario del sistema vive en el microservicio de usuarios: se usa la
-    # copia local (misma base) para poder mostrar su nombre.
-    usuario = db.relationship("UsuarioEnVentas")
+    # usuario_id apunta al microservicio de usuarios; no hay FK entre bases.
 
 class Auditoria(db.Model):
     __tablename__ = "auditoria"
@@ -453,8 +468,8 @@ class ConteoStock(db.Model):
     __tablename__ = "conteos_stock"
     __bind_key__ = "inventario"
     id = db.Column(db.Integer, primary_key=True)
-    producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=False)
-    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
+    producto_id = db.Column(db.Integer, db.ForeignKey("inventario_productos.id"), nullable=False)
+    usuario_id = db.Column(db.Integer, nullable=False)
     cantidad_sistema = db.Column(db.Integer, nullable=False)
     cantidad_contada = db.Column(db.Integer, nullable=False)
     diferencia = db.Column(db.Integer, nullable=False)  # contada - sistema
@@ -462,8 +477,6 @@ class ConteoStock(db.Model):
     observacion = db.Column(db.String(300), nullable=True)
     fecha = db.Column(db.DateTime, default=datetime.now)
     producto = db.relationship("Producto")
-    # El usuario vive en el microservicio de usuarios: copia local.
-    usuario = db.relationship("UsuarioEnInventario")
 
 
 class Permiso(db.Model):
@@ -504,6 +517,21 @@ class Cliente(db.Model):
     # NOTA: la relacion con Pedido/Venta se elimino al separar los datos por
     # microservicio (el pedido vive en la base de ventas y MySQL no puede
     # unir tablas de bases distintas). Se consulta por id cuando hace falta.
+class CarritoItem(db.Model):
+    """Producto pendiente de compra guardado para un cliente autenticado."""
+    __tablename__ = "carrito_items"
+    __bind_key__ = "clientes"
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.Integer, nullable=False, index=True)
+    producto_id = db.Column(db.Integer, nullable=False)
+    nombre_producto = db.Column(db.String(150), nullable=False)
+    precio_unitario = db.Column(db.Numeric(10, 2), nullable=False)
+    cantidad = db.Column(db.Integer, nullable=False, default=1)
+    imagen = db.Column(db.String(255), nullable=True)
+    creado_en = db.Column(db.DateTime, nullable=True, default=datetime.now)
+    actualizado_en = db.Column(db.DateTime, nullable=True, default=datetime.now,
+                               onupdate=datetime.now)
+
 class Rol(db.Model):
     __tablename__ = "roles"
     __bind_key__ = "usuarios"
@@ -544,7 +572,7 @@ class Pedido(db.Model):
     __tablename__ = "pedidos"
     __bind_key__ = "ventas"
     id = db.Column(db.Integer, primary_key=True)
-    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"))
+    cliente_id = db.Column(db.Integer)
     fecha_pedido = db.Column(db.DateTime, default=datetime.now)
     estado = db.Column(db.String(20), default="pendiente")
     total = db.Column(db.Float)
@@ -565,6 +593,10 @@ class Pedido(db.Model):
     clave_idempotencia = db.Column(db.String(64), nullable=True, unique=True)
     huella_idempotencia = db.Column(db.String(64), nullable=True)
     stock_confirmado = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text("0"))
+    pago_confirmado = db.Column(db.Boolean, nullable=False, default=False,
+                                server_default=db.text("0"))
+    fecha_pago_confirmado = db.Column(db.DateTime, nullable=True)
+    pago_confirmado_por = db.Column(db.String(100), nullable=True)
     nota = db.Column(db.Text)
     # Confirmación de entrega (delivery)
     nombre_recibe = db.Column(db.String(200), nullable=True)
@@ -780,7 +812,7 @@ def registrar_intento_fallido(email, ip, es_cliente=False):
     - 3 intentos fallidos → bloqueo temporal (10 minutos)
     - 5 intentos fallidos → bloqueo permanente (solo admin desbloquea)
     """
-    ahora = datetime.now()
+    ahora = hora_actual_peru()
     
     # Verificar si el email existe (clientes: busca en microservicio dueño primero)
     email_existe = False
@@ -1045,7 +1077,7 @@ def registrar_intento_fallido(email, ip, es_cliente=False):
 
 def verificar_bloqueo_ip(ip):
     """Verifica si la IP está bloqueada"""
-    ahora = datetime.now()
+    ahora = hora_actual_peru()
     bloqueado = IntentosLogin.query.filter(
         IntentosLogin.ip == ip,
         IntentosLogin.ips_bloqueadas > ahora
@@ -1064,7 +1096,7 @@ def verificar_bloqueo_email(email):
     Verifica si el email está bloqueado (temporal o permanentemente)
     Retorna True si está bloqueado, False si no
     """
-    ahora = datetime.now()
+    ahora = hora_actual_peru()
     
     # 1. Verificar bloqueo temporal en intentos_login
     registro = IntentosLogin.query.filter_by(email=email).first()
@@ -1124,7 +1156,7 @@ def limpiar_intentos_exitosos(email, ip):
             registro.intentos = 0
             registro.intentos_totales = 0  # ← NUEVO: Resetear también
             registro.email_bloqueado = None
-            registro.ultimo_intento = datetime.now()
+            registro.ultimo_intento = hora_actual_peru()
             db.session.commit()
             app.logger.debug("Contadores de inicio de sesión reiniciados")
         else:
@@ -1160,7 +1192,7 @@ def limpiar_intentos_exitosos(email, ip):
             app.logger.info("Bloqueo temporal de usuario desactivado")
         
         # 3. Verificar si la IP ya no tiene bloqueos activos
-        ahora = datetime.now()
+        ahora = hora_actual_peru()
         emails_bloqueados = IntentosLogin.query.filter(
             IntentosLogin.ip == ip,
             IntentosLogin.email_bloqueado > ahora
@@ -1180,7 +1212,7 @@ def limpiar_intentos_exitosos(email, ip):
 
 def limpiar_bloqueos_expirados():
     """Limpia bloqueos temporales que ya expiraron (no toca los permanentes)"""
-    ahora = datetime.now()
+    ahora = hora_actual_peru()
     
     # Limpiar bloqueos temporales en intentos_login
     IntentosLogin.query.filter(
@@ -1208,6 +1240,10 @@ def limpiar_bloqueos_expirados():
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        if "usuario_id" in session and "cliente_id" in session:
+            session.clear()
+            flash("Había dos sesiones activas en este navegador. Inicia sesión nuevamente con una sola cuenta.", "warning")
+            return redirect(url_for("login"))
         if "usuario_id" not in session:
             return redirect(url_for("login"))
         return f(*args, **kwargs)
@@ -1332,6 +1368,10 @@ def agregar_cabeceras_seguridad(response):
 def login_required_cliente(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        if "usuario_id" in session and "cliente_id" in session:
+            session.clear()
+            flash("Había dos sesiones activas en este navegador. Inicia sesión nuevamente con una sola cuenta.", "warning")
+            return redirect(url_for("login_cliente"))
         if "cliente_id" not in session:
             flash("Debes iniciar sesión para continuar", "warning")
             return redirect(url_for("login_cliente"))
@@ -1381,7 +1421,7 @@ def _emitir_evento(tipo, datos, origen="gateway"):
 
 def rango_periodo(periodo):
     """Devuelve (fecha_inicio, fecha_fin) según el período seleccionado."""
-    hoy = datetime.now().date()
+    hoy = hora_actual_peru().date()
     if periodo == "hoy":
         return hoy, hoy
     if periodo == "semana":
@@ -1395,7 +1435,9 @@ def rango_periodo(periodo):
 def verificar_stock_bajo_y_notificar():
     """Envía un correo al administrador si hay productos con stock bajo/agotado."""
     try:
-        bajos = Producto.query.filter(Producto.cantidad <= Producto.stock_minimo).all()
+        stock_actual = _stock_inventario_actual()
+        bajos = [p for p in Producto.query.filter(Producto.estado == 1).all()
+                 if stock_actual.get(int(p.id), 0) <= (p.stock_minimo or 5)]
         if not bajos:
             return
         # Evento de dominio: el microservicio de inventario publica la
@@ -1403,7 +1445,7 @@ def verificar_stock_bajo_y_notificar():
         for p in bajos:
             _emitir_evento("producto.alerta_stock", {
                 "id": p.id, "nombre": p.nombre,
-                "cantidad": int(p.cantidad or 0),
+                "cantidad": int(stock_actual.get(int(p.id), 0)),
                 "stock_minimo": int(p.stock_minimo or 0),
             })
         admins = UsuarioSistema.query.filter_by(rol="administrador").all()
@@ -1411,7 +1453,7 @@ def verificar_stock_bajo_y_notificar():
         if not destinatarios:
             return
         lineas = "".join(
-            f"<li><b>{p.nombre}</b>: {p.cantidad} unidades (mínimo {p.stock_minimo or 5})</li>"
+            f"<li><b>{p.nombre}</b>: {stock_actual.get(int(p.id), 0)} unidades (mínimo {p.stock_minimo or 5})</li>"
             for p in bajos
         )
         asunto = "⚠️ Alerta de stock bajo - Librería Salesiana"
@@ -1443,10 +1485,10 @@ def verificar_stock_maximo_y_notificar():
     avisar si el producto baja del máximo y vuelve a superarlo.
     """
     try:
-        excesos = Producto.query.filter(
-            Producto.stock_maximo.isnot(None),
-            Producto.cantidad >= Producto.stock_maximo
-        ).all()
+        stock_actual = _stock_inventario_actual()
+        excesos = [p for p in Producto.query.filter(
+            Producto.estado == 1, Producto.stock_maximo.isnot(None)
+        ).all() if stock_actual.get(int(p.id), 0) >= p.stock_maximo]
         ids_actuales = {p.id for p in excesos}
         # Limpiar avisos de productos que ya normalizaron su stock.
         for pid in list(_ALERTADAS_STOCK_MAX):
@@ -1460,8 +1502,8 @@ def verificar_stock_maximo_y_notificar():
         if not destinatarios:
             return
         lineas = "".join(
-            f"<li><b>{p.nombre}</b>: {p.cantidad} unidades "
-            f"(máximo {p.stock_maximo} — excedente {p.cantidad - p.stock_maximo})</li>"
+            f"<li><b>{p.nombre}</b>: {stock_actual.get(int(p.id), 0)} unidades "
+            f"(máximo {p.stock_maximo} — excedente {stock_actual.get(int(p.id), 0) - p.stock_maximo})</li>"
             for p in nuevas
         )
         asunto = "📦 Alerta de stock máximo (sobreabasto) - Librería Salesiana"
@@ -1610,7 +1652,10 @@ def armar_telefono(prefijo, numero):
 
 def generar_comprobante_pdf(tipo_comprobante, numero_comprobante, fecha, cliente_nombre,
                             documento="", tipo_documento="", razon_social="",
-                            direccion_fiscal="", productos=None, total_venta=0.0):
+                            direccion_fiscal="", productos=None, total_venta=0.0,
+                            subtotal=None, descuento=0.0, costo_envio=0.0,
+                            cargo_contraentrega=0.0, metodo_pago="",
+                            tipo_entrega=""):
     """Genera el PDF del comprobante (boleta/factura/nota) y devuelve los bytes.
 
     Se usa para adjuntarlo al correo del comprobante. Mismo estilo que la ruta
@@ -1671,7 +1716,19 @@ def generar_comprobante_pdf(tipo_comprobante, numero_comprobante, fecha, cliente
         total_linea = float(p.get('total', precio * cantidad) or 0)
         filas.append([str(p.get('nombre', '')), str(cantidad),
                       f"S/ {precio:.2f}", f"S/ {total_linea:.2f}"])
+    subtotal = (sum(float(p.get('total', float(p.get('precio_unitario', p.get('precio', 0)) or 0)
+                           * int(p.get('cantidad', 1) or 1)) or 0) for p in productos)
+                if subtotal is None else float(subtotal or 0))
+    filas.append(["", "", "Subtotal", f"S/ {subtotal:.2f}"])
+    if float(descuento or 0) > 0:
+        filas.append(["", "", "Descuento", f"-S/ {float(descuento):.2f}"])
+    if tipo_entrega == "delivery":
+        filas.append(["", "", "Envío", f"S/ {float(costo_envio or 0):.2f}"])
+    if (str(metodo_pago or "").strip().lower() == "contraentrega"
+            and float(cargo_contraentrega or 0) > 0):
+        filas.append(["", "", "Contraentrega", f"S/ {float(cargo_contraentrega):.2f}"])
     filas.append(["", "", "TOTAL", f"S/ {float(total_venta or 0):.2f}"])
+    fila_total = len(filas) - 1
     detalle = Table(filas, colWidths=[95*mm, 18*mm, 27*mm, 30*mm])
     detalle.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e3a8a')),
@@ -1680,9 +1737,9 @@ def generar_comprobante_pdf(tipo_comprobante, numero_comprobante, fecha, cliente
         ('FONTSIZE', (0, 0), (-1, -1), 9),
         ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
         ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#e2e8f0')),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#F0FDF4')),
-        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('TEXTCOLOR', (2, -1), (3, -1), colors.HexColor('#16a34a')),
+        ('BACKGROUND', (0, fila_total), (-1, fila_total), colors.HexColor('#F0FDF4')),
+        ('FONTNAME', (0, fila_total), (-1, fila_total), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (2, fila_total), (3, fila_total), colors.HexColor('#16a34a')),
     ]))
     elementos.append(detalle)
     elementos.append(Spacer(1, 12))
@@ -1713,7 +1770,7 @@ def generar_comprobante_pdf(tipo_comprobante, numero_comprobante, fecha, cliente
     return buffer.getvalue()
 
 
-def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta, documento="", tipo_documento="", razon_social="", direccion_fiscal=""):
+def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, numero_comprobante, fecha, productos, total_venta, documento="", tipo_documento="", razon_social="", direccion_fiscal="", subtotal=None, descuento=0.0, costo_envio=0.0, cargo_contraentrega=0.0, metodo_pago="", tipo_entrega=""):
     """Envía el comprobante (factura/boleta) por correo con estructura profesional de documento SUNAT."""
     try:
         import smtplib
@@ -1744,6 +1801,14 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
 
         e = html.escape
         cliente_mostrar = (cliente_nombre or "").strip() or "Consumidor Final"
+        subtotal = (sum(float(p.get('total', float(p.get('precio_unitario', p.get('precio', 0)) or 0)
+                              * int(p.get('cantidad', 1) or 1)) or 0) for p in productos)
+                    if subtotal is None else float(subtotal or 0))
+        descuento = float(descuento or 0)
+        costo_envio = float(costo_envio or 0)
+        cargo_contraentrega = float(cargo_contraentrega or 0)
+        mostrar_contraentrega = (str(metodo_pago or "").strip().lower() == "contraentrega"
+                                 and cargo_contraentrega > 0)
         tipo_doc = tipo_documento or ("RUC" if es_factura else ("DNI" if documento else ("Sin documento" if es_nota else "")))
         doc_val = documento if documento else "—"
 
@@ -1856,6 +1921,13 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
                                     <th style="padding:10px 12px;color:#fff;font-size:11px;letter-spacing:1px;text-transform:uppercase;text-align:right;">Total</th>
                                 </tr>
                                 {filas}
+                                <tr style="background:#f8fafc;">
+                                    <td colspan="3" style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;font-weight:700;">Subtotal</td>
+                                    <td style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;">S/. {subtotal:,.2f}</td>
+                                </tr>
+                                {f'''<tr style="background:#f8fafc;"><td colspan="3" style="padding:8px 12px;text-align:right;color:#15803d;font-size:13px;font-weight:700;">Descuento</td><td style="padding:8px 12px;text-align:right;color:#15803d;font-size:13px;">-S/. {descuento:,.2f}</td></tr>''' if descuento > 0 else ''}
+                                {f'''<tr style="background:#f8fafc;"><td colspan="3" style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;font-weight:700;">Envío</td><td style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;">S/. {costo_envio:,.2f}</td></tr>''' if tipo_entrega == 'delivery' else ''}
+                                {f'''<tr style="background:#f8fafc;"><td colspan="3" style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;font-weight:700;">Contraentrega</td><td style="padding:8px 12px;text-align:right;color:#334155;font-size:13px;">S/. {cargo_contraentrega:,.2f}</td></tr>''' if mostrar_contraentrega else ''}
                                 <tr style="background:#f0fdf4;">
                                     <td colspan="3" style="padding:14px 12px;text-align:right;color:#0f172a;font-size:14px;font-weight:700;text-transform:uppercase;">Total</td>
                                     <td style="padding:14px 12px;text-align:right;color:#16a34a;font-size:19px;font-weight:900;">S/. {total_venta:,.2f}</td>
@@ -1917,6 +1989,12 @@ def enviar_comprobante_email(destinatario, cliente_nombre, tipo_comprobante, num
                 direccion_fiscal=direccion_fiscal,
                 productos=productos,
                 total_venta=total_venta,
+                subtotal=subtotal,
+                descuento=descuento,
+                costo_envio=costo_envio,
+                cargo_contraentrega=cargo_contraentrega,
+                metodo_pago=metodo_pago,
+                tipo_entrega=tipo_entrega,
             )
             prefijo_archivo = {"factura": "Factura", "nota": "NotaVenta"}.get(tipo_comprobante, "Boleta")
             numero_limpio = "".join(ch if (ch.isalnum() or ch in "._-") else "_" for ch in str(numero_comprobante))
@@ -2121,13 +2199,15 @@ def login():
                 if bloqueo_auto:
                     flash(f"⛔ CUENTA BLOQUEADA TEMPORALMENTE", "danger")
                     flash(f"📝 Motivo: Bloqueo automático por {bloqueo_auto['intentos']} intentos fallidos de login", "warning")
-                    flash(f"⏳ Tiempo restante: {(bloqueo_auto['email_bloqueado'] - datetime.now()).seconds // 60} minutos", "info")
+                    flash(f"⏳ Tiempo restante: {(bloqueo_auto['email_bloqueado'] - hora_actual_peru()).seconds // 60} minutos", "info")
                     flash("🔄 Espera a que se desbloquee automáticamente o contacta al administrador.", "warning")
                     return render_template("login.html")
                 # ============================================
                 
                 if bcrypt.check_password_hash(usuario.clave, clave):
                     limpiar_intentos_exitosos(correo, ip_cliente)
+                    # Mantener una sola identidad autenticada por navegador.
+                    session.clear()
                     session["usuario_id"] = usuario.id
                     session["rol"] = usuario.rol
                     session["nombre"] = usuario.nombres
@@ -2220,7 +2300,7 @@ def login_cliente():
                     # Bloqueo temporal
                     registro = IntentosLogin.query.filter_by(email=email).first()
                     if registro and registro.email_bloqueado:
-                        minutos_restantes = (registro.email_bloqueado - datetime.now()).seconds // 60
+                        minutos_restantes = (registro.email_bloqueado - hora_actual_peru()).seconds // 60
                         flash("⛔ CUENTA BLOQUEADA TEMPORALMENTE", "danger")
                         flash(f"⏳ Has agotado tus 3 intentos. Espera {minutos_restantes} minutos para volver a intentar.", "warning")
                         template_data["bloqueo_temporal"] = True
@@ -2271,8 +2351,8 @@ def login_cliente():
         
         # 2. Verificar bloqueo temporal (debe estar en intentos_login)
         registro_intentos = IntentosLogin.query.filter_by(email=email).first()
-        if registro_intentos and registro_intentos.email_bloqueado and registro_intentos.email_bloqueado > datetime.now():
-            minutos_restantes = (registro_intentos.email_bloqueado - datetime.now()).seconds // 60
+        if registro_intentos and registro_intentos.email_bloqueado and registro_intentos.email_bloqueado > hora_actual_peru():
+            minutos_restantes = (registro_intentos.email_bloqueado - hora_actual_peru()).seconds // 60
             flash("⛔ CUENTA BLOQUEADA TEMPORALMENTE", "danger")
             flash(f"⏳ Has agotado tus 3 intentos. Espera {minutos_restantes} minutos para volver a intentar.", "warning")
             template_data["bloqueo_temporal"] = True
@@ -2304,6 +2384,8 @@ def login_cliente():
             """), {"cliente_id": cliente.id})
             db.session.commit()
             
+            # Reemplazar cualquier identidad previa del sistema o cliente.
+            session.clear()
             session["cliente_id"] = cliente.id
             session["cliente_nombres"] = cliente.nombres
             session["cliente_apellidos"] = cliente.apellidos
@@ -2338,7 +2420,7 @@ def login_cliente():
                     # Verificar si hay minutos restantes
                     registro = IntentosLogin.query.filter_by(email=email).first()
                     if registro and registro.email_bloqueado:
-                        minutos_restantes = (registro.email_bloqueado - datetime.now()).seconds // 60
+                        minutos_restantes = (registro.email_bloqueado - hora_actual_peru()).seconds // 60
                         template_data["bloqueo_temporal"] = True
                         template_data["minutos_restantes"] = minutos_restantes
                 elif resultado["tipo"] == "ip":
@@ -3091,11 +3173,12 @@ def inventario():
         query = query.filter(or_(Producto.nombre.like(like),
                                  Producto.codigo_barras.like(like)))
 
+    stock_actual = _stock_inventario_actual()
     productos_lista = query.order_by(Producto.nombre.asc()).all()
 
     filas = []
     for p in productos_lista:
-        cantidad = p.cantidad or 0
+        cantidad = stock_actual.get(int(p.id), 0)
         smin = p.stock_minimo if p.stock_minimo is not None else 5
         smax = p.stock_maximo if p.stock_maximo is not None else 100
         if cantidad == 0:
@@ -3166,9 +3249,10 @@ def stock_bajo():
         query = query.filter(or_(Producto.nombre.like(like),
                                  Producto.codigo_barras.like(like)))
 
+    stock_actual = _stock_inventario_actual()
     filas = []
     for p in query.order_by(Producto.nombre.asc()).all():
-        cantidad = p.cantidad or 0
+        cantidad = stock_actual.get(int(p.id), 0)
         smin = p.stock_minimo if p.stock_minimo is not None else 5
         # solo entra lo que hay que reponer
         if cantidad > smin:
@@ -3253,9 +3337,10 @@ def stock_bajo_compras_csv():
     import csv as _csv
     import io
     query = Producto.query.filter(Producto.estado == 1)
+    stock_actual = _stock_inventario_actual()
     grupos = {}
     for p in query.order_by(Producto.nombre.asc()).all():
-        cantidad = p.cantidad or 0
+        cantidad = stock_actual.get(int(p.id), 0)
         smin = p.stock_minimo if p.stock_minimo is not None else 5
         if cantidad > smin:
             continue
@@ -3279,7 +3364,7 @@ def stock_bajo_compras_csv():
         escritor.writerow([nombre, g["unidades"], f"{g['costo']:.2f}",
                            " | ".join(g["items"])])
     salida = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
-    fecha = datetime.now().strftime("%Y%m%d")
+    fecha = hora_actual_peru().strftime("%Y%m%d")
     return send_file(salida, mimetype="text/csv", as_attachment=True,
                      download_name=f"sugerencia_compra_{fecha}.csv")
 
@@ -3313,7 +3398,7 @@ def reponer_stock(id):
         except (TypeError, ValueError):
             flash("❌ Stock mínimo inválido, se conservó el anterior", "error")
 
-    anterior = producto_obj.cantidad or 0
+    anterior = _stock_inventario_actual().get(int(id), 0)
     producto_obj.cantidad = cantidad
     db.session.commit()
 
@@ -3335,8 +3420,14 @@ def conteo_stock():
         like = f"%{busqueda}%"
         query = query.filter(or_(Producto.nombre.like(like),
                                  Producto.codigo_barras.like(like)))
+    stock_actual = _stock_inventario_actual()
     productos_lista = query.order_by(Producto.nombre.asc()).limit(60).all()
+    for p in productos_lista:
+        p.stock_disponible = stock_actual.get(int(p.id), 0)
     conteos = ConteoStock.query.order_by(ConteoStock.fecha.desc()).limit(40).all()
+    nombres_usuarios = _nombres_vendedores_por_id(c.usuario_id for c in conteos)
+    for conteo in conteos:
+        conteo.usuario_nombre = nombres_usuarios.get(conteo.usuario_id, "—")
     pendientes = ConteoStock.query.filter(ConteoStock.ajustado == 0,
                                           ConteoStock.diferencia != 0).count()
     return render_template("conteo.html",
@@ -3360,7 +3451,7 @@ def conteo_registrar():
     if contada is None or contada < 0:
         flash("❌ Cantidad contada inválida", "danger")
         return redirect(url_for("conteo_stock"))
-    sistema = producto.cantidad or 0
+    sistema = _stock_inventario_actual().get(int(producto.id), 0)
     registro = ConteoStock(
         producto_id=producto.id,
         usuario_id=session["usuario_id"],
@@ -3396,19 +3487,19 @@ def conteo_ajustar(conteo_id):
         flash("ℹ️ Ese conteo ya fue ajustado", "info")
         return redirect(url_for("conteo_stock"))
     producto = registro.producto
-    anterior = producto.cantidad or 0
+    anterior = _stock_inventario_actual().get(int(producto.id), 0)
     producto.cantidad = registro.cantidad_contada
     registro.ajustado = 1
     db.session.commit()
     registrar_auditoria("AJUSTE", "conteos_stock",
                         f"Ajuste por conteo #{registro.id} de «{producto.nombre}»: "
-                        f"{anterior} -> {producto.cantidad} (físico contado)")
+                        f"{anterior} -> {registro.cantidad_contada} (físico contado)")
     try:
         verificar_stock_bajo_y_notificar()
         verificar_stock_maximo_y_notificar()
     except Exception:
         pass
-    flash(f"✅ Ajuste aplicado a «{producto.nombre}»: {anterior} → {producto.cantidad} unidades", "success")
+    flash(f"✅ Ajuste aplicado a «{producto.nombre}»: {anterior} → {registro.cantidad_contada} unidades", "success")
     return redirect(url_for("conteo_stock"))
 
 
@@ -3426,6 +3517,9 @@ def productos():
         query = query.filter_by(destacado=1)
     
     productos_lista = query.order_by(Producto.destacado.desc(), Producto.nombre.asc()).all()
+    stock_actual = _stock_inventario_actual()
+    for p in productos_lista:
+        p.stock_disponible = stock_actual.get(int(p.id), 0)
     
     categorias = Categoria.query.filter_by(activo=True).all()
     
@@ -3487,27 +3581,6 @@ def guardar_producto():
                 nuevo.imagen = filename
         
         db.session.commit()
-        # Dual-write a microservicio inventario (dueño) - asegura dato en librospe_ms_inventario
-        try:
-            try:
-                eng_inv = db.get_engine(bind="inventario")
-            except Exception:
-                eng_inv = db.engines.get("inventario") if hasattr(db, "engines") else None
-            if eng_inv is not None:
-                db.session.execute(text("""
-                    INSERT INTO inventario_productos (id, nombre, descripcion, cantidad, proveedor_id, precio, imagen, id_categoria, precio_oferta, destacado, codigo_barras, estado, stock_minimo, stock_maximo, costo)
-                    VALUES (:id, :nombre, :descripcion, :cantidad, :proveedor_id, :precio, :imagen, :id_categoria, :precio_oferta, :destacado, :codigo_barras, 1, :stock_minimo, :stock_maximo, :costo)
-                    ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), descripcion=VALUES(descripcion), cantidad=VALUES(cantidad), precio=VALUES(precio)
-                """), {
-                    "id": nuevo.id, "nombre": nuevo.nombre, "descripcion": nuevo.descripcion, "cantidad": nuevo.cantidad,
-                    "proveedor_id": nuevo.proveedor_id, "precio": nuevo.precio, "imagen": nuevo.imagen, "id_categoria": nuevo.id_categoria,
-                    "precio_oferta": nuevo.precio_oferta, "destacado": nuevo.destacado, "codigo_barras": nuevo.codigo_barras,
-                    "stock_minimo": nuevo.stock_minimo, "stock_maximo": nuevo.stock_maximo, "costo": nuevo.costo
-                }, bind_arguments={"bind": eng_inv})
-                db.session.commit()
-        except Exception as e:
-            print(f"WARN dual-write inventario_productos: {e}")
-
         registrar_auditoria("CREAR", "productos", f"Se creó el producto: {nuevo.nombre}")
         # Evento de dominio: los demas microservicios actualizan su copia.
         _emitir_evento("producto.actualizado", {
@@ -3532,6 +3605,7 @@ def editar_producto(id):
     if not producto:
         flash("❌ Producto no encontrado", "error")
         return redirect(url_for("productos"))
+    producto.stock_disponible = _stock_inventario_actual().get(int(producto.id), 0)
     
     proveedores = Proveedor.query.all()
     categorias = Categoria.query.filter_by(activo=True).all()  # ← Obtener categorías activas
@@ -3648,7 +3722,7 @@ def producto_preview(producto_id):
         "nombre": producto.nombre,
         "descripcion": producto.descripcion[:60] + "..." if len(producto.descripcion or "") > 60 else (producto.descripcion or ""),
         "precio": float(producto.precio or 0),
-        "cantidad": producto.cantidad,
+        "cantidad": _stock_inventario_actual().get(int(producto.id), 0),
         "categoria": producto.categoria_rel.nombre if producto.categoria_rel else None,  # ← AGREGAR
         "imagen_url": imagen_url,
     }
@@ -3664,13 +3738,110 @@ def _hay_caja_abierta():
     return Caja.query.filter_by(estado="abierta").first() is not None
 
 
+_METODOS_EFECTIVO = {"efectivo", "contraentrega"}
+_METODOS_DIGITALES = {"yape", "plin", "transferencia", "tarjeta"}
+
+
+def _resumen_ventas_de_caja(caja):
+    """Resume ventas del turno sin mezclar pagos digitales con efectivo contado."""
+    resumen = {}
+    efectivo = 0.0
+    ventas = Venta.query.filter(
+        Venta.fecha_venta >= caja.fecha_apertura,
+        Venta.estado == 1,
+    ).all()
+    ids_pedidos = {v.pedido_id for v in ventas if v.pedido_id}
+    pedidos = {p.id: p for p in Pedido.query.filter(Pedido.id.in_(ids_pedidos)).all()} if ids_pedidos else {}
+
+    for venta in ventas:
+        if not venta.producto:
+            continue
+        pedido = pedidos.get(venta.pedido_id) if venta.pedido_id else None
+        # Las ventas web solo cuentan después de que el pago fue verificado.
+        if venta.pedido_id and (pedido is None or not pedido.pago_confirmado):
+            continue
+        metodo = ((pedido.metodo_pago if pedido else None) or venta.metodo_pago or "efectivo").strip().lower()
+        # El pago digital de pedidos web se informa por fecha de confirmación,
+        # aunque ocurriera antes de abrir caja; no duplicarlo como venta de turno.
+        if pedido and metodo in _METODOS_DIGITALES:
+            continue
+        subtotal = float(venta.cantidad or 0) * float(venta.producto.precio or 0)
+        resumen[metodo] = resumen.get(metodo, 0.0) + subtotal
+        if metodo in _METODOS_EFECTIVO:
+            efectivo += subtotal
+    return resumen, round(efectivo, 2)
+
+
+def _pagos_digitales_confirmados_hoy():
+    """Pagos web digitales confirmados hoy, independientes del turno de caja."""
+    hoy = hora_actual_peru().replace(hour=0, minute=0, second=0, microsecond=0)
+    manana = hoy + timedelta(days=1)
+    filas = db.session.query(
+        Pedido.metodo_pago.label("metodo"),
+        func.count(Pedido.id).label("pedidos"),
+        func.coalesce(func.sum(Pedido.total), 0).label("monto"),
+    ).filter(
+        Pedido.pago_confirmado.is_(True),
+        Pedido.fecha_pago_confirmado >= hoy,
+        Pedido.fecha_pago_confirmado < manana,
+        func.lower(Pedido.metodo_pago).in_(tuple(_METODOS_DIGITALES)),
+        Pedido.estado != "cancelado",
+    ).group_by(Pedido.metodo_pago).order_by(Pedido.metodo_pago).all()
+    return [{"metodo": row.metodo, "pedidos": int(row.pedidos),
+             "monto": float(row.monto or 0)} for row in filas]
+
+
+def _resumen_cobros_del_dia():
+    """Suma cobros del día por método, combinando POS y pedidos web confirmados."""
+    hoy = hora_actual_peru().replace(hour=0, minute=0, second=0, microsecond=0)
+    manana = hoy + timedelta(days=1)
+    ventas = Venta.query.filter(
+        Venta.fecha_venta >= hoy,
+        Venta.fecha_venta < manana,
+        Venta.estado == 1,
+    ).all()
+    ids_pedidos = {v.pedido_id for v in ventas if v.pedido_id}
+    pedidos = {p.id: p for p in Pedido.query.filter(Pedido.id.in_(ids_pedidos)).all()} if ids_pedidos else {}
+    totales = {}
+
+    for venta in ventas:
+        if not venta.producto:
+            continue
+        pedido = pedidos.get(venta.pedido_id) if venta.pedido_id else None
+        if venta.pedido_id and (pedido is None or not pedido.pago_confirmado):
+            continue
+        metodo = ((pedido.metodo_pago if pedido else None) or venta.metodo_pago or "efectivo").strip().lower()
+        # Los pedidos web digitales se suman por el total realmente pagado,
+        # no por cada línea de venta (evita duplicarlos y respeta descuentos/envío).
+        if pedido and metodo in _METODOS_DIGITALES:
+            continue
+        monto = float(venta.cantidad or 0) * float(venta.producto.precio or 0)
+        fila = totales.setdefault(metodo, {"metodo": metodo, "operaciones": 0, "monto": 0.0})
+        fila["operaciones"] += 1
+        fila["monto"] += monto
+
+    for pago in _pagos_digitales_confirmados_hoy():
+        metodo = (pago["metodo"] or "digital").strip().lower()
+        fila = totales.setdefault(metodo, {"metodo": metodo, "operaciones": 0, "monto": 0.0})
+        fila["operaciones"] += pago["pedidos"]
+        fila["monto"] += pago["monto"]
+
+    resumen = sorted(totales.values(), key=lambda fila: fila["metodo"])
+    total = round(sum(fila["monto"] for fila in resumen), 2)
+    return resumen, total
+
+
 @app.route("/ventas/nueva", methods=["GET", "POST"])
 @login_required
 def venta_nueva():
     if not _hay_caja_abierta():
         flash("🔒 Caja cerrada: no se pueden registrar ventas. Abre caja en el módulo de Caja.", "danger")
         return redirect(url_for("ver_caja"))
-    lista_productos = Producto.query.filter(Producto.cantidad > 0).order_by(Producto.nombre).all()
+    stock_actual = _stock_inventario_actual()
+    lista_productos = Producto.query.order_by(Producto.nombre).all()
+    lista_productos = [p for p in lista_productos if stock_actual.get(int(p.id), 0) > 0]
+    for p in lista_productos:
+        p.stock_disponible = stock_actual[int(p.id)]
     
     if session.get("rol") == "administrador":
         vendedores = UsuarioSistema.query.filter(UsuarioSistema.rol.in_(['administrador', 'vendedor'])).order_by(UsuarioSistema.nombres).all()
@@ -3686,12 +3857,12 @@ def venta_nueva():
             ultima_venta = session.get("ultima_venta_ts")
             if ultima_venta and (time.time() - ultima_venta) < 2:
                 flash("⚠️ Estás registrando ventas muy rápido. Espera un momento.", "warning")
-                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=hora_actual_peru())
             session["ultima_venta_ts"] = time.time()
 
             producto_id = int(request.form["producto_id"])
             cantidad = int(request.form["cantidad"])
-            fecha_venta = datetime.now()
+            fecha_venta = hora_actual_peru()
             tipo_comprobante = request.form.get("tipo_comprobante", "boleta")
             
             if session.get("rol") == "administrador":
@@ -3741,16 +3912,22 @@ def venta_nueva():
             print(f"[venta] producto={producto_id} cantidad={cantidad}")
             
             # Generar número de comprobante
-            numero_comprobante = f"{datetime.now().strftime('%Y%m%d')}-{datetime.now().strftime('%H%M%S')}"
+            numero_comprobante = f"{hora_actual_peru().strftime('%Y%m%d')}-{hora_actual_peru().strftime('%H%M%S')}"
             
             producto = Producto.query.get(producto_id)
             if not producto:
                 flash("❌ Producto no encontrado", "danger")
-                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=hora_actual_peru())
 
-            if producto.cantidad < cantidad:
-                flash(f"❌ Stock insuficiente. Disponible: {producto.cantidad}", "danger")
-                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+            try:
+                stock_disponible = _stock_inventario_actual().get(int(producto_id), 0)
+            except Exception:
+                app.logger.exception("No se pudo validar stock de venta para producto=%s", producto_id)
+                flash("No se pudo verificar el stock. Intenta nuevamente.", "danger")
+                return redirect(url_for("venta_nueva"))
+            if stock_disponible < cantidad:
+                flash(f"❌ Stock insuficiente. Disponible: {stock_disponible}", "danger")
+                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=hora_actual_peru())
 
             referencia_reserva = "venta:" + nueva_referencia()
             reserva = reservar_stock(referencia_reserva, [{"id": producto_id, "cantidad": cantidad}],
@@ -3849,9 +4026,9 @@ def venta_nueva():
             import traceback
             traceback.print_exc()
             flash(f"❌ Error al registrar la venta: {str(e)}", "danger")
-            return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+            return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=hora_actual_peru())
     
-    return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+    return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=hora_actual_peru())
 
 # ===============================
 # CAJA - APERTURA Y CIERRE
@@ -3862,27 +4039,21 @@ def venta_nueva():
 def ver_caja():
     caja_abierta = Caja.query.filter_by(estado="abierta").order_by(Caja.id.desc()).first()
     historial = Caja.query.filter_by(estado="cerrada").order_by(Caja.id.desc()).limit(10).all()
-
-    # Resumen de ventas de la caja abierta (por método de pago)
     resumen = {}
-    total_caja = 0
+    total_caja = 0.0
     if caja_abierta:
-        ventas = Venta.query.filter(
-            Venta.fecha_venta >= caja_abierta.fecha_apertura,
-            Venta.estado == 1
-        ).all()
-        for v in ventas:
-            if not v.producto:
-                continue
-            subtotal = float(v.cantidad) * float(v.producto.precio or 0)
-            total_caja += subtotal
-            metodo = v.metodo_pago or "efectivo"
-            resumen[metodo] = resumen.get(metodo, 0) + subtotal
+        resumen, total_caja = _resumen_ventas_de_caja(caja_abierta)
         caja_abierta._total_ventas = total_caja
         caja_abierta._resumen = resumen
 
     total_esperado = round(float(caja_abierta.monto_inicial or 0) + total_caja, 2) if caja_abierta else 0
-    return render_template("caja.html", caja=caja_abierta, historial=historial, total_caja=total_caja, resumen=resumen, total_esperado=total_esperado)
+    cobros_dia, total_recaudado_dia = _resumen_cobros_del_dia()
+    return render_template("caja.html", caja=caja_abierta, historial=historial,
+                           total_caja=total_caja, resumen=resumen,
+                           total_esperado=total_esperado,
+                           cobros_dia=cobros_dia,
+                           total_recaudado_dia=total_recaudado_dia,
+                           es_admin=session.get("rol") == "administrador")
 
 @app.route("/caja/apertura", methods=["POST"])
 @login_required
@@ -3910,15 +4081,7 @@ def cerrar_caja():
         flash("❌ No hay caja abierta", "danger")
         return redirect(url_for("ver_caja"))
 
-    ventas = Venta.query.filter(
-        Venta.fecha_venta >= caja.fecha_apertura,
-        Venta.estado == 1
-    ).all()
-    total_ventas = 0
-    for v in ventas:
-        if v.producto:
-            total_ventas += float(v.cantidad) * float(v.producto.precio or 0)
-
+    _, total_ventas = _resumen_ventas_de_caja(caja)
     monto_esperado = round(float(caja.monto_inicial or 0) + total_ventas, 2)
     try:
         monto_real = float(request.form.get("monto_real", "0") or 0)
@@ -3926,7 +4089,7 @@ def cerrar_caja():
         monto_real = 0
     diferencia = round(monto_real - monto_esperado, 2)
 
-    caja.fecha_cierre = datetime.now()
+    caja.fecha_cierre = hora_actual_peru()
     caja.monto_esperado = monto_esperado
     caja.monto_real = monto_real
     caja.diferencia = diferencia
@@ -3990,6 +4153,9 @@ def caja_historial():
             hasta = None
 
     cajas = query.order_by(Caja.fecha_apertura.desc()).limit(300).all()
+    nombres_cajeros = _nombres_vendedores_por_id(caja.usuario_id for caja in cajas)
+    for caja in cajas:
+        caja.usuario_nombre = nombres_cajeros.get(caja.usuario_id, "—")
 
     con_diferencia = [c for c in cajas if float(c.diferencia or 0) != 0]
     faltantes = [c for c in con_diferencia if float(c.diferencia) < 0]
@@ -4060,10 +4226,9 @@ def reporte_ventas_pdf():
     query = """
         SELECT v.id, v.fecha_venta, p.nombre AS producto, v.cantidad,
                p.precio, (v.cantidad * p.precio) AS total,
-               v.metodo_pago, u.nombres AS vendedor
+               v.metodo_pago, v.vendedor_id
         FROM ventas v
         JOIN productos p ON v.producto_id = p.id
-        LEFT JOIN usuarios_sistema u ON v.vendedor_id = u.id
         WHERE v.estado = 1
     """
     params = {}
@@ -4087,6 +4252,8 @@ def reporte_ventas_pdf():
     query += " ORDER BY v.fecha_venta DESC"
 
     rows = db.session.execute(db.text(query), params).mappings().all()
+    nombres_vendedores = _nombres_vendedores_por_id(
+        row["vendedor_id"] for row in rows)
 
     encabezados = ["N°", "Fecha", "Producto", "Cant.", "P. Unit.", "Total", "Método", "Vendedor"]
     filas = []
@@ -4102,11 +4269,11 @@ def reporte_ventas_pdf():
             f"S/ {float(r['precio'] or 0):.2f}",
             f"S/ {total:.2f}",
             (r['metodo_pago'] or 'efectivo').capitalize(),
-            r['vendedor'] or '-',
+            nombres_vendedores.get(r['vendedor_id'], f"Vendedor #{r['vendedor_id']}"),
         ])
     filas.append(["", "", "", "", "TOTAL", f"S/ {total_gral:.2f}", "", ""])
 
-    subtitulo = f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    subtitulo = f"Generado: {hora_actual_peru().strftime('%d/%m/%Y %H:%M')}"
     if inicio and fin:
         etiquetas = {"hoy": "Hoy", "semana": "Esta semana", "mes": "Este mes", "anio": "Este año"}
         subtitulo += f" | Período: {etiquetas.get(periodo, periodo)} ({inicio.strftime('%d/%m/%Y')} - {fin.strftime('%d/%m/%Y')})"
@@ -4132,10 +4299,9 @@ def reporte_ventas_excel():
     query = """
         SELECT v.id, v.fecha_venta, p.nombre AS producto, v.cantidad,
                p.precio, (v.cantidad * p.precio) AS total,
-               v.metodo_pago, u.nombres AS vendedor
+               v.metodo_pago, v.vendedor_id
         FROM ventas v
         JOIN productos p ON v.producto_id = p.id
-        LEFT JOIN usuarios_sistema u ON v.vendedor_id = u.id
         WHERE v.estado = 1
     """
     params = {}
@@ -4158,6 +4324,8 @@ def reporte_ventas_excel():
         params['fhasta'] = fecha_hasta
     query += " ORDER BY v.fecha_venta DESC"
     rows = db.session.execute(db.text(query), params).mappings().all()
+    nombres_vendedores = _nombres_vendedores_por_id(
+        row["vendedor_id"] for row in rows)
 
     wb = Workbook()
     ws = wb.active
@@ -4181,11 +4349,11 @@ def reporte_ventas_excel():
             float(r['precio'] or 0),
             total,
             (r['metodo_pago'] or 'efectivo').capitalize(),
-            r['vendedor'] or '-',
+            nombres_vendedores.get(r['vendedor_id'], f"Vendedor #{r['vendedor_id']}"),
         ])
     ws.append(["", "", "", "", "TOTAL", total_gral, "", ""])
     ws.append([])
-    ws.append(["Generado: " + datetime.now().strftime('%d/%m/%Y %H:%M')])
+    ws.append(["Generado: " + hora_actual_peru().strftime('%d/%m/%Y %H:%M')])
     if inicio and fin:
         etiquetas = {"hoy": "Hoy", "semana": "Esta semana", "mes": "Este mes", "anio": "Este año"}
         ws.append([f"Período: {etiquetas.get(periodo, periodo)} ({inicio.strftime('%d/%m/%Y')} - {fin.strftime('%d/%m/%Y')})"])
@@ -4204,13 +4372,19 @@ def reporte_ventas_excel():
 # ===============================
 # REPORTE VENTAS POR CLIENTE Y UBICACIÓN
 # ===============================
-def _listar_departamentos_clientes():
-    """Lista los departamentos registrados en clientes (para el filtro)."""
-    return db.session.execute(db.text(
-        "SELECT DISTINCT departamento FROM clientes "
-        "WHERE departamento IS NOT NULL AND TRIM(departamento) <> '' "
-        "ORDER BY departamento"
-    )).scalars().all()
+def _listar_ubicaciones_distrito_clientes():
+    """Lista los distritos con provincia/departamento para evitar homonimos."""
+    filas = (Cliente.query.with_entities(
+                 Cliente.departamento, Cliente.provincia, Cliente.distrito)
+             .filter(Cliente.distrito.isnot(None), func.trim(Cliente.distrito) != "")
+             .distinct()
+             .order_by(Cliente.distrito, Cliente.provincia, Cliente.departamento)
+             .all())
+    return [{
+        "departamento": (dep or "SIN ESPECIFICAR").strip(),
+        "provincia": (prov or "Sin especificar").strip(),
+        "distrito": distrito.strip(),
+    } for dep, prov, distrito in filas]
 
 
 def _consultar_ventas_por_ubicacion(periodo="todo", departamento=None, provincia=None, distrito=None):
@@ -4221,60 +4395,70 @@ def _consultar_ventas_por_ubicacion(periodo="todo", departamento=None, provincia
       totales : {num_ventas, unidades, total} del filtro aplicado.
     Los vendedores solo ven sus propias ventas.
     """
-    query = """
-        SELECT COALESCE(c.departamento, 'SIN ESPECIFICAR') AS departamento,
-               COALESCE(c.provincia, 'Sin especificar')    AS provincia,
-               COALESCE(c.distrito, 'Sin especificar')     AS distrito,
-               COALESCE(CONCAT(c.nombres, ' ', c.apellidos), 'VENTA SIN CLIENTE (mostrador)') AS cliente,
-               COUNT(*)                    AS num_ventas,
-               COALESCE(SUM(v.cantidad), 0) AS unidades,
-               COALESCE(SUM(v.cantidad * p.precio), 0) AS total
-        FROM ventas v
-        JOIN productos p ON v.producto_id = p.id
-        LEFT JOIN clientes c ON (v.cliente_id IS NOT NULL AND v.cliente_id = c.id)
-             OR (v.cliente_id IS NULL AND v.cliente_documento IS NOT NULL
-                 AND v.cliente_documento <> ''
-                 AND (c.dni = v.cliente_documento OR c.ruc = v.cliente_documento OR c.ce = v.cliente_documento))
-        WHERE v.estado = 1
-    """
-    params = {}
+    query = (db.session.query(Venta, ProductoEnVentas.precio)
+             .join(ProductoEnVentas, Venta.producto_id == ProductoEnVentas.id)
+             .filter(Venta.estado == 1))
     if session.get("rol") == "vendedor":
-        query += " AND v.vendedor_id = :vid"
-        params["vid"] = session.get("usuario_id")
+        query = query.filter(Venta.vendedor_id == session.get("usuario_id"))
     inicio, fin = rango_periodo(periodo)
     if inicio and fin:
-        query += " AND DATE(v.fecha_venta) >= :fini AND DATE(v.fecha_venta) <= :ffin"
-        params["fini"] = inicio
-        params["ffin"] = fin
-    if departamento:
-        query += " AND UPPER(c.departamento) = UPPER(:dep)"
-        params["dep"] = departamento
-    if provincia:
-        query += " AND UPPER(c.provincia) = UPPER(:prov)"
-        params["prov"] = provincia
-    if distrito:
-        query += " AND UPPER(c.distrito) = UPPER(:dist)"
-        params["dist"] = distrito
-    query += """
-        GROUP BY c.id, c.departamento, c.provincia, c.distrito, c.nombres, c.apellidos
-        ORDER BY c.departamento IS NULL, c.departamento,
-                 c.provincia IS NULL, c.provincia,
-                 c.distrito IS NULL, c.distrito,
-                 c.nombres, c.apellidos
-    """
-    rows = db.session.execute(db.text(query), params).mappings().all()
+        query = query.filter(func.date(Venta.fecha_venta) >= inicio,
+                             func.date(Venta.fecha_venta) <= fin)
+    ventas = query.all()
 
-    datos = []
-    for r in rows:
-        datos.append({
-            "d": r["departamento"],
-            "p": r["provincia"],
-            "dt": r["distrito"],
-            "cliente": r["cliente"],
-            "num_ventas": int(r["num_ventas"] or 0),
-            "unidades": int(r["unidades"] or 0),
-            "total": float(r["total"] or 0),
+    ids_clientes = {venta.cliente_id for venta, _precio in ventas if venta.cliente_id}
+    documentos = {str(venta.cliente_documento).strip() for venta, _precio in ventas
+                  if venta.cliente_documento and str(venta.cliente_documento).strip()}
+    condiciones_cliente = []
+    if ids_clientes:
+        condiciones_cliente.append(Cliente.id.in_(ids_clientes))
+    if documentos:
+        condiciones_cliente.extend((Cliente.dni.in_(documentos),
+                                    Cliente.ruc.in_(documentos),
+                                    Cliente.ce.in_(documentos)))
+    clientes = (Cliente.query.filter(db.or_(*condiciones_cliente)).all()
+                if condiciones_cliente else [])
+    clientes_por_id = {cliente.id: cliente for cliente in clientes}
+    clientes_por_documento = {}
+    for cliente in clientes:
+        for documento in (cliente.dni, cliente.ruc, cliente.ce):
+            if documento:
+                clientes_por_documento[str(documento).strip()] = cliente
+
+    agregados = {}
+    for venta, precio in ventas:
+        cliente = clientes_por_id.get(venta.cliente_id)
+        if cliente is None and venta.cliente_documento:
+            cliente = clientes_por_documento.get(str(venta.cliente_documento).strip())
+        nombre = (f"{cliente.nombres or ''} {cliente.apellidos or ''}".strip()
+                  if cliente else "VENTA SIN CLIENTE (mostrador)")
+        dep = (cliente.departamento if cliente and cliente.departamento
+               else "SIN ESPECIFICAR")
+        prov = (cliente.provincia if cliente and cliente.provincia
+                else "Sin especificar")
+        dist = (cliente.distrito if cliente and cliente.distrito
+                else "Sin especificar")
+        if departamento and dep.upper() != departamento.upper():
+            continue
+        if provincia and prov.upper() != provincia.upper():
+            continue
+        if distrito and dist.upper() != distrito.upper():
+            continue
+        clave = (venta.cliente_id or (cliente.id if cliente else None),
+                 dep, prov, dist, nombre)
+        fila = agregados.setdefault(clave, {
+            "d": dep, "p": prov, "dt": dist, "cliente": nombre,
+            "num_ventas": 0, "unidades": 0, "total": 0.0,
         })
+        cantidad = int(venta.cantidad or 0)
+        fila["num_ventas"] += 1
+        fila["unidades"] += cantidad
+        fila["total"] += cantidad * float(precio or 0)
+    datos = list(agregados.values())
+    datos.sort(key=lambda x: (x["d"].upper(), x["p"].upper(),
+                              x["dt"].upper(), x["cliente"].upper()))
+    for fila in datos:
+        fila["total"] = round(fila["total"], 2)
 
     arbol = {}
     for item in datos:
@@ -4321,7 +4505,7 @@ def reporte_ventas_por_ubicacion():
     provincia = (request.args.get("provincia") or request.form.get("provincia") or "").strip() or None
     distrito = (request.args.get("distrito") or request.form.get("distrito") or "").strip() or None
     filas, totales = _consultar_ventas_por_ubicacion(periodo, departamento, provincia, distrito)
-    deptos = _listar_departamentos_clientes()
+    ubicaciones = _listar_ubicaciones_distrito_clientes()
     return render_template(
         "reporte_ventas_ubicacion.html",
         filas=filas,
@@ -4330,7 +4514,7 @@ def reporte_ventas_por_ubicacion():
         departamento=departamento,
         provincia=provincia,
         distrito=distrito,
-        deptos=deptos,
+        ubicaciones=ubicaciones,
     )
 
 
@@ -4364,7 +4548,7 @@ def reporte_ventas_por_ubicacion_pdf():
     filas_pdf.append(["", "", "", ""])
     filas_pdf.append(["TOTAL GENERAL", totales["num_ventas"], totales["unidades"], f"S/ {totales['total']:.2f}"])
 
-    subtitulo = f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    subtitulo = f"Generado: {hora_actual_peru().strftime('%d/%m/%Y %H:%M')}"
     if periodo != "todo":
         inicio, fin = rango_periodo(periodo)
         subtitulo += f" | Período: {inicio.strftime('%d/%m/%Y')} - {fin.strftime('%d/%m/%Y')}"
@@ -4429,27 +4613,18 @@ def caja_cierre_pdf():
         flash("❌ Caja no encontrada", "danger")
         return redirect(url_for("ver_caja"))
 
-    ventas = Venta.query.filter(Venta.fecha_venta >= caja.fecha_apertura, Venta.estado == 1).all()
-    total_ventas = 0
-    resumen = {}
-    for v in ventas:
-        if not v.producto:
-            continue
-        subtotal = float(v.cantidad) * float(v.producto.precio or 0)
-        total_ventas += subtotal
-        metodo = v.metodo_pago or "efectivo"
-        resumen[metodo] = resumen.get(metodo, 0) + subtotal
+    resumen, total_ventas = _resumen_ventas_de_caja(caja)
 
     encabezados = ["Método de pago", "Monto"]
     filas = [[m.capitalize(), f"S/ {monto:.2f}"] for m, monto in resumen.items()]
-    filas.append(["TOTAL VENTAS", f"S/ {total_ventas:.2f}"])
+    filas.append(["TOTAL EFECTIVO PARA CAJA", f"S/ {total_ventas:.2f}"])
     filas.append(["Monto inicial", f"S/ {float(caja.monto_inicial or 0):.2f}"])
     filas.append(["Monto esperado", f"S/ {float(caja.monto_esperado or 0):.2f}"])
     filas.append(["Monto real contado", f"S/ {float(caja.monto_real or 0):.2f}"])
     filas.append(["DIFERENCIA", f"S/ {float(caja.diferencia or 0):.2f}"])
 
     buffer = _generar_pdf("Cierre de Caja - Librería Salesiana", encabezados, filas,
-                          f"Caja N° {caja.id} | Apertura: {caja.fecha_apertura.strftime('%d/%m/%Y %H:%M')} | Cierre: {(caja.fecha_cierre or datetime.now()).strftime('%d/%m/%Y %H:%M')}")
+                          f"Caja N° {caja.id} | Apertura: {caja.fecha_apertura.strftime('%d/%m/%Y %H:%M')} | Cierre: {(caja.fecha_cierre or hora_actual_peru()).strftime('%d/%m/%Y %H:%M')}")
     return send_file(buffer, as_attachment=True, download_name=f"cierre_caja_{caja.id}.pdf", mimetype="application/pdf")
 
 # ===============================
@@ -4571,7 +4746,7 @@ def ver_bloqueos():
 @admin_required
 def ver_ips_bloqueadas():
     """Lista las direcciones IP que mantienen un bloqueo temporal activo."""
-    ahora = datetime.now()
+    ahora = hora_actual_peru()
     ips = IntentosLogin.query.filter(
         IntentosLogin.ips_bloqueadas.isnot(None),
         IntentosLogin.ips_bloqueadas > ahora,
@@ -4630,19 +4805,12 @@ def desbloquear_usuario_admin(bloqueo_id):
         return jsonify({"success": False, "error": "No autorizado"}), 403
     
     try:
-        # Obtener el bloqueo
-        bloqueo = db.session.execute(text("""
-            SELECT * FROM bloqueos WHERE id = :id AND estado = 1
-        """), {"id": bloqueo_id}).mappings().first()
-        
+        bloqueo = Bloqueo.query.filter_by(id=bloqueo_id, estado=True).first()
         if not bloqueo:
             return jsonify({"success": False, "error": "Bloqueo no encontrado"}), 404
-        
-        # Desbloquear usando el procedimiento
-        db.session.execute(text("""
-            CALL desbloquear_usuario(:bloqueo_id, :admin_id)
-        """), {"bloqueo_id": bloqueo_id, "admin_id": session["usuario_id"]})
-        
+        bloqueo.estado = False
+        bloqueo.fecha_desbloqueo = hora_actual_peru()
+        bloqueo.desbloqueado_por = session["usuario_id"]
         db.session.commit()
         
         return jsonify({"success": True, "message": "Usuario desbloqueado exitosamente"})
@@ -4667,16 +4835,18 @@ def desbloquear_usuario_form():
         return redirect(url_for("ver_bloqueos"))
     
     try:
-        db.session.execute(text("""
-            CALL desbloquear_usuario(:bloqueo_id, :admin_id)
-        """), {"bloqueo_id": bloqueo_id, "admin_id": session["usuario_id"]})
-        
+        bloqueo = Bloqueo.query.filter_by(id=int(bloqueo_id), estado=True).first()
+        if not bloqueo:
+            flash("El bloqueo ya no est? activo", "warning")
+            return redirect(url_for("ver_bloqueos"))
+        bloqueo.estado = False
+        bloqueo.fecha_desbloqueo = hora_actual_peru()
+        bloqueo.desbloqueado_por = session["usuario_id"]
         db.session.commit()
-        flash("✅ Usuario desbloqueado exitosamente", "success")
-        
+        flash("Usuario desbloqueado exitosamente", "success")
     except Exception as e:
         db.session.rollback()
-        flash(f"❌ Error al desbloquear: {str(e)}", "danger")
+        flash(f"Error al desbloquear: {e}", "danger")
     
     return redirect(url_for("ver_bloqueos"))
 
@@ -4795,15 +4965,12 @@ def _consultar_ventas_filtradas(periodo="todo", fecha_desde="", fecha_hasta="", 
             v.numero_comprobante,
             p.nombre as producto, 
             p.precio,
-            u.id as vendedor_id, 
-            u.nombres as vendedor_nombres, 
-            u.apellidos as vendedor_apellidos,
+            v.vendedor_id,
             v.cliente_nombres,
             v.cliente_apellidos,
             v.cliente_documento
         FROM ventas v
         JOIN productos p ON v.producto_id = p.id
-        LEFT JOIN usuarios_sistema u ON v.vendedor_id = u.id
         WHERE v.estado = 1
     """
     params = {}
@@ -4824,10 +4991,16 @@ def _consultar_ventas_filtradas(periodo="todo", fecha_desde="", fecha_hasta="", 
     query += " ORDER BY v.id DESC"
 
     resultados = db.session.execute(db.text(query), params).mappings().all()
+    nombres_vendedores = _nombres_vendedores_por_id(
+        row["vendedor_id"] for row in resultados)
 
     ventas_lista = []
     for row in resultados:
         venta_dict = dict(row)
+        nombre = nombres_vendedores.get(venta_dict.get("vendedor_id"), "")
+        partes_nombre = nombre.split(" ", 1)
+        venta_dict["vendedor_nombres"] = partes_nombre[0] if nombre else ""
+        venta_dict["vendedor_apellidos"] = partes_nombre[1] if len(partes_nombre) > 1 else ""
         venta_dict['precio_unitario'] = float(venta_dict.get('precio') or 0)
         venta_dict['total_venta'] = venta_dict['precio_unitario'] * venta_dict.get('cantidad', 1)
         ventas_lista.append(venta_dict)
@@ -4904,26 +5077,25 @@ def ventas_fragmento():
 def ver_comprobante(venta_id):
     venta = db.session.query(Venta,
                               ProductoEnVentas.nombre.label("producto_nombre"),
-                              ProductoEnVentas.precio,
-                              UsuarioEnVentas.nombres.label("vendedor_nombres"),
-                              UsuarioEnVentas.apellidos.label("vendedor_apellidos"),
-                              ClienteEnVentas.correo.label("cliente_email_db"),
-                              ClienteEnVentas.nombres.label("cliente_nombres_db"),
-                              ClienteEnVentas.apellidos.label("cliente_apellidos_db")
+                              ProductoEnVentas.precio
                              ).join(ProductoEnVentas, Venta.producto_id == ProductoEnVentas.id)\
-                              .outerjoin(UsuarioEnVentas, Venta.vendedor_id == UsuarioEnVentas.id)\
-                              .outerjoin(ClienteEnVentas, or_(Venta.cliente_documento == ClienteEnVentas.dni,
-                                                      Venta.cliente_documento == ClienteEnVentas.ruc,
-                                                      Venta.cliente_documento == ClienteEnVentas.ce))\
                               .filter(Venta.id == venta_id).first()
     
     if not venta:
         flash("❌ Venta no encontrada", "danger")
         return redirect(url_for("ventas"))
+
+    cliente = (Cliente.query.filter_by(id=venta.Venta.cliente_id).first()
+               if venta.Venta.cliente_id else None)
+    nombre_vendedor = _nombres_vendedores_por_id([venta.Venta.vendedor_id]).get(
+        venta.Venta.vendedor_id, f"Vendedor #{venta.Venta.vendedor_id}")
+    partes_vendedor = nombre_vendedor.split(" ", 1)
     
     total = venta.Venta.cantidad * venta.precio
     
-    return render_template("comprobante.html", venta=venta, total=total)
+    return render_template("comprobante.html", venta=venta, cliente=cliente, total=total,
+                           vendedor_nombres=partes_vendedor[0],
+                           vendedor_apellidos=partes_vendedor[1] if len(partes_vendedor) > 1 else "")
 
 @app.route("/comprobante/<int:venta_id>/pdf")
 @login_required
@@ -4938,11 +5110,8 @@ def comprobante_pdf(venta_id):
 
     venta = db.session.query(Venta,
                               ProductoEnVentas.nombre.label("producto_nombre"),
-                              ProductoEnVentas.precio,
-                              UsuarioEnVentas.nombres.label("vendedor_nombres"),
-                              UsuarioEnVentas.apellidos.label("vendedor_apellidos")
+                              ProductoEnVentas.precio
                              ).join(ProductoEnVentas, Venta.producto_id == ProductoEnVentas.id)\
-                              .outerjoin(UsuarioEnVentas, Venta.vendedor_id == UsuarioEnVentas.id)\
                               .filter(Venta.id == venta_id).first()
     if not venta:
         flash("❌ Venta no encontrada", "danger")
@@ -4950,6 +5119,8 @@ def comprobante_pdf(venta_id):
 
     v = venta.Venta
     total = v.cantidad * venta.precio
+    nombre_vendedor = _nombres_vendedores_por_id([v.vendedor_id]).get(
+        v.vendedor_id, f"Vendedor #{v.vendedor_id}")
 
     # Autorización SUNAT (SUNAT_MODE: simulado | beta | produccion)
     serie_numero = v.numero_comprobante or f"B001-{venta_id:06d}"
@@ -4982,7 +5153,7 @@ def comprobante_pdf(venta_id):
         ["Fecha", v.fecha_venta.strftime('%d/%m/%Y %H:%M')],
         ["Cliente", v.cliente_nombre_completo or "Consumidor Final"],
         ["Documento", v.cliente_documento or "—"],
-        ["Vendedor", f"{venta.vendedor_nombres or ''} {venta.vendedor_apellidos or ''}".strip() or "—"],
+        ["Vendedor", nombre_vendedor],
         ["Producto", venta.producto_nombre],
         ["Cantidad", str(v.cantidad)],
         ["Precio Unit.", f"S/ {float(venta.precio or 0):.2f}"],
@@ -5030,7 +5201,7 @@ def ver_ventas():
         ventas_lista = (
             db.session.query(
                 Venta.id,
-                func.concat(UsuarioEnVentas.nombres, " ", UsuarioEnVentas.apellidos).label("vendedor"),
+                Venta.vendedor_id,
                 ProductoEnVentas.nombre.label("producto"),
                 Venta.cantidad,
                 Venta.fecha_venta,
@@ -5038,15 +5209,17 @@ def ver_ventas():
                 (Venta.cantidad * ProductoEnVentas.precio).label("subtotal"),
             )
             .join(ProductoEnVentas, Venta.producto_id == ProductoEnVentas.id)
-            .outerjoin(UsuarioEnVentas, Venta.vendedor_id == UsuarioEnVentas.id)
             .filter(func.date(Venta.fecha_venta) == fecha_obj)
             .order_by(Venta.id.asc())
             .all()
         )
+        nombres_vendedores = _nombres_vendedores_por_id(
+            v.vendedor_id for v in ventas_lista)
         ventas_lista = [
             {
                 "id": v.id,
-                "vendedor": v.vendedor,
+                "vendedor": nombres_vendedores.get(
+                    v.vendedor_id, f"Vendedor #{v.vendedor_id}"),
                 "producto": v.producto,
                 "cantidad": v.cantidad,
                 "fecha_venta": v.fecha_venta,
@@ -5069,18 +5242,21 @@ def ver_productos_proveedor():
     proveedor_id = request.args.get("proveedor_id") or request.form.get("proveedor_id")
     if proveedor_id:
         proveedor_seleccionado = db.session.get(Proveedor, int(proveedor_id))
-        productos = (
+        filas = (
             db.session.query(
                 Producto.id,
                 Producto.nombre,
-                Producto.cantidad,
-                func.count(Venta.id).label("total_ventas"),
+                func.count(VentaEnInventario.id).label("total_ventas"),
             )
             .outerjoin(VentaEnInventario, Producto.id == VentaEnInventario.producto_id)
             .filter(Producto.proveedor_id == proveedor_id)
-            .group_by(Producto.id, Producto.nombre, Producto.cantidad)
+            .group_by(Producto.id, Producto.nombre)
             .all()
         )
+        stock_actual = _stock_inventario_actual()
+        productos = [{"id": fila.id, "nombre": fila.nombre,
+                      "cantidad": stock_actual.get(int(fila.id), 0),
+                      "total_ventas": fila.total_ventas} for fila in filas]
     return render_template("ver_producto_proveedor.html", proveedores=proveedores, productos=productos, proveedor_id=int(proveedor_id) if proveedor_id else None, proveedor_seleccionado=proveedor_seleccionado)
 
 # ===============================
@@ -5089,26 +5265,34 @@ def ver_productos_proveedor():
 
 @app.route("/api/productos/<int:producto_id>/stock")
 def api_producto_stock(producto_id):
-    """API para obtener stock actual de un producto"""
+    """API para obtener el stock de la tabla propietaria del inventario."""
     producto = Producto.query.get(producto_id)
     if not producto:
         return jsonify({"error": "Producto no encontrado"}), 404
+    try:
+        stock = _stock_inventario_actual().get(int(producto_id), 0)
+    except Exception:
+        app.logger.exception("No se pudo consultar el stock del inventario para producto=%s", producto_id)
+        return jsonify({"error": "No se pudo verificar el stock"}), 503
     return jsonify({
         "id": producto.id,
-        "stock": producto.cantidad,
+        "stock": stock,
         "nombre": producto.nombre
     })
 
 @app.route("/api/productos", methods=["GET"])
 @login_required
 def api_listar_productos():
-    productos = Producto.query.filter(Producto.cantidad > 0).all()
+    stock_actual = _stock_inventario_actual()
+    productos = [p for p in Producto.query.all()
+                 if stock_actual.get(int(p.id), 0) > 0]
     return jsonify([
         {
             "id": p.id,
             "nombre": p.nombre,
             "descripcion": p.descripcion,
             "precio": p.precio,
+            "cantidad": stock_actual.get(int(p.id), 0),
             "imagen_url": url_for("static", filename=f"img/productos/{p.imagen}") if p.imagen else None,
         }
         for p in productos
@@ -5124,12 +5308,13 @@ def api_buscar_producto():
         producto = Producto.query.get(int(q))
     else:
         producto = Producto.query.filter(Producto.nombre.like(f"%{q}%")).first()
-    if producto and producto.cantidad > 0:
+    stock = _stock_inventario_actual().get(int(producto.id), 0) if producto else 0
+    if producto and stock > 0:
         return jsonify({
             "id": producto.id,
             "nombre": producto.nombre,
             "precio": float(producto.precio),
-            "stock": producto.cantidad,
+            "stock": stock,
         })
     return jsonify({"error": "No encontrado o sin stock"}), 404
 
@@ -5144,7 +5329,7 @@ def productos_top():
             func.sum(VentaEnInventario.cantidad).label("total_vendido"),
         )
         .join(VentaEnInventario)
-        .filter(func.date(VentaEnInventario.fecha_venta) == datetime.now().date())
+        .filter(func.date(VentaEnInventario.fecha_venta) == hora_actual_peru().date())
         .group_by(Producto.id)
         .order_by(func.sum(VentaEnInventario.cantidad).desc())
         .limit(10)
@@ -5261,7 +5446,7 @@ def venta_rapida():
         except (TypeError, ValueError):
             monto_recibido = None
 
-        numero_pos = f"POS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        numero_pos = f"POS-{hora_actual_peru().strftime('%Y%m%d%H%M%S')}"
         ventas_creadas = []
         total_general = 0.0
         for item in items_normalizados:
@@ -5272,7 +5457,7 @@ def venta_rapida():
                 producto_id=producto.id,
                 cantidad=item["cantidad"],
                 vendedor_id=session["usuario_id"],
-                fecha_venta=datetime.now(),
+                fecha_venta=hora_actual_peru(),
                 tipo_comprobante="boleta",
                 numero_comprobante=numero_pos,
                 metodo_pago=metodo_pago,
@@ -5382,9 +5567,13 @@ def pos_tactil():
     if not _hay_caja_abierta():
         flash("🔒 Caja cerrada: abre caja antes de usar el POS rápido.", "danger")
         return redirect(url_for("ver_caja"))
-    lista_productos = Producto.query.filter(Producto.cantidad > 0).order_by(Producto.nombre).all()
+    stock_actual = _stock_inventario_actual()
+    lista_productos = Producto.query.order_by(Producto.nombre).all()
     producto_datos = []
     for p in lista_productos:
+        stock_producto = stock_actual.get(int(p.id), 0)
+        if stock_producto <= 0:
+            continue
         precio_mostrar = float(p.precio_oferta or p.precio or 0)
         producto_datos.append({
             "id": p.id,
@@ -5392,20 +5581,40 @@ def pos_tactil():
             "precio": float(p.precio or 0),
             "precio_oferta": float(p.precio_oferta) if p.precio_oferta else None,
             "precio_mostrar": precio_mostrar,
-            "cantidad": p.cantidad,
+            "cantidad": stock_producto,
             "codigo_barras": p.codigo_barras,
             "imagen_url": url_for("static", filename=f"img/productos/{p.imagen}") if p.imagen else None,
         })
-    return render_template("pos_rapido.html", productos=producto_datos, now=datetime.now())
+    return render_template("pos_rapido.html", productos=producto_datos, now=hora_actual_peru())
 
 
 # ===============================================
 # RECOMENDADOS - LOS MÁS VENDIDOS
 # ===============================================
 
+def _stock_inventario_actual():
+    """Stock de la tabla propietaria del microservicio de inventario.
+
+    `productos` es una copia heredada del Gateway y puede quedar desfasada;
+    las reservas y el servicio de inventario actualizan `inventario_productos`.
+    """
+    try:
+        engine = db.get_engine(bind="inventario")
+    except Exception:
+        engine = db.engines.get("inventario") if hasattr(db, "engines") else None
+    if engine is None:
+        raise RuntimeError("No está disponible la conexión del microservicio de inventario")
+    filas = db.session.execute(
+        text("SELECT id, cantidad FROM inventario_productos WHERE estado = 1"),
+        bind_arguments={"bind": engine},
+    ).mappings()
+    return {int(fila["id"]): int(fila["cantidad"] or 0) for fila in filas}
+
+
 @app.route("/api/productos/recomendados")
 def api_productos_recomendados():
     try:
+        stock_actual = _stock_inventario_actual()
         filas = (
             db.session.query(
                 Producto.id,
@@ -5413,7 +5622,6 @@ def api_productos_recomendados():
                 Producto.descripcion,
                 Producto.precio,
                 Producto.precio_oferta,
-                Producto.cantidad,
                 Producto.destacado,
                 Producto.imagen,
                 func.coalesce(func.sum(VentaEnInventario.cantidad), 0).label("vendidos"),
@@ -5432,7 +5640,7 @@ def api_productos_recomendados():
                 "descripcion": p.descripcion,
                 "precio": float(p.precio or 0),
                 "precio_oferta": float(p.precio_oferta) if p.precio_oferta else None,
-                "cantidad": p.cantidad,
+                "cantidad": stock_actual.get(int(p.id), 0),
                 "destacado": p.destacado,
                 "vendidos": int(p.vendidos or 0),
                 "imagen_url": url_for("static", filename=f"img/productos/{p.imagen}") if p.imagen else None,
@@ -5456,7 +5664,7 @@ def catalogo_cliente():
         categorias = Categoria.query.filter_by(activo=True).all()
         
         # Construir la consulta de productos
-        query = Producto.query.filter(Producto.cantidad > 0)
+        query = Producto.query.filter(Producto.estado == 1)
         
         # Si hay una categoría seleccionada, filtrar
         if categoria_id:
@@ -5467,7 +5675,11 @@ def catalogo_cliente():
             categoria_seleccionada = None
         
         # Ejecutar la consulta
-        productos = query.order_by(Producto.nombre.asc()).all()
+        stock_actual = _stock_inventario_actual()
+        productos = [p for p in query.order_by(Producto.nombre.asc()).all()
+                     if stock_actual.get(int(p.id), 0) > 0]
+        for p in productos:
+            p.stock_disponible = stock_actual[int(p.id)]
         
         # Renderizar la plantilla con los datos
         return render_template("catalogo_cliente.html", 
@@ -5488,17 +5700,18 @@ def catalogo_cliente():
 @app.route("/api/productos/catalogo")
 def api_productos_catalogo():
     try:
+        stock_actual = _stock_inventario_actual()
         q = request.args.get('q', '')
         categoria_id = request.args.get('categoria', type=int)
         
-        query = Producto.query.filter(Producto.cantidad > 0)
+        query = Producto.query
         
         if q:
             query = query.filter(Producto.nombre.like(f'%{q}%'))
         if categoria_id:
             query = query.filter_by(id_categoria=categoria_id)
         
-        productos = query.all()
+        productos = [p for p in query.all() if stock_actual.get(int(p.id), 0) > 0]
         
         resultado = []
         for p in productos:
@@ -5516,7 +5729,7 @@ def api_productos_catalogo():
                     "precio_oferta": float(p.precio_oferta) if p.precio_oferta else None,
                     "categoria_id": p.id_categoria,
                     "categoria_nombre": categoria_nombre,
-                    "cantidad": p.cantidad,
+                    "cantidad": stock_actual.get(int(p.id), 0),
                     "destacado": p.destacado,
                     "imagen_url": url_for("static", filename=f"img/productos/{p.imagen}") if p.imagen else None,
                 })
@@ -5837,7 +6050,7 @@ def recuperar_contrasena():
         if cliente:
             token = generar_token_recuperacion()
             cliente.token_recuperacion = token
-            cliente.token_expiracion = datetime.now() + timedelta(hours=1)
+            cliente.token_expiracion = hora_actual_peru() + timedelta(hours=1)
             db.session.commit()
             
             enlace = url_for("resetear_contrasena", token=token, _external=True)
@@ -5857,7 +6070,7 @@ def resetear_contrasena(token):
         flash("❌ Enlace inválido o ya utilizado", "danger")
         return redirect(url_for("login_cliente"))
     
-    if cliente.token_expiracion < datetime.now():
+    if cliente.token_expiracion < hora_actual_peru():
         flash("❌ El enlace ha expirado", "danger")
         return redirect(url_for("recuperar_contrasena"))
     
@@ -5908,6 +6121,69 @@ def ver_carrito():
         tienda = {"lat": float(lat_tienda), "lng": float(lng_tienda),
                   "nombre": os.environ.get("MAPA_TIENDA_NOMBRE", "Librería Salesiana")}
     return render_template("carrito.html", tienda=tienda)
+
+@app.route("/api/mi-carrito", methods=["GET", "PUT"])
+@csrf_protect
+@login_required_cliente
+def api_mi_carrito():
+    cliente_id = int(session["cliente_id"])
+    if request.method == "GET":
+        filas = CarritoItem.query.filter_by(cliente_id=cliente_id).order_by(
+            CarritoItem.id.asc()).all()
+        return jsonify({"items": [{
+            "id": fila.producto_id,
+            "nombre": fila.nombre_producto,
+            "precio": float(fila.precio_unitario or 0),
+            "cantidad": fila.cantidad,
+            "imagen_url": fila.imagen,
+        } for fila in filas]})
+
+    data = request.get_json(silent=True)
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list) or len(items) > 100:
+        return jsonify({"success": False, "error": "Lista de carrito inválida"}), 400
+
+    normalizados = {}
+    for item in items:
+        if not isinstance(item, dict):
+            return jsonify({"success": False, "error": "Producto inválido"}), 400
+        try:
+            producto_id = int(item.get("id"))
+            cantidad_original = item.get("cantidad")
+            cantidad = int(cantidad_original)
+        except (TypeError, ValueError, OverflowError):
+            return jsonify({"success": False, "error": "Producto o cantidad inválida"}), 400
+        if (producto_id <= 0 or cantidad <= 0 or cantidad > 999
+                or isinstance(cantidad_original, bool)
+                or (isinstance(cantidad_original, float) and not cantidad_original.is_integer())):
+            return jsonify({"success": False, "error": "La cantidad debe ser un entero entre 1 y 999"}), 400
+        normalizados[producto_id] = min(999, normalizados.get(producto_id, 0) + cantidad)
+
+    try:
+        productos = {producto.id: producto for producto in Producto.query.filter(
+            Producto.id.in_(normalizados.keys())).all()} if normalizados else {}
+        if set(productos) != set(normalizados):
+            return jsonify({"success": False, "error": "Producto no encontrado"}), 404
+        existentes = {fila.producto_id: fila for fila in CarritoItem.query.filter_by(
+            cliente_id=cliente_id).all()}
+        for producto_id in set(existentes) - set(normalizados):
+            db.session.delete(existentes[producto_id])
+        for producto_id, cantidad in normalizados.items():
+            producto = productos[producto_id]
+            fila = existentes.get(producto_id)
+            if fila is None:
+                fila = CarritoItem(cliente_id=cliente_id, producto_id=producto_id)
+                db.session.add(fila)
+            fila.nombre_producto = producto.nombre
+            fila.precio_unitario = producto.precio_oferta or producto.precio or 0
+            fila.cantidad = cantidad
+            fila.imagen = producto.imagen
+        db.session.commit()
+        return jsonify({"success": True, "items": len(normalizados)})
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("No se pudo guardar el carrito persistente")
+        return jsonify({"success": False, "error": "No se pudo guardar el carrito"}), 500
 
 @app.route("/checkout")
 @login_required_cliente
@@ -5989,11 +6265,11 @@ def confirmar_recepcion_pedido(pedido_id):
     foto.save(os.path.join(carpeta, filename))
 
     pedido.cliente_confirmo = 1
-    pedido.fecha_confirmacion_cliente = datetime.now()
+    pedido.fecha_confirmacion_cliente = hora_actual_peru()
     pedido.foto_entrega = filename
     db.session.commit()
 
-    print(f"✅ Cliente confirmó recepción del pedido #{pedido_id} ({datetime.now()})")
+    print(f"✅ Cliente confirmó recepción del pedido #{pedido_id} ({hora_actual_peru()})")
 
     if is_ajax:
         return jsonify({"success": True, "message": "¡Gracias por confirmar la recepción!"})
@@ -6381,7 +6657,7 @@ def crear_pedido():
                 producto_id=item["id"],
                 cantidad=int(item["cantidad"]),
                 vendedor_id=1,
-                fecha_venta=datetime.now(),
+                fecha_venta=hora_actual_peru(),
                 tipo_comprobante=tipo_comp,
                 numero_comprobante=numero_comprobante,
                 pedido_id=pedido.id,
@@ -6524,13 +6800,19 @@ def crear_pedido():
                     cliente_nombre=f"{cliente_nombres} {cliente_apellidos}".strip(),
                     tipo_comprobante=tipo_comp,
                     numero_comprobante=numero_comprobante,
-                    fecha=datetime.now(),
+                    fecha=hora_actual_peru(),
                     productos=productos_para_correo,
                     total_venta=total_calculado,
                     documento=cliente_documento,
                     tipo_documento="RUC" if tipo_comp == "factura" else (cliente_tipo_documento or ("DNI" if cliente_documento else "")),
                     razon_social=cliente_razon_social,
                     direccion_fiscal=cliente_direccion_fiscal,
+                    subtotal=subtotal_pedido,
+                    descuento=descuento_pedido,
+                    costo_envio=costo_envio_pedido,
+                    cargo_contraentrega=cargo_contraentrega_pedido,
+                    metodo_pago=metodo_pago_pedido,
+                    tipo_entrega=data.get("tipo_entrega", ""),
                 ))
                 print("[checkout] comprobante por correo enviado")
             except Exception as e:
@@ -6576,19 +6858,23 @@ def pedidos_nuevos():
     de venta apenas entra un pedido, aunque este alejado del area de atencion.
     """
     desde = request.args.get("desde", 0, type=int)
-    filas = db.session.execute(text(
-        "SELECT p.id, p.fecha_pedido, p.total, p.tipo_entrega, p.estado, "
-        "CONCAT(COALESCE(c.nombres, ''), ' ', COALESCE(c.apellidos, '')) AS cliente "
-        "FROM pedidos p LEFT JOIN clientes c ON c.id = p.cliente_id "
-        "WHERE p.id > :desde ORDER BY p.id DESC LIMIT 5"), {"desde": desde}).mappings().all()
+    pedidos = (Pedido.query.filter(Pedido.id > desde)
+               .order_by(Pedido.id.desc()).limit(5).all())
+    cliente_ids = {p.cliente_id for p in pedidos if p.cliente_id is not None}
+    clientes = (Cliente.query.filter(Cliente.id.in_(cliente_ids)).all()
+                if cliente_ids else [])
+    nombres_cliente = {
+        c.id: f"{c.nombres or ''} {c.apellidos or ''}".strip()
+        for c in clientes
+    }
     return jsonify([{
-        "id": f["id"],
-        "cliente": (f["cliente"] or "").strip() or "Cliente",
-        "total": float(f["total"] or 0),
-        "tipo_entrega": f["tipo_entrega"] or "recojo",
-        "estado": f["estado"] or "pendiente",
-        "fecha": f["fecha_pedido"].strftime("%d/%m/%Y %H:%M") if f["fecha_pedido"] else "",
-    } for f in filas])
+        "id": p.id,
+        "cliente": nombres_cliente.get(p.cliente_id, "Cliente"),
+        "total": float(p.total or 0),
+        "tipo_entrega": p.tipo_entrega or "recojo",
+        "estado": p.estado or "pendiente",
+        "fecha": p.fecha_pedido.strftime("%d/%m/%Y %H:%M") if p.fecha_pedido else "",
+    } for p in pedidos])
 
 
 @app.route("/pedidos")
@@ -6635,27 +6921,35 @@ def ver_pedidos():
     # ============================================
     query = db.session.query(
         Pedido.id,
+        Pedido.cliente_id,
         Pedido.fecha_pedido,
         Pedido.estado,
         Pedido.total,
+        Pedido.metodo_pago,
+        Pedido.pago_confirmado,
+        Pedido.pago_confirmado_por,
         Pedido.tipo_entrega,
         Pedido.direccion_entrega,
         Pedido.reporto_no_recibido,
-        ClienteEnVentas.nombres.label("cliente_nombres"),
-        ClienteEnVentas.apellidos.label("cliente_apellidos"),
-        ClienteEnVentas.correo.label("cliente_email"),
-        ClienteEnVentas.telefono.label("cliente_telefono"),
-    ).join(ClienteEnVentas, Pedido.cliente_id == ClienteEnVentas.id)
+    )
+
+    clientes_busqueda = None
     
     # Aplicar filtros
     if search:
         search_term = f"%{search}%"
+        clientes_busqueda = Cliente.query.filter(
+            db.or_(
+                Cliente.nombres.like(search_term),
+                Cliente.apellidos.like(search_term),
+                Cliente.correo.like(search_term),
+            )
+        ).all()
+        ids_clientes_busqueda = [c.id for c in clientes_busqueda]
         query = query.filter(
             db.or_(
                 Pedido.id.cast(db.String).like(search_term),
-                Cliente.nombres.like(search_term),
-                Cliente.apellidos.like(search_term),
-                Cliente.correo.like(search_term)
+                Pedido.cliente_id.in_(ids_clientes_busqueda),
             )
         )
     
@@ -6684,9 +6978,22 @@ def ver_pedidos():
             pass
     
     pedidos = query.order_by(Pedido.fecha_pedido.desc()).all()
+
+    ids_clientes = {p.cliente_id for p in pedidos if p.cliente_id}
+    if clientes_busqueda is None:
+        clientes = (Cliente.query.filter(Cliente.id.in_(ids_clientes)).all()
+                    if ids_clientes else [])
+    else:
+        clientes_por_id_busqueda = {c.id: c for c in clientes_busqueda}
+        clientes = [clientes_por_id_busqueda[i] for i in ids_clientes
+                    if i in clientes_por_id_busqueda]
+    clientes_por_id = {c.id: c for c in clientes}
     
     pedidos_lista = []
     for p in pedidos:
+        cliente = clientes_por_id.get(p.cliente_id)
+        nombres = cliente.nombres if cliente else None
+        apellidos = cliente.apellidos if cliente else None
         pedidos_lista.append({
             "id": p.id,
             "fecha_pedido": p.fecha_pedido,
@@ -6694,12 +7001,14 @@ def ver_pedidos():
             "total": float(p.total) if p.total else 0,
             "tipo_entrega": p.tipo_entrega,
             "direccion_entrega": p.direccion_entrega,
-            "cliente_nombres": p.cliente_nombres,
-            "cliente_apellidos": p.cliente_apellidos,
-            "cliente_nombre_completo": f"{p.cliente_nombres or ''} {p.cliente_apellidos or ''}".strip(),
-            "cliente_email": p.cliente_email,
-            "cliente_telefono": p.cliente_telefono,
+            "cliente_nombres": nombres,
+            "cliente_apellidos": apellidos,
+            "cliente_nombre_completo": f"{nombres or ''} {apellidos or ''}".strip(),
+            "cliente_email": cliente.correo if cliente else None,
+            "cliente_telefono": cliente.telefono if cliente else None,
             "reporto_no_recibido": p.reporto_no_recibido,
+            "metodo_pago": p.metodo_pago,
+            "pago_confirmado": bool(p.pago_confirmado),
         })
     
     # ============================================
@@ -6948,7 +7257,7 @@ def _registrar_cobro_pedido_en_caja(pedido):
         metodo = (pedido.metodo_pago or "efectivo")
         if not en_turno:
             # Cobro fuera del dia del pedido: el efectivo es de este turno.
-            ahora = datetime.now()
+            ahora = hora_actual_peru()
             for v in ventas:
                 v.fecha_venta = ahora
                 v.metodo_pago = metodo
@@ -6966,6 +7275,39 @@ def _registrar_cobro_pedido_en_caja(pedido):
         db.session.rollback()
         print(f"❌ Error vinculando cobro del pedido {pedido.id} a caja: {e}")
         return False
+
+@app.route("/pedidos/confirmar-pago/<int:pedido_id>", methods=["POST"])
+@csrf_protect
+@login_required
+@admin_required
+def confirmar_pago_pedido(pedido_id):
+    """Confirma manualmente el pago tras verificarlo en caja o en el medio digital."""
+    pedido = Pedido.query.get_or_404(pedido_id)
+    if pedido.pago_confirmado:
+        flash(f"El pago del pedido #{pedido.id} ya estaba confirmado.", "info")
+        return redirect(url_for("ver_pedidos"))
+
+    metodo = (pedido.metodo_pago or "efectivo").strip().lower()
+    es_efectivo = metodo in ("efectivo", "contraentrega") or float(
+        pedido.cargo_contraentrega or 0) > 0
+    if es_efectivo:
+        if not _hay_caja_abierta():
+            flash("Abre la caja antes de confirmar un cobro en efectivo.", "danger")
+            return redirect(url_for("ver_pedidos"))
+        if not _registrar_cobro_pedido_en_caja(pedido):
+            flash("No se pudo registrar el cobro en la caja. Verifica las ventas del pedido.", "danger")
+            return redirect(url_for("ver_pedidos"))
+
+    pedido.pago_confirmado = True
+    pedido.fecha_pago_confirmado = hora_actual_peru()
+    pedido.pago_confirmado_por = session.get("nombre") or session.get("usuario_nombre") or "Administrador"
+    db.session.commit()
+    registrar_auditoria(
+        "PAGO_CONFIRMADO", "pedidos",
+        f"Pago del pedido #{pedido.id} confirmado manualmente ({metodo})"
+    )
+    flash(f"Pago del pedido #{pedido.id} confirmado. Ya se puede completar la entrega.", "success")
+    return redirect(url_for("ver_pedidos"))
 
 
 @app.route("/pedidos/cambiar-estado/<int:pedido_id>", methods=["POST"])
@@ -7008,22 +7350,14 @@ def cambiar_estado_pedido(pedido_id):
     }
     
     if nuevo_estado in estados_validos:
-        # Cobro en efectivo (contra entrega): para entregar/recoger hay que
-        # recibir el dinero, y eso solo es posible con la caja del turno abierta.
-        es_cobro_efectivo = False
-        if nuevo_estado in ("entregado", "recogido"):
-            es_cobro_efectivo = (
-                (pedido.metodo_pago or "").lower() in ("efectivo", "contraentrega")
-                or float(pedido.cargo_contraentrega or 0) > 0
-            )
-            if es_cobro_efectivo and not _hay_caja_abierta():
-                mensaje_error = ("Caja cerrada: abre caja para entregar y cobrar "
-                                 "este pedido (pago contra entrega/en efectivo).")
-                if is_ajax:
-                    return jsonify({"success": False, "error": mensaje_error,
-                                    "caja_cerrada": True}), 409
-                flash(f"❌ {mensaje_error}", "danger")
-                return redirect(url_for("ver_pedidos"))
+        if nuevo_estado in ("entregado", "recogido") and not pedido.pago_confirmado:
+            mensaje_error = ("Confirma el pago después de verificarlo. "
+                             "Para efectivo, abre la caja y registra el cobro primero.")
+            if is_ajax:
+                return jsonify({"success": False, "error": mensaje_error,
+                                "pago_pendiente": True}), 409
+            flash(f"❌ {mensaje_error}", "danger")
+            return redirect(url_for("ver_pedidos"))
 
         # Confirmación de entrega: al marcar "entregado" en un delivery se pide quién recibió
         if nuevo_estado == "entregado" and pedido.tipo_entrega == "delivery":
@@ -7036,7 +7370,7 @@ def cambiar_estado_pedido(pedido_id):
                 return redirect(url_for("ver_pedidos"))
             pedido.nombre_recibe = nombre_recibe
             pedido.dni_recibe = (request.form.get("dni_recibe") or "").strip() or None
-            pedido.fecha_entrega = datetime.now()
+            pedido.fecha_entrega = hora_actual_peru()
             pedido.confirmado_por = session.get("nombre") or session.get("usuario_nombre") or "Administrador"
 
         # La cancelacion es una saga: primero persiste un estado recuperable,
@@ -7078,11 +7412,6 @@ def cambiar_estado_pedido(pedido_id):
             pedido.estado = nuevo_estado
             db.session.commit()
 
-        # Cobro en efectivo confirmado: vincular las ventas del pedido al
-        # turno de caja abierto para que el cierre lo cuadre.
-        if es_cobro_efectivo:
-            _registrar_cobro_pedido_en_caja(pedido)
-        
         mensaje = mensajes.get(nuevo_estado, f"✅ Pedido #{pedido_id} actualizado a: {nuevo_estado}")
         
         # Al entregar un delivery: correo al cliente con solicitud de confirmación de recepción
@@ -7493,9 +7822,9 @@ def dashboard():
     import plotly.graph_objs as go
     import json
     
-    hoy = datetime.now().date()
-    inicio_mes = datetime.now().replace(day=1).date()
-    hace_30_dias = datetime.now() - timedelta(days=30)
+    hoy = hora_actual_peru().date()
+    inicio_mes = hora_actual_peru().replace(day=1).date()
+    hace_30_dias = hora_actual_peru() - timedelta(days=30)
     
     # ========== HORA PERÚ ==========
     ahora_peru = hora_actual_peru()
@@ -7513,9 +7842,43 @@ def dashboard():
     pedidos_en_proceso = Pedido.query.filter(Pedido.estado.in_(['confirmado', 'preparando', 'enviado'])).count()
     # Reportes del cliente: "No recibí mi pedido" (aún sin resolver).
     pedidos_no_recibidos = Pedido.query.filter(Pedido.reporto_no_recibido == 1).count()
+
+    # Métodos de pago más elegidos en los últimos 30 días. Se cuentan los
+    # pedidos web una vez y las ventas POS que no pertenecen a un pedido web.
+    metodos_pago_conteos = {}
+    metodos_pos = db.session.query(
+        func.lower(func.coalesce(Venta.metodo_pago, "sin especificar")).label("metodo"),
+        func.count(Venta.id).label("operaciones"),
+    ).filter(
+        Venta.fecha_venta >= hace_30_dias,
+        Venta.estado == 1,
+        Venta.pedido_id.is_(None),
+    ).group_by("metodo").all()
+    for fila in metodos_pos:
+        metodo = (fila.metodo or "sin especificar").strip() or "sin especificar"
+        metodos_pago_conteos[metodo] = metodos_pago_conteos.get(metodo, 0) + int(fila.operaciones or 0)
+
+    metodos_pedidos = db.session.query(
+        func.lower(func.coalesce(Pedido.metodo_pago, "sin especificar")).label("metodo"),
+        func.count(Pedido.id).label("operaciones"),
+    ).filter(
+        Pedido.fecha_pedido >= hace_30_dias,
+        Pedido.estado != "cancelado",
+    ).group_by("metodo").all()
+    for fila in metodos_pedidos:
+        metodo = (fila.metodo or "sin especificar").strip() or "sin especificar"
+        metodos_pago_conteos[metodo] = metodos_pago_conteos.get(metodo, 0) + int(fila.operaciones or 0)
+
+    total_operaciones_pago = sum(metodos_pago_conteos.values())
+    metodos_pago_top = [
+        {"metodo": metodo, "operaciones": operaciones,
+         "porcentaje": (operaciones / total_operaciones_pago * 100) if total_operaciones_pago else 0}
+        for metodo, operaciones in sorted(
+            metodos_pago_conteos.items(), key=lambda item: (-item[1], item[0]))
+    ][:6]
     
     total_clientes = Cliente.query.count()
-    hace_7_dias = datetime.now() - timedelta(days=7)
+    hace_7_dias = hora_actual_peru() - timedelta(days=7)
     clientes_nuevos = Cliente.query.filter(Cliente.fecha_registro >= hace_7_dias).count()
 
     # ========== KPI ADICIONALES ==========
@@ -7551,9 +7914,7 @@ def dashboard():
         """),
         {"fecha": hace_30_dias.date()}
     ).scalar() or 0)
-    stock_total = int(db.session.execute(
-        text("SELECT COALESCE(SUM(cantidad), 0) FROM productos WHERE estado = 1")
-    ).scalar() or 0)
+    stock_total = sum(_stock_inventario_actual().values())
     rotacion_inventario = (unidades_vendidas_30d / stock_total) if stock_total else 0
     ventas_diarias = unidades_vendidas_30d / 30
     dias_stock = (stock_total / ventas_diarias) if ventas_diarias else 0
@@ -7569,22 +7930,26 @@ def dashboard():
     conversion_pedidos = (pedidos_convertidos / total_pedidos * 100) if total_pedidos else 0
 
     # Ventas por vendedor (últimos 30 días)
-    ventas_vendedor = db.session.execute(
-        text("""
-            SELECT u.id AS vendedor_id,
-                   CONCAT(u.nombres, ' ', u.apellidos) AS vendedor,
-                   COUNT(*) AS num_ventas,
-                   COALESCE(SUM(v.cantidad), 0) AS unidades,
-                   COALESCE(SUM(v.cantidad * p.precio), 0) AS total
-            FROM ventas v
-            JOIN usuarios_sistema u ON u.id = v.vendedor_id
-            JOIN productos p ON v.producto_id = p.id
-            WHERE v.fecha_venta >= :fecha AND v.estado = 1
-            GROUP BY u.id, u.nombres, u.apellidos
-            ORDER BY total DESC
-        """),
-        {"fecha": hace_30_dias.date()}
-    ).mappings().all()
+    ventas_vendedor_agg = db.session.query(
+        Venta.vendedor_id.label("vendedor_id"),
+        func.count(Venta.id).label("num_ventas"),
+        func.coalesce(func.sum(Venta.cantidad), 0).label("unidades"),
+        func.coalesce(func.sum(Venta.cantidad * ProductoEnVentas.precio), 0).label("total"),
+    ).join(ProductoEnVentas, Venta.producto_id == ProductoEnVentas.id).filter(
+        Venta.fecha_venta >= hace_30_dias,
+        Venta.estado == 1,
+    ).group_by(Venta.vendedor_id).all()
+    nombres_vendedores = _nombres_vendedores_por_id(
+        fila.vendedor_id for fila in ventas_vendedor_agg)
+    ventas_vendedor = [{
+        "vendedor_id": fila.vendedor_id,
+        "vendedor": nombres_vendedores.get(
+            fila.vendedor_id, f"Vendedor #{fila.vendedor_id}"),
+        "num_ventas": int(fila.num_ventas or 0),
+        "unidades": int(fila.unidades or 0),
+        "total": float(fila.total or 0),
+    } for fila in sorted(ventas_vendedor_agg,
+                         key=lambda fila: float(fila.total or 0), reverse=True)]
 
     # Desviación de caja (cierres registrados)
     desviacion = db.session.execute(
@@ -7604,7 +7969,7 @@ def dashboard():
     # Ventas por día
     ventas_por_dia = []
     for i in range(6, -1, -1):
-        fecha = datetime.now() - timedelta(days=i)
+        fecha = hora_actual_peru() - timedelta(days=i)
         fecha_str = fecha.strftime('%d/%m')
         resultado = db.session.execute(
             text("""
@@ -7627,14 +7992,25 @@ def dashboard():
     ).group_by(Producto.id).order_by(func.sum(VentaEnInventario.cantidad).desc()).limit(5).all()
     
     # Stock (usando umbrales configurables)
-    stock_bajo = Producto.query.filter(Producto.cantidad > 0, Producto.cantidad <= Producto.stock_minimo).order_by(Producto.cantidad.asc()).limit(10).all()
-    stock_critico = Producto.query.filter(Producto.cantidad == 0).order_by(Producto.nombre.asc()).limit(10).all()
-    stock_exceso = Producto.query.filter(Producto.cantidad >= Producto.stock_maximo).order_by(Producto.cantidad.desc()).limit(10).all()
+    stock_actual = _stock_inventario_actual()
+    productos_stock = Producto.query.filter(Producto.estado == 1).all()
+    stock_bajo = [p for p in productos_stock if 0 < stock_actual.get(int(p.id), 0) <= (p.stock_minimo or 5)]
+    stock_critico = [p for p in productos_stock if stock_actual.get(int(p.id), 0) == 0]
+    stock_exceso = [p for p in productos_stock if p.stock_maximo is not None
+                    and stock_actual.get(int(p.id), 0) >= p.stock_maximo]
+    for p in stock_bajo + stock_critico + stock_exceso:
+        p.stock_disponible = stock_actual.get(int(p.id), 0)
+    stock_bajo.sort(key=lambda p: stock_actual.get(int(p.id), 0))
+    stock_critico.sort(key=lambda p: p.nombre)
+    stock_exceso.sort(key=lambda p: stock_actual.get(int(p.id), 0), reverse=True)
+    stock_bajo = stock_bajo[:10]
+    stock_critico = stock_critico[:10]
+    stock_exceso = stock_exceso[:10]
     
     # ========== 2. GRÁFICOS CON PLOTLY ==========
     
     # Gráfico 1: Ventas últimos 7 días
-    fechas_7d = [datetime.now() - timedelta(days=i) for i in range(6, -1, -1)]
+    fechas_7d = [hora_actual_peru() - timedelta(days=i) for i in range(6, -1, -1)]
     ventas_7d = []
     for fecha in fechas_7d:
         resultado = db.session.execute(
@@ -7768,6 +8144,8 @@ def dashboard():
                           pedidos_pendientes=pedidos_pendientes,
                           pedidos_en_proceso=pedidos_en_proceso,
                           pedidos_no_recibidos=pedidos_no_recibidos,
+                          metodos_pago_top=metodos_pago_top,
+                          total_operaciones_pago=total_operaciones_pago,
                           total_clientes=total_clientes,
                           clientes_nuevos=clientes_nuevos,
                           ventas_por_dia=ventas_por_dia,
@@ -7856,7 +8234,7 @@ def generar_comprobante_pedido(nombres, apellidos, productos, total, tipo_compro
         <p>{titulo}</p>
     </div>
     <div style="padding: 20px; background: white;">
-        <p><strong>Fecha:</strong> {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
+        <p><strong>Fecha:</strong> {hora_actual_peru().strftime('%d/%m/%Y %H:%M')}</p>
         <p><strong>Cliente:</strong> {cliente_nombre}</p>
         {ruc_html}
         <hr>
@@ -8212,11 +8590,10 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
 application = app
 class ProductoEnVentas(db.Model):
-    """Copia local de Producto en el microservicio de ventas.
+    """Vista de solo lectura de productos para consultas del microservicio ventas.
 
-    Permite hacer JOIN dentro de la misma base (MySQL no puede
-    unir tablas de bases distintas). Se mantiene al dia con el
-    agente de mensajes (evento producto.actualizado / cliente.registrado).
+    La vista librospe_ms_ventas.productos apunta a la tabla propietaria
+    librospe_ms_inventario.inventario_productos.
     """
     __tablename__ = "productos"
     __bind_key__ = "ventas"
@@ -8226,7 +8603,7 @@ class ProductoEnVentas(db.Model):
     cantidad = db.Column(db.Integer, default=0)
     stock_minimo = db.Column(db.Integer, default=5)
     stock_maximo = db.Column(db.Integer, default=100)
-    proveedor_id = db.Column(db.Integer, db.ForeignKey("proveedores.id"), nullable=True)
+    proveedor_id = db.Column(db.Integer, nullable=True)
     precio = db.Column(db.Numeric(10,2), default=0.0)
     costo = db.Column(db.Numeric(10,2), nullable=True)  # precio de compra (solo admin)
     imagen = db.Column(db.String(255))
@@ -8237,7 +8614,7 @@ class ProductoEnVentas(db.Model):
     # modelo: /inventario y /stock-bajo filtran por ella y reventaban con
     # AttributeError. Sin esto ninguna de las dos rutas carga.
     estado = db.Column(db.Integer, default=1)
-    id_categoria = db.Column(db.Integer, db.ForeignKey("categorias.id_categoria"), nullable=True)
+    id_categoria = db.Column(db.Integer, nullable=True)
 
 class UsuarioEnVentas(db.Model):
     """Copia local de UsuarioSistema en el microservicio de ventas.
@@ -8254,38 +8631,10 @@ class UsuarioEnVentas(db.Model):
     apellidos = db.Column(db.String(100), nullable=False)
     clave = db.Column(db.String(255), nullable=False)
     estado = db.Column(db.Integer, default=1)
-    rol_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
+    rol_id = db.Column(db.Integer, nullable=False)
     rol = db.Column(db.String(20), nullable=False)  # ← Mantener para compatibilidad
     documento = db.Column(db.String(20), nullable=True)  # DNI o Carnet de Extranjería
     debe_cambiar_clave = db.Column(db.Integer, default=0)  # 1 = debe cambiar la contraseña al entrar
-
-class ClienteEnVentas(db.Model):
-    """Copia local de Cliente en el microservicio de ventas.
-
-    Permite hacer JOIN dentro de la misma base (MySQL no puede
-    unir tablas de bases distintas). Se mantiene al dia con el
-    agente de mensajes (evento producto.actualizado / cliente.registrado).
-    """
-    __tablename__ = "clientes"
-    __bind_key__ = "ventas"
-    id = db.Column(db.Integer, primary_key=True)
-    dni = db.Column(db.String(8))
-    ruc = db.Column(db.String(11), nullable=True)
-    ce = db.Column(db.String(9), nullable=True)  # ← Carnet de Extranjería (persona natural)
-    nombres = db.Column(db.String(100), nullable=False)
-    apellidos = db.Column(db.String(100), nullable=False)
-    correo = db.Column(db.String(150), unique=True, nullable=False)  # ← CAMBIADO de email a correo
-    telefono = db.Column(db.String(15))
-    direccion = db.Column(db.Text)
-    departamento = db.Column(db.String(100), nullable=True)
-    provincia = db.Column(db.String(100), nullable=True)
-    distrito = db.Column(db.String(150), nullable=True)
-    clave = db.Column(db.String(255), nullable=False)
-    fecha_registro = db.Column(db.DateTime, default=datetime.now)
-    puntos = db.Column(db.Integer, default=0)
-    token_recuperacion = db.Column(db.String(100), nullable=True)
-    token_expiracion = db.Column(db.DateTime, nullable=True)
-    estado = db.Column(db.Integer, default=1)  # ← AGREGAR campo estado
 
 class VentaEnInventario(db.Model):
     """Copia local de Venta en el microservicio de inventario.
@@ -8295,13 +8644,13 @@ class VentaEnInventario(db.Model):
     __tablename__ = "ventas"
     __bind_key__ = "inventario"
     id = db.Column(db.Integer, primary_key=True)
-    producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=False)
-    vendedor_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
-    fecha_venta = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    producto_id = db.Column(db.Integer, db.ForeignKey("inventario_productos.id"), nullable=False)
+    vendedor_id = db.Column(db.Integer, nullable=False)
+    fecha_venta = db.Column(db.DateTime, nullable=False, default=hora_actual_peru)
     cantidad = db.Column(db.Integer, default=1)
     tipo_comprobante = db.Column(db.String(20), default="boleta")
     numero_comprobante = db.Column(db.String(50), nullable=True)
-    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=True)
+    cliente_id = db.Column(db.Integer, nullable=True)
     pedido_id = db.Column(db.Integer, nullable=True)
     estado = db.Column(db.Integer, default=1)
     # Datos de facturación del cliente (boleta/factura)
@@ -8333,7 +8682,7 @@ class UsuarioEnInventario(db.Model):
     apellidos = db.Column(db.String(100), nullable=False)
     clave = db.Column(db.String(255), nullable=False)
     estado = db.Column(db.Integer, default=1)
-    rol_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
+    rol_id = db.Column(db.Integer, nullable=False)
     rol = db.Column(db.String(20), nullable=False)  # ← Mantener para compatibilidad
     documento = db.Column(db.String(20), nullable=True)  # DNI o Carnet de Extranjería
     debe_cambiar_clave = db.Column(db.Integer, default=0)  # 1 = debe cambiar la contraseña al entrar

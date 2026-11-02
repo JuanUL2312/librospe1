@@ -141,6 +141,7 @@
                         <th>Fecha</th>
                         <th>Cliente</th>
                         <th>Total</th>
+                        <th>Pago</th>
                         <th>Tipo Entrega</th>
                         <th>Dirección</th>
                         <th>Estado</th>
@@ -166,6 +167,22 @@
                             </div>
                         </td>
                         <td class="fw-bold text-success fs-6 fs-md-5 text-center">S/. {{ "%.2f"|format(pedido.total) }}</td>
+                        <td class="text-center">
+                            <small class="d-block text-muted">{{ (pedido.metodo_pago or 'sin método')|capitalize }}</small>
+                            {% if pedido.pago_confirmado %}
+                                <span class="badge bg-success">Pago confirmado</span>
+                                {% if pedido.pago_confirmado_por %}<small class="d-block text-muted">por {{ pedido.pago_confirmado_por }}</small>{% endif %}
+                            {% else %}
+                                <span class="badge bg-warning text-dark">Pendiente de verificar</span>
+                                {% if es_admin and pedido.estado != 'cancelado' %}
+                                <form method="POST" action="{{ url_for('confirmar_pago_pedido', pedido_id=pedido.id) }}"
+                                      class="mt-1" onsubmit="return confirm('Confirma solo después de verificar que el dinero llegó. Para efectivo, la caja debe estar abierta. ¿Ya verificaste el pago?');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-success">Verificar y confirmar</button>
+                                </form>
+                                {% endif %}
+                            {% endif %}
+                        </td>
                         <td class="text-center">
                             {% if pedido.tipo_entrega == 'delivery' %}
                                 <span class="badge bg-info bg-gradient px-2 px-md-3 py-1 py-md-2">🚚 Delivery</span>
@@ -234,7 +251,7 @@
                     {% endfor %}
                     {% else %}
                     <tr id="sinPedidos">
-                        <td colspan="8" class="text-center py-4 py-md-5">
+                        <td colspan="9" class="text-center py-4 py-md-5">
                             <div class="mb-3 mb-md-4">
                                 <i class="fas fa-inbox fa-3x fa-md-4x text-muted mb-2 mb-md-3"></i>
                             </div>

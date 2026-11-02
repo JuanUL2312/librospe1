@@ -1,5 +1,6 @@
 """Servicio USUARIOS (puerto 8003). BD propia: librospe_ms_usuarios."""
 import os
+import time
 import sys
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -31,6 +32,9 @@ def cargar_entorno():
 
 
 cargar_entorno()
+os.environ["TZ"] = "America/Lima"
+if hasattr(time, "tzset"):
+    time.tzset()
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-usuarios")
 DB_USER = os.environ.get("DB_USER", "root")
@@ -40,6 +44,7 @@ DB_NAME = os.environ.get("MS_USUARIOS_DB", "librospe_ms_usuarios")
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"
 )
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"init_command": "SET time_zone = '-05:00'"}}
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)

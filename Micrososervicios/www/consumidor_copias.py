@@ -35,10 +35,6 @@ RUTAS_SQL = (
 
 # Columnas de cada copia (las mismas de sincronizar_copias.sql; un test las
 # contrasta con el script para que no se desincronicen).
-COLUMNAS_PRODUCTOS = ("id", "nombre", "descripcion", "cantidad", "proveedor_id",
-                      "precio", "imagen", "id_categoria", "precio_oferta",
-                      "destacado", "codigo_barras", "estado", "stock_minimo",
-                      "stock_maximo", "costo")
 COLUMNAS_VENTAS = ("id", "producto_id", "fecha_venta", "cantidad", "vendedor_id",
                    "cliente_id", "tipo_comprobante", "numero_comprobante", "estado",
                    "cliente_nombres", "cliente_apellidos", "cliente_documento",
@@ -46,13 +42,6 @@ COLUMNAS_VENTAS = ("id", "producto_id", "fecha_venta", "cantidad", "vendedor_id"
                    "cliente_razon_social", "pedido_id", "metodo_pago",
                    "monto_recibido", "vuelto", "cliente_tipo_documento",
                    "cliente_telefono")
-COLUMNAS_CLIENTES = ("id", "dni", "nombres", "apellidos", "correo", "telefono",
-                     "direccion", "clave", "fecha_registro", "estado", "ruc",
-                     "departamento", "provincia", "distrito",
-                     "token_recuperacion", "token_expiracion", "puntos", "ce",
-                     "referencia")
-
-
 def _ruta_sql():
     for ruta in RUTAS_SQL:
         if ruta.is_file():
@@ -129,12 +118,15 @@ def _entero(valor):
 def _copia(bd_origen, bd_destino, tabla, columnas, donde, donde_s):
     """(INSERT IGNORE ... SELECT ... WHERE `donde`) + (UPDATE con JOIN ... WHERE `donde_s`)."""
     columnas_sql = ", ".join(f"`{c}`" for c in columnas)
-    asigna = ", ".join(f"d.`{c}` = s.`{c}`" for c in columnas if c != "id")
+    # Upsert evita diferencias de MariaDB al calificar columnas destino en
+    # UPDATE ... JOIN, y mantiene la copia idempotente por su clave primaria.
+    asigna = ", ".join(f"`{c}` = VALUES(`{c}`)" for c in columnas if c != "id")
     return [
         f"INSERT IGNORE INTO `{bd_destino}`.`{tabla}` ({columnas_sql}) "
         f"SELECT {columnas_sql} FROM `{bd_origen}`.`{tabla}` WHERE {donde}",
-        f"UPDATE `{bd_destino}`.`{tabla}` d JOIN `{bd_origen}`.`{tabla}` s "
-        f"ON d.`id` = s.`id` SET {asigna} WHERE {donde_s}",
+        f"INSERT INTO `{bd_destino}`.`{tabla}` ({columnas_sql}) "
+        f"SELECT {columnas_sql} FROM `{bd_origen}`.`{tabla}` s WHERE {donde_s} "
+        f"ON DUPLICATE KEY UPDATE {asigna}",
     ]
 
 
@@ -152,14 +144,9 @@ def _sentencias_dirigidas(tipo, datos):
     if not isinstance(datos, dict):
         return None
     bd = _nombres_bd()
-    copia_producto = ("productos", COLUMNAS_PRODUCTOS)
-
     if tipo in ("producto.actualizado", "producto.alerta_stock"):
-        pid = _entero(datos.get("id") or datos.get("producto_id"))
-        if pid is None:
-            return None
-        return _con_params(_copia(bd["inventario"], bd["ventas"], *copia_producto,
-                                  "`id` = :pid", "s.`id` = :pid"), {"pid": pid})
+        # El producto vive solo en inventario_productos; ventas usa una vista.
+        return []
 
     if tipo == "venta.registrada":
         vid = _entero(datos.get("venta_id"))
@@ -167,42 +154,21 @@ def _sentencias_dirigidas(tipo, datos):
             return None
         frases = _con_params(_copia(bd["ventas"], bd["inventario"], "ventas", COLUMNAS_VENTAS,
                                     "`id` = :vid", "s.`id` = :vid"), {"vid": vid})
-        pid = _entero(datos.get("producto_id"))
-        if pid is not None:
-            # la venta desconto stock en inventario: la copia de ventas queda vieja
-            frases += _con_params(_copia(bd["inventario"], bd["ventas"], *copia_producto,
-                                         "`id` = :pid", "s.`id` = :pid"), {"pid": pid})
         return frases
 
     if tipo == "cliente.registrado":
-        correo = str(datos.get("email") or datos.get("correo") or "").strip()
-        if not correo:
-            return None
-        return _con_params(_copia(bd["clientes"], bd["ventas"], "clientes", COLUMNAS_CLIENTES,
-                                  "`correo` = :correo", "s.`correo` = :correo"),
-                           {"correo": correo})
+        # Clientes es propietario de su tabla. Ventas resuelve el nombre
+        # desde el evento/pedido y no mantiene una tabla espejo.
+        return []
 
     if tipo == "pedido.creado":
         pedido = _entero(datos.get("pedido_id"))
-        pids = []
-        for item in datos.get("items") or []:
-            if isinstance(item, dict):
-                pid = _entero(item.get("id"))
-                if pid is not None:
-                    pids.append(pid)
         frases = []
         if pedido is not None:
             # el pedido creo sus filas en ventas.ventas: copiarlas a inventario.ventas
             frases += _con_params(_copia(bd["ventas"], bd["inventario"], "ventas", COLUMNAS_VENTAS,
                                          "`pedido_id` = :pedido", "s.`pedido_id` = :pedido"),
                                   {"pedido": pedido})
-        if pids:
-            # el pedido desconto stock en inventario: refrescar la copia de ventas
-            marcas = ", ".join(f":p{i}" for i in range(len(pids)))
-            params = {f"p{i}": v for i, v in enumerate(pids)}
-            frases += _con_params(_copia(bd["inventario"], bd["ventas"], *copia_producto,
-                                         f"`id` IN ({marcas})", f"s.`id` IN ({marcas})"),
-                                  params)
         return frases or None
 
     return None
@@ -243,8 +209,10 @@ def _handler(tipo, datos):
     except Exception as e:
         print(f"[consumidor] evento '{tipo}' ilegible: {str(e)[:160]}")
         sentencias = None
-    if not sentencias:
+    if sentencias is None:
         _hay_pendientes.set()
+        return True
+    if not sentencias:
         return True
     with _candado:
         try:

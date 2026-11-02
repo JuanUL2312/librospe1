@@ -43,7 +43,7 @@
 
       <div class="card shadow-3xl p-4 mb-4 border-0">
         <form id="filtroForm" class="row align-items-end g-3">
-          <div class="col-md-3" style="min-width: 180px;">
+          <div class="col-md-4" style="min-width: 220px;">
             <label class="form-label fw-bold text-dark">
               <i class="fas fa-calendar-alt me-1 text-warning"></i>Período
             </label>
@@ -53,28 +53,21 @@
               {% endfor %}
             </select>
           </div>
-          <div class="col-md-3" style="min-width: 180px;">
-            <label class="form-label fw-bold text-dark">
-              <i class="fas fa-map-marker-alt me-1 text-warning"></i>Departamento
-            </label>
-            <select id="filtroDepartamento" class="form-select">
-              <option value="">Todos los departamentos</option>
-            </select>
-          </div>
-          <div class="col-md-3" style="min-width: 180px;">
-            <label class="form-label fw-bold text-dark">
-              <i class="fas fa-city me-1 text-warning"></i>Provincia
-            </label>
-            <select id="filtroProvincia" class="form-select" disabled>
-              <option value="">Todas las provincias</option>
-            </select>
-          </div>
-          <div class="col-md-3" style="min-width: 180px;">
+          <div class="col-md-4" style="min-width: 240px;">
             <label class="form-label fw-bold text-dark">
               <i class="fas fa-map-pin me-1 text-warning"></i>Distrito
             </label>
-            <select id="filtroDistrito" class="form-select" disabled>
+            <select id="filtroDistrito" class="form-select">
               <option value="">Todos los distritos</option>
+              {% for ubicacion in ubicaciones %}
+              <option value="{{ loop.index0 }}"
+                      data-departamento="{{ ubicacion.departamento }}"
+                      data-provincia="{{ ubicacion.provincia }}"
+                      data-distrito="{{ ubicacion.distrito }}"
+                      {% if ubicacion.departamento == departamento and ubicacion.provincia == provincia and ubicacion.distrito == distrito %}selected{% endif %}>
+                {{ ubicacion.distrito }} — {{ ubicacion.provincia }}, {{ ubicacion.departamento }}
+              </option>
+              {% endfor %}
             </select>
           </div>
           <div class="col-12">
@@ -92,5 +85,5 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/reporte_ubicacion.js') }}"></script>
+<script src="{{ url_for('static', filename='js/reporte_ubicacion.js') }}?v=20261030-distrito"></script>
 {% endblock %}

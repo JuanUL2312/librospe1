@@ -57,6 +57,11 @@ ALTER TABLE librospe_ms_ventas.comercial_pedidos ADD COLUMN IF NOT EXISTS metodo
 ALTER TABLE librospe_ms_ventas.comercial_pedidos ADD COLUMN IF NOT EXISTS codigo_operacion VARCHAR(60) NULL;
 ALTER TABLE librospe_ms_ventas.comercial_pedidos ADD COLUMN IF NOT EXISTS referencia_entrega VARCHAR(200) NULL;
 
+-- MS_VENTAS.pedidos: confirmación manual y trazabilidad del pago
+ALTER TABLE librospe_ms_ventas.pedidos ADD COLUMN IF NOT EXISTS pago_confirmado TINYINT(1) NOT NULL DEFAULT 0;
+ALTER TABLE librospe_ms_ventas.pedidos ADD COLUMN IF NOT EXISTS fecha_pago_confirmado DATETIME NULL;
+ALTER TABLE librospe_ms_ventas.pedidos ADD COLUMN IF NOT EXISTS pago_confirmado_por VARCHAR(100) NULL;
+
 -- MS_VENTAS.comercial_ventas: alinear tipo_comprobante con la principal (VARCHAR)
 ALTER TABLE librospe_ms_ventas.comercial_ventas MODIFY COLUMN tipo_comprobante VARCHAR(20) NOT NULL DEFAULT 'boleta';
 ALTER TABLE librospe_ms_ventas.comercial_ventas ADD COLUMN IF NOT EXISTS estado TINYINT(1) NOT NULL DEFAULT 1;
@@ -69,6 +74,9 @@ ALTER TABLE librospe_ms_ventas.comercial_ventas ADD COLUMN IF NOT EXISTS cliente
 -- ============================================================
 -- 1. MS_CLIENTES: ruc_empresas + ubigeo (sin FK, solo IDs)
 -- ============================================================
+ALTER TABLE librospe_ms_clientes.clientes
+    MODIFY COLUMN fecha_registro DATETIME NULL DEFAULT CURRENT_TIMESTAMP;
+
 CREATE TABLE IF NOT EXISTS librospe_ms_clientes.ruc_empresas (
     id INT(11) NOT NULL AUTO_INCREMENT,
     ruc VARCHAR(11) NOT NULL,

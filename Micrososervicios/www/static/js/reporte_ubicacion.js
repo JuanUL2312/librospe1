@@ -14,6 +14,64 @@
     const btnFiltrar = document.getElementById('btnFiltrar');
     const formulario = document.getElementById('filtroForm');
 
+    // Formulario nuevo: período y distrito único. Los data-* identifican
+    // provincias/departamentos cuando distintos distritos comparten nombre.
+    if (!depSel && !provSel) {
+        function ubicacionSeleccionada() {
+            const opcion = distSel.selectedOptions[0];
+            if (!opcion || !opcion.value) return null;
+            return {
+                departamento: opcion.dataset.departamento || '',
+                provincia: opcion.dataset.provincia || '',
+                distrito: opcion.dataset.distrito || ''
+            };
+        }
+
+        function actualizarExportDistrito() {
+            const params = new URLSearchParams();
+            params.set('periodo', periodoSel.value);
+            const ubicacion = ubicacionSeleccionada();
+            if (ubicacion) {
+                params.set('departamento', ubicacion.departamento);
+                params.set('provincia', ubicacion.provincia);
+                params.set('distrito', ubicacion.distrito);
+            }
+            const pdf = document.getElementById('btnExportPdf');
+            const xls = document.getElementById('btnExportExcel');
+            if (pdf) pdf.href = '/reportes/ventas_por_ubicacion/pdf?' + params.toString();
+            if (xls) xls.href = '/reportes/ventas_por_ubicacion/excel?' + params.toString();
+        }
+
+        function aplicarFiltroDistrito() {
+            const fd = new FormData();
+            const ubicacion = ubicacionSeleccionada();
+            fd.append('periodo', periodoSel.value);
+            fd.append('departamento', ubicacion ? ubicacion.departamento : '');
+            fd.append('provincia', ubicacion ? ubicacion.provincia : '');
+            fd.append('distrito', ubicacion ? ubicacion.distrito : '');
+            resultados.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div><p class="mt-3 text-muted fw-bold">Cargando reporte...</p></div>';
+            fetch('/reportes/ventas_por_ubicacion/fragmento', {
+                method: 'POST', credentials: 'same-origin', body: fd,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+                .then(function (html) { resultados.innerHTML = html; actualizarExportDistrito(); })
+                .catch(function () {
+                    resultados.innerHTML = '<div class="alert alert-danger text-center py-5 fw-bold">Error al cargar el reporte. Inténtalo de nuevo.</div>';
+                });
+        }
+
+        distSel.addEventListener('change', aplicarFiltroDistrito);
+        periodoSel.addEventListener('change', aplicarFiltroDistrito);
+        if (btnFiltrar) btnFiltrar.addEventListener('click', aplicarFiltroDistrito);
+        if (formulario) formulario.addEventListener('submit', function (e) {
+            e.preventDefault();
+            aplicarFiltroDistrito();
+        });
+        actualizarExportDistrito();
+        return;
+    }
+
     // Valores que el servidor mostró al cargar la página (solo se aplican una vez)
     const estadoInicial = {
         dep: estado.dataset.dep || '',

@@ -29,8 +29,8 @@ def test_descuento_stock_condicionado_a_disponibilidad(monkeypatch):
     monkeypatch.setattr(gateway.db.session, "query", lambda modelo: query)
     assert gateway._descontar_stock_atomico(12, 3) is True
     assert len(query.condiciones) == 2
-    assert "productos.id" in str(query.condiciones[0])
-    assert "productos.cantidad" in str(query.condiciones[1])
+    assert "inventario_productos.id" in str(query.condiciones[0])
+    assert "inventario_productos.cantidad" in str(query.condiciones[1])
     assert query.actualizacion[gateway.Producto.cantidad] is not None
 
 

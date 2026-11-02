@@ -464,7 +464,7 @@
             
             if (!response.ok) {
                 console.error("Error al consultar stock:", data.error);
-                return { valido: true, stockDisponible: 999, nombre: "Producto" };
+                return { valido: false, stockDisponible: 0, nombre: "Producto" };
             }
             
             const stockDisponible = data.stock;
@@ -475,7 +475,7 @@
             };
         } catch (error) {
             console.error("Error validando stock:", error);
-            return { valido: true, stockDisponible: 999, nombre: "Producto" };
+            return { valido: false, stockDisponible: 0, nombre: "Producto" };
         }
     }
 
@@ -1003,7 +1003,8 @@
             direccionEntrega = '';
         }
 
-        localStorage.setItem('carritoCliente', JSON.stringify(carrito));
+        if (window.guardarCarritoCliente) window.guardarCarritoCliente(carrito);
+        else localStorage.setItem('carritoCliente', JSON.stringify(carrito));
         if (cuponAplicado) {
             localStorage.setItem('cuponAplicado', JSON.stringify(cuponAplicado));
             localStorage.setItem('descuento', descuento);
@@ -1105,7 +1106,8 @@
         }).then((r) => {
             if (r.isConfirmed) {
                 carrito = [];
-                localStorage.removeItem('carritoCliente');
+                if (window.guardarCarritoCliente) window.guardarCarritoCliente([]);
+                else localStorage.removeItem('carritoCliente');
                 localStorage.removeItem('cuponAplicado');
                 localStorage.removeItem('descuento');
                 localStorage.removeItem('tipoEntrega');
@@ -1147,7 +1149,8 @@
         }
         
         carrito[idx].cantidad = nueva;
-        localStorage.setItem('carritoCliente', JSON.stringify(carrito));
+        if (window.guardarCarritoCliente) window.guardarCarritoCliente(carrito);
+        else localStorage.setItem('carritoCliente', JSON.stringify(carrito));
         
         // Si hay cupón aplicado, eliminarlo al cambiar cantidades
         if (cuponAplicado) {
@@ -1197,7 +1200,8 @@
 
         carrito[idx].stock = stockInfo.stockDisponible;
         carrito[idx].cantidad = valor;
-        localStorage.setItem('carritoCliente', JSON.stringify(carrito));
+        if (window.guardarCarritoCliente) window.guardarCarritoCliente(carrito);
+        else localStorage.setItem('carritoCliente', JSON.stringify(carrito));
 
         // Si hay cupón aplicado, eliminarlo al cambiar cantidades
         if (cuponAplicado) {
@@ -1217,7 +1221,8 @@
     // ===============================
     function eliminarProducto(idx) {
         carrito.splice(idx, 1);
-        localStorage.setItem('carritoCliente', JSON.stringify(carrito));
+        if (window.guardarCarritoCliente) window.guardarCarritoCliente(carrito);
+        else localStorage.setItem('carritoCliente', JSON.stringify(carrito));
         
         if (cuponAplicado) {
             cuponAplicado = null;
@@ -1316,6 +1321,7 @@
     // CARGAR CARRITO (CON VALIDACIÓN DE STOCK)
     // ===============================
     async function cargarCarrito() {
+        if (window.carritoServidorListo) await window.carritoServidorListo;
         // Cargar datos guardados
         let g = localStorage.getItem('carritoCliente');
         carrito = g ? JSON.parse(g) : [];
@@ -1400,7 +1406,8 @@
         // Si hubo cambios, actualizar localStorage y carrito
         if (huboCambios) {
             carrito = carritoActualizado;
-            localStorage.setItem('carritoCliente', JSON.stringify(carrito));
+            if (window.guardarCarritoCliente) window.guardarCarritoCliente(carrito);
+            else localStorage.setItem('carritoCliente', JSON.stringify(carrito));
         }
         
         // Renderizar el carrito

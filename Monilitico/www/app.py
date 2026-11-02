@@ -1,6 +1,10 @@
 import os
 import sys
 import time
+
+os.environ["TZ"] = "America/Lima"
+if hasattr(time, "tzset"):
+    time.tzset()
 import hmac
 import json
 from pathlib import Path
@@ -118,7 +122,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
 # MONOLITO: una sola base de datos (DB_NAME). Sin binds ni SERVICE_TOKEN.
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "connect_args": {"ssl": {"ssl_mode": "REQUIRED"}},
+    "connect_args": {"ssl": {"ssl_mode": "REQUIRED"}, "init_command": "SET time_zone = '-05:00'"},
     "pool_pre_ping": True,
     "pool_recycle": 280,
 }
@@ -221,7 +225,7 @@ class Venta(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=False)
     vendedor_id = db.Column(db.Integer, db.ForeignKey("usuarios_sistema.id"), nullable=False)
-    fecha_venta = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    fecha_venta = db.Column(db.DateTime, nullable=False, default=hora_actual_peru)
     cantidad = db.Column(db.Integer, default=1)
     tipo_comprobante = db.Column(db.String(20), default="boleta")
     numero_comprobante = db.Column(db.String(50), nullable=True)
@@ -393,7 +397,7 @@ def registrar_intento_fallido(email, ip, es_cliente=False):
     - 3 intentos fallidos → bloqueo temporal (10 minutos)
     - 5 intentos fallidos → bloqueo permanente (solo admin desbloquea)
     """
-    ahora = datetime.now()
+    ahora = hora_actual_peru()
     
     # Verificar si el email existe
     email_existe = False
@@ -658,7 +662,7 @@ def registrar_intento_fallido(email, ip, es_cliente=False):
 
 def verificar_bloqueo_ip(ip):
     """Verifica si la IP está bloqueada"""
-    ahora = datetime.now()
+    ahora = hora_actual_peru()
     bloqueado = IntentosLogin.query.filter(
         IntentosLogin.ip == ip,
         IntentosLogin.ips_bloqueadas > ahora
@@ -677,7 +681,7 @@ def verificar_bloqueo_email(email):
     Verifica si el email está bloqueado (temporal o permanentemente)
     Retorna True si está bloqueado, False si no
     """
-    ahora = datetime.now()
+    ahora = hora_actual_peru()
     
     # 1. Verificar bloqueo temporal en intentos_login
     registro = IntentosLogin.query.filter_by(email=email).first()
@@ -737,7 +741,7 @@ def limpiar_intentos_exitosos(email, ip):
             registro.intentos = 0
             registro.intentos_totales = 0  # ← NUEVO: Resetear también
             registro.email_bloqueado = None
-            registro.ultimo_intento = datetime.now()
+            registro.ultimo_intento = hora_actual_peru()
             db.session.commit()
             print(f"✅ Intentos y totales reseteados para {email}")
         else:
@@ -773,7 +777,7 @@ def limpiar_intentos_exitosos(email, ip):
             print(f"✅ Bloqueos temporales desactivados para usuario {email}")
         
         # 3. Verificar si la IP ya no tiene bloqueos activos
-        ahora = datetime.now()
+        ahora = hora_actual_peru()
         emails_bloqueados = IntentosLogin.query.filter(
             IntentosLogin.ip == ip,
             IntentosLogin.email_bloqueado > ahora
@@ -793,7 +797,7 @@ def limpiar_intentos_exitosos(email, ip):
 
 def limpiar_bloqueos_expirados():
     """Limpia bloqueos temporales que ya expiraron (no toca los permanentes)"""
-    ahora = datetime.now()
+    ahora = hora_actual_peru()
     
     # Limpiar bloqueos temporales en intentos_login
     IntentosLogin.query.filter(
@@ -956,7 +960,7 @@ def registrar_auditoria(accion, modulo, detalle=""):
 
 def rango_periodo(periodo):
     """Devuelve (fecha_inicio, fecha_fin) según el período seleccionado."""
-    hoy = datetime.now().date()
+    hoy = hora_actual_peru().date()
     if periodo == "hoy":
         return hoy, hoy
     if periodo == "semana":
@@ -1448,7 +1452,7 @@ def login():
                 if bloqueo_auto:
                     flash(f"⛔ CUENTA BLOQUEADA TEMPORALMENTE", "danger")
                     flash(f"📝 Motivo: Bloqueo automático por {bloqueo_auto['intentos']} intentos fallidos de login", "warning")
-                    flash(f"⏳ Tiempo restante: {(bloqueo_auto['email_bloqueado'] - datetime.now()).seconds // 60} minutos", "info")
+                    flash(f"⏳ Tiempo restante: {(bloqueo_auto['email_bloqueado'] - hora_actual_peru()).seconds // 60} minutos", "info")
                     flash("🔄 Espera a que se desbloquee automáticamente o contacta al administrador.", "warning")
                     return render_template("login.html")
                 # ============================================
@@ -1547,7 +1551,7 @@ def login_cliente():
                     # Bloqueo temporal
                     registro = IntentosLogin.query.filter_by(email=email).first()
                     if registro and registro.email_bloqueado:
-                        minutos_restantes = (registro.email_bloqueado - datetime.now()).seconds // 60
+                        minutos_restantes = (registro.email_bloqueado - hora_actual_peru()).seconds // 60
                         flash("⛔ CUENTA BLOQUEADA TEMPORALMENTE", "danger")
                         flash(f"⏳ Has agotado tus 3 intentos. Espera {minutos_restantes} minutos para volver a intentar.", "warning")
                         template_data["bloqueo_temporal"] = True
@@ -1598,8 +1602,8 @@ def login_cliente():
         
         # 2. Verificar bloqueo temporal (debe estar en intentos_login)
         registro_intentos = IntentosLogin.query.filter_by(email=email).first()
-        if registro_intentos and registro_intentos.email_bloqueado and registro_intentos.email_bloqueado > datetime.now():
-            minutos_restantes = (registro_intentos.email_bloqueado - datetime.now()).seconds // 60
+        if registro_intentos and registro_intentos.email_bloqueado and registro_intentos.email_bloqueado > hora_actual_peru():
+            minutos_restantes = (registro_intentos.email_bloqueado - hora_actual_peru()).seconds // 60
             flash("⛔ CUENTA BLOQUEADA TEMPORALMENTE", "danger")
             flash(f"⏳ Has agotado tus 3 intentos. Espera {minutos_restantes} minutos para volver a intentar.", "warning")
             template_data["bloqueo_temporal"] = True
@@ -1658,7 +1662,7 @@ def login_cliente():
                     # Verificar si hay minutos restantes
                     registro = IntentosLogin.query.filter_by(email=email).first()
                     if registro and registro.email_bloqueado:
-                        minutos_restantes = (registro.email_bloqueado - datetime.now()).seconds // 60
+                        minutos_restantes = (registro.email_bloqueado - hora_actual_peru()).seconds // 60
                         template_data["bloqueo_temporal"] = True
                         template_data["minutos_restantes"] = minutos_restantes
                 elif resultado["tipo"] == "ip":
@@ -2363,12 +2367,12 @@ def venta_nueva():
             ultima_venta = session.get("ultima_venta_ts")
             if ultima_venta and (time.time() - ultima_venta) < 2:
                 flash("⚠️ Estás registrando ventas muy rápido. Espera un momento.", "warning")
-                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=hora_actual_peru())
             session["ultima_venta_ts"] = time.time()
 
             producto_id = int(request.form["producto_id"])
             cantidad = int(request.form["cantidad"])
-            fecha_venta = datetime.now()
+            fecha_venta = hora_actual_peru()
             tipo_comprobante = request.form.get("tipo_comprobante", "boleta")
             
             if session.get("rol") == "administrador":
@@ -2418,16 +2422,16 @@ def venta_nueva():
             print(f"\n📋 VENTA: Producto ID={producto_id}, Cantidad={cantidad}, Email={cliente_email}")
             
             # Generar número de comprobante
-            numero_comprobante = f"{datetime.now().strftime('%Y%m%d')}-{datetime.now().strftime('%H%M%S')}"
+            numero_comprobante = f"{hora_actual_peru().strftime('%Y%m%d')}-{hora_actual_peru().strftime('%H%M%S')}"
             
             producto = Producto.query.get(producto_id)
             if not producto:
                 flash("❌ Producto no encontrado", "danger")
-                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=hora_actual_peru())
             
             if producto.cantidad < cantidad:
                 flash(f"❌ Stock insuficiente. Disponible: {producto.cantidad}", "danger")
-                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+                return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=hora_actual_peru())
             
             precio_unitario = float(producto.precio or 0)
             total_venta = precio_unitario * cantidad
@@ -2509,9 +2513,9 @@ def venta_nueva():
             import traceback
             traceback.print_exc()
             flash(f"❌ Error al registrar la venta: {str(e)}", "danger")
-            return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+            return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=hora_actual_peru())
     
-    return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=datetime.now())
+    return render_template("ventas_form.html", productos=lista_productos, vendedores=vendedores, now=hora_actual_peru())
 
 # ===============================
 # CAJA - APERTURA Y CIERRE
@@ -2586,7 +2590,7 @@ def cerrar_caja():
         monto_real = 0
     diferencia = round(monto_real - monto_esperado, 2)
 
-    caja.fecha_cierre = datetime.now()
+    caja.fecha_cierre = hora_actual_peru()
     caja.monto_esperado = monto_esperado
     caja.monto_real = monto_real
     caja.diferencia = diferencia
@@ -2691,7 +2695,7 @@ def reporte_ventas_pdf():
         ])
     filas.append(["", "", "", "", "TOTAL", f"S/ {total_gral:.2f}", "", ""])
 
-    subtitulo = f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    subtitulo = f"Generado: {hora_actual_peru().strftime('%d/%m/%Y %H:%M')}"
     if inicio and fin:
         etiquetas = {"hoy": "Hoy", "semana": "Esta semana", "mes": "Este mes", "anio": "Este año"}
         subtitulo += f" | Período: {etiquetas.get(periodo, periodo)} ({inicio.strftime('%d/%m/%Y')} - {fin.strftime('%d/%m/%Y')})"
@@ -2770,7 +2774,7 @@ def reporte_ventas_excel():
         ])
     ws.append(["", "", "", "", "TOTAL", total_gral, "", ""])
     ws.append([])
-    ws.append(["Generado: " + datetime.now().strftime('%d/%m/%Y %H:%M')])
+    ws.append(["Generado: " + hora_actual_peru().strftime('%d/%m/%Y %H:%M')])
     if inicio and fin:
         etiquetas = {"hoy": "Hoy", "semana": "Esta semana", "mes": "Este mes", "anio": "Este año"}
         ws.append([f"Período: {etiquetas.get(periodo, periodo)} ({inicio.strftime('%d/%m/%Y')} - {fin.strftime('%d/%m/%Y')})"])
@@ -2949,7 +2953,7 @@ def reporte_ventas_por_ubicacion_pdf():
     filas_pdf.append(["", "", "", ""])
     filas_pdf.append(["TOTAL GENERAL", totales["num_ventas"], totales["unidades"], f"S/ {totales['total']:.2f}"])
 
-    subtitulo = f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    subtitulo = f"Generado: {hora_actual_peru().strftime('%d/%m/%Y %H:%M')}"
     if periodo != "todo":
         inicio, fin = rango_periodo(periodo)
         subtitulo += f" | Período: {inicio.strftime('%d/%m/%Y')} - {fin.strftime('%d/%m/%Y')}"
@@ -3034,7 +3038,7 @@ def caja_cierre_pdf():
     filas.append(["DIFERENCIA", f"S/ {float(caja.diferencia or 0):.2f}"])
 
     buffer = _generar_pdf("Cierre de Caja - Librería Salesiana", encabezados, filas,
-                          f"Caja N° {caja.id} | Apertura: {caja.fecha_apertura.strftime('%d/%m/%Y %H:%M')} | Cierre: {(caja.fecha_cierre or datetime.now()).strftime('%d/%m/%Y %H:%M')}")
+                          f"Caja N° {caja.id} | Apertura: {caja.fecha_apertura.strftime('%d/%m/%Y %H:%M')} | Cierre: {(caja.fecha_cierre or hora_actual_peru()).strftime('%d/%m/%Y %H:%M')}")
     return send_file(buffer, as_attachment=True, download_name=f"cierre_caja_{caja.id}.pdf", mimetype="application/pdf")
 
 # ===============================
@@ -3158,7 +3162,7 @@ def ver_bloqueos():
 @admin_required
 def ver_ips_bloqueadas():
     """Lista las direcciones IP que mantienen un bloqueo temporal activo."""
-    ahora = datetime.now()
+    ahora = hora_actual_peru()
     ips = IntentosLogin.query.filter(
         IntentosLogin.ips_bloqueadas.isnot(None),
         IntentosLogin.ips_bloqueadas > ahora,
@@ -3217,19 +3221,12 @@ def desbloquear_usuario_admin(bloqueo_id):
         return jsonify({"success": False, "error": "No autorizado"}), 403
     
     try:
-        # Obtener el bloqueo
-        bloqueo = db.session.execute(text("""
-            SELECT * FROM bloqueos WHERE id = :id AND estado = 1
-        """), {"id": bloqueo_id}).mappings().first()
-        
+        bloqueo = Bloqueo.query.filter_by(id=bloqueo_id, estado=True).first()
         if not bloqueo:
             return jsonify({"success": False, "error": "Bloqueo no encontrado"}), 404
-        
-        # Desbloquear usando el procedimiento
-        db.session.execute(text("""
-            CALL desbloquear_usuario(:bloqueo_id, :admin_id)
-        """), {"bloqueo_id": bloqueo_id, "admin_id": session["usuario_id"]})
-        
+        bloqueo.estado = False
+        bloqueo.fecha_desbloqueo = hora_actual_peru()
+        bloqueo.desbloqueado_por = session["usuario_id"]
         db.session.commit()
         
         return jsonify({"success": True, "message": "Usuario desbloqueado exitosamente"})
@@ -3254,16 +3251,18 @@ def desbloquear_usuario_form():
         return redirect(url_for("ver_bloqueos"))
     
     try:
-        db.session.execute(text("""
-            CALL desbloquear_usuario(:bloqueo_id, :admin_id)
-        """), {"bloqueo_id": bloqueo_id, "admin_id": session["usuario_id"]})
-        
+        bloqueo = Bloqueo.query.filter_by(id=int(bloqueo_id), estado=True).first()
+        if not bloqueo:
+            flash("El bloqueo ya no est? activo", "warning")
+            return redirect(url_for("ver_bloqueos"))
+        bloqueo.estado = False
+        bloqueo.fecha_desbloqueo = hora_actual_peru()
+        bloqueo.desbloqueado_por = session["usuario_id"]
         db.session.commit()
-        flash("✅ Usuario desbloqueado exitosamente", "success")
-        
+        flash("Usuario desbloqueado exitosamente", "success")
     except Exception as e:
         db.session.rollback()
-        flash(f"❌ Error al desbloquear: {str(e)}", "danger")
+        flash(f"Error al desbloquear: {e}", "danger")
     
     return redirect(url_for("ver_bloqueos"))
 
@@ -3719,7 +3718,7 @@ def productos_top():
             func.sum(Venta.cantidad).label("total_vendido"),
         )
         .join(Venta)
-        .filter(func.date(Venta.fecha_venta) == datetime.now().date())
+        .filter(func.date(Venta.fecha_venta) == hora_actual_peru().date())
         .group_by(Producto.id)
         .order_by(func.sum(Venta.cantidad).desc())
         .limit(10)
@@ -3766,7 +3765,7 @@ def venta_rapida():
                 monto_recibido = float(data.get("monto_recibido") or 0)
         except (TypeError, ValueError):
             monto_recibido = None
-        numero_pos = f"POS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        numero_pos = f"POS-{hora_actual_peru().strftime('%Y%m%d%H%M%S')}"
         for item in items:
             producto = Producto.query.get(item["id"])
             total = producto.precio * item["cantidad"]
@@ -3774,7 +3773,7 @@ def venta_rapida():
                 producto_id=item["id"],
                 cantidad=item["cantidad"],
                 vendedor_id=session["usuario_id"],
-                fecha_venta=datetime.now(),
+                fecha_venta=hora_actual_peru(),
                 tipo_comprobante="boleta",
                 numero_comprobante=numero_pos,
                 metodo_pago=metodo_pago,
@@ -3830,7 +3829,7 @@ def pos_tactil():
             "codigo_barras": p.codigo_barras,
             "imagen_url": url_for("static", filename=f"img/productos/{p.imagen}") if p.imagen else None,
         })
-    return render_template("pos_rapido.html", productos=producto_datos, now=datetime.now())
+    return render_template("pos_rapido.html", productos=producto_datos, now=hora_actual_peru())
 
 
 # ===============================================
@@ -4164,7 +4163,7 @@ def recuperar_contrasena():
         if cliente:
             token = generar_token_recuperacion()
             cliente.token_recuperacion = token
-            cliente.token_expiracion = datetime.now() + timedelta(hours=1)
+            cliente.token_expiracion = hora_actual_peru() + timedelta(hours=1)
             db.session.commit()
             
             enlace = url_for("resetear_contrasena", token=token, _external=True)
@@ -4184,7 +4183,7 @@ def resetear_contrasena(token):
         flash("❌ Enlace inválido o ya utilizado", "danger")
         return redirect(url_for("login_cliente"))
     
-    if cliente.token_expiracion < datetime.now():
+    if cliente.token_expiracion < hora_actual_peru():
         flash("❌ El enlace ha expirado", "danger")
         return redirect(url_for("recuperar_contrasena"))
     
@@ -4283,10 +4282,10 @@ def confirmar_recepcion_pedido(pedido_id):
         return redirect(url_for("mis_pedidos"))
 
     pedido.cliente_confirmo = 1
-    pedido.fecha_confirmacion_cliente = datetime.now()
+    pedido.fecha_confirmacion_cliente = hora_actual_peru()
     db.session.commit()
 
-    print(f"✅ Cliente confirmó recepción del pedido #{pedido_id} ({datetime.now()})")
+    print(f"✅ Cliente confirmó recepción del pedido #{pedido_id} ({hora_actual_peru()})")
 
     if is_ajax:
         return jsonify({"success": True, "message": "¡Gracias por confirmar la recepción!"})
@@ -4448,7 +4447,7 @@ def crear_pedido():
                 producto_id=item["id"],
                 cantidad=int(item["cantidad"]),
                 vendedor_id=1,
-                fecha_venta=datetime.now(),
+                fecha_venta=hora_actual_peru(),
                 tipo_comprobante=tipo_comp,
                 numero_comprobante=numero_comprobante,
                 pedido_id=pedido.id,
@@ -4504,7 +4503,7 @@ def crear_pedido():
                 cliente_nombre=f"{cliente_nombres} {cliente_apellidos}".strip(),
                 tipo_comprobante=tipo_comp,
                 numero_comprobante=numero_comprobante,
-                fecha=datetime.now(),
+                fecha=hora_actual_peru(),
                 productos=productos_para_correo,
                 total_venta=float(data["total"]),
                 documento=cliente_documento,
@@ -4712,7 +4711,7 @@ def cambiar_estado_pedido(pedido_id):
                 return redirect(url_for("ver_pedidos"))
             pedido.nombre_recibe = nombre_recibe
             pedido.dni_recibe = (request.form.get("dni_recibe") or "").strip() or None
-            pedido.fecha_entrega = datetime.now()
+            pedido.fecha_entrega = hora_actual_peru()
             pedido.confirmado_por = session.get("nombre") or session.get("usuario_nombre") or "Administrador"
 
         # Guardar el cambio
@@ -5079,9 +5078,9 @@ def dashboard():
     import plotly.graph_objs as go
     import json
     
-    hoy = datetime.now().date()
-    inicio_mes = datetime.now().replace(day=1).date()
-    hace_30_dias = datetime.now() - timedelta(days=30)
+    hoy = hora_actual_peru().date()
+    inicio_mes = hora_actual_peru().replace(day=1).date()
+    hace_30_dias = hora_actual_peru() - timedelta(days=30)
     
     # ========== HORA PERÚ ==========
     ahora_peru = hora_actual_peru()
@@ -5099,7 +5098,7 @@ def dashboard():
     pedidos_en_proceso = Pedido.query.filter(Pedido.estado.in_(['confirmado', 'preparando', 'enviado'])).count()
     
     total_clientes = Cliente.query.count()
-    hace_7_dias = datetime.now() - timedelta(days=7)
+    hace_7_dias = hora_actual_peru() - timedelta(days=7)
     clientes_nuevos = Cliente.query.filter(Cliente.fecha_registro >= hace_7_dias).count()
 
     # ========== KPI ADICIONALES ==========
@@ -5188,7 +5187,7 @@ def dashboard():
     # Ventas por día
     ventas_por_dia = []
     for i in range(6, -1, -1):
-        fecha = datetime.now() - timedelta(days=i)
+        fecha = hora_actual_peru() - timedelta(days=i)
         fecha_str = fecha.strftime('%d/%m')
         resultado = db.session.execute(
             text("""
@@ -5218,7 +5217,7 @@ def dashboard():
     # ========== 2. GRÁFICOS CON PLOTLY ==========
     
     # Gráfico 1: Ventas últimos 7 días
-    fechas_7d = [datetime.now() - timedelta(days=i) for i in range(6, -1, -1)]
+    fechas_7d = [hora_actual_peru() - timedelta(days=i) for i in range(6, -1, -1)]
     ventas_7d = []
     for fecha in fechas_7d:
         resultado = db.session.execute(
@@ -5439,7 +5438,7 @@ def generar_comprobante_pedido(nombres, apellidos, productos, total, tipo_compro
         <p>{titulo}</p>
     </div>
     <div style="padding: 20px; background: white;">
-        <p><strong>Fecha:</strong> {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
+        <p><strong>Fecha:</strong> {hora_actual_peru().strftime('%d/%m/%Y %H:%M')}</p>
         <p><strong>Cliente:</strong> {cliente_nombre}</p>
         {ruc_html}
         <hr>

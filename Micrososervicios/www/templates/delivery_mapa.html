@@ -7,6 +7,19 @@
 <style>
   #mapaDelivery { height: 560px; border-radius: 15px; z-index: 1; }
   .leaflet-popup-content { margin: 10px 12px; font-size: 0.9rem; }
+  .tienda-logo-icon { background: transparent; border: 0; }
+  .tienda-logo-pin {
+    width: 72px; height: 56px; padding: 3px; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center;
+    background: #fff; border: 2px solid #1e40af; border-radius: 10px;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, .35); position: relative;
+  }
+  .tienda-logo-pin::after {
+    content: ""; position: absolute; left: 26px; bottom: -9px; width: 14px; height: 14px;
+    background: #fff; border-right: 2px solid #1e40af; border-bottom: 2px solid #1e40af;
+    transform: rotate(45deg);
+  }
+  .tienda-logo-pin img { width: 100%; height: 100%; object-fit: contain; position: relative; z-index: 1; }
   .lista-pedido { cursor: pointer; border-left: 4px solid transparent; transition: all .15s; }
   .lista-pedido:hover { background-color: #f8f9fa; }
   .lista-pedido.activo { background-color: #e0f2fe; border-left-color: #0ea5e9; }
@@ -150,6 +163,7 @@
 <script>
   const PUNTOS = {{ puntos | tojson }};
   const TIENDA = {{ tienda | tojson }};
+  const LOGO_TIENDA = {{ url_for('static', filename='img/LogoSalesiano.png') | tojson }};
   const CSRF = "{{ csrf_token }}";
 
   // Si no hay ningun pedido ubicado, mostrar Peru entero
@@ -199,11 +213,10 @@
 
   if (TIENDA) {
     L.marker([TIENDA.lat, TIENDA.lng], {
-      icon: L.icon({
-        iconUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon.png',
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-icon-2x.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/images/marker-shadow.png',
-        iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+      icon: L.divIcon({
+        className: 'tienda-logo-icon',
+        html: `<div class="tienda-logo-pin"><img src="${LOGO_TIENDA}" alt="Librería Salesiana"></div>`,
+        iconSize: [72, 65], iconAnchor: [36, 56], popupAnchor: [0, -56]
       })
     }).addTo(mapa).bindPopup(`<b>${TIENDA.nombre}</b>`).openPopup();
   }

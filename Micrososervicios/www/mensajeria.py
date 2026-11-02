@@ -18,6 +18,9 @@ import os
 import threading
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_ZONA_PERU = ZoneInfo("America/Lima")
 from sqlalchemy import text
 
 # ------------------------------------------------------------------
@@ -395,7 +398,7 @@ def _publicar_en_broker(tipo, datos, origen="gateway"):
             "tipo": tipo,
             "origen": origen,
             "datos": datos,
-            "emitido_en": datetime.now().isoformat(),
+            "emitido_en": datetime.now(_ZONA_PERU).isoformat(timespec="seconds"),
         }, ensure_ascii=False, default=str)
         props = pika.BasicProperties(content_type="application/json",
                                      delivery_mode=2,  # persistente
@@ -426,7 +429,7 @@ def publicar_evento(tipo, datos, origen="gateway", outbox_si_falla=True):
     Si no hay broker (o falla) -> se guarda en el outbox para reintentar.
     Devuelve (publicado: bool, detalle: str).
     """
-    _estado["ultimo_intento"] = datetime.now().isoformat()
+    _estado["ultimo_intento"] = datetime.now(_ZONA_PERU).isoformat(timespec="seconds")
     _estado["ultimo_evento"] = tipo
     ok, detalle = _publicar_en_broker(tipo, datos, origen)
     if ok:

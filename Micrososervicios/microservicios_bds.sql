@@ -193,7 +193,7 @@ CREATE TABLE IF NOT EXISTS librospe_ms_clientes.clientes (
     telefono VARCHAR(15) NULL,
     direccion TEXT NULL,
     clave VARCHAR(255) NOT NULL,
-    fecha_registro DATETIME NULL,
+    fecha_registro DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
     estado TINYINT(1) NOT NULL DEFAULT 1,
     ruc VARCHAR(11) NULL,
     departamento VARCHAR(100) NULL,

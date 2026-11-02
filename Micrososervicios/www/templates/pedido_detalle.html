@@ -10,21 +10,6 @@
     <div class="row">
         <div class="col-12">
             
-            <!-- DEBUG - VER QUÉ DATOS LLEGAN (solo visible para admin) -->
-            {% if es_admin %}
-            <div class="alert alert-warning mb-3" style="font-size: 12px; border-radius: 8px;">
-                <i class="fas fa-bug me-2"></i>
-                <strong>🔍 VERIFICACIÓN:</strong><br>
-                Venta encontrada: {% if venta %} ✅ SI (ID: {{ venta.id }}) {% else %} ❌ NO {% endif %}<br>
-                {% if venta %}
-                - Número: {{ venta.numero_comprobante }}<br>
-                - Tipo: {{ venta.tipo_comprobante }}<br>
-                - Razón Social: <strong class="text-success">{{ venta.cliente_razon_social or 'VACÍO' }}</strong><br>
-                - Dirección Fiscal: <strong class="text-info">{{ venta.cliente_direccion_fiscal or 'VACÍO' }}</strong>
-                {% endif %}
-            </div>
-            {% endif %}
-            
             <!-- Botón volver - SIN CONDICIONAL -->
             <div class="mb-3">
                 <a href="/pedidos" class="btn btn-outline-secondary">
