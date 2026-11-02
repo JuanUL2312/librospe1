@@ -2,7 +2,7 @@
 
 Los fixtures `servicios` y `gateway` levantan los procesos que falten
 (microservicios en 8001-8004 y app_api en 8000) y solo detienen los que
-ellos arrancaron; si ya estaban corriendo (run_all.bat, iniciar_servicios_api.sh)
+ellos arrancaron; si ya estaban corriendo (local/windows/run_all.bat, iniciar_servicios_api.sh)
 se reutilizan.
 """
 import os

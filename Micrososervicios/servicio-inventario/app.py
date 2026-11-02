@@ -61,12 +61,39 @@ def proteger_servicio():
     if not recibido or not hmac.compare_digest(recibido, SERVICE_TOKEN):
         return jsonify({"error": "Token de servicio invalido"}), 401
 
+
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}/{DB_NAME}"
 )
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"init_command": "SET time_zone = '-05:00'"}}
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+
+def _incluir_directorio_servicio():
+    servicio_dir = str(Path(__file__).resolve().parent)
+    if servicio_dir not in sys.path:
+        sys.path.insert(0, servicio_dir)
+
+
+_incluir_directorio_servicio()
+
 db = SQLAlchemy(app)
+
+
+@app.route("/health")
+def health():
+    try:
+        db.session.execute(text("SELECT 1"))
+        n = db.session.execute(text("SELECT COUNT(*) FROM inventario_productos")).scalar()
+        return jsonify({"status": "OK", "servicio": "inventario", "bd": DB_NAME, "productos": n})
+    except Exception as exc:
+        return jsonify({
+            "status": "error",
+            "servicio": "inventario",
+            "bd": DB_NAME,
+            "error": "BD no inicializada o tablas faltantes",
+            "detalle": str(exc),
+        }), 503
 
 
 def servicio_requerido(f):
@@ -76,13 +103,6 @@ def servicio_requerido(f):
             return jsonify({"error": "Token de servicio invalido"}), 401
         return f(*a, **k)
     return d
-
-
-@app.route("/health")
-def health():
-    db.session.execute(text("SELECT 1"))
-    n = db.session.execute(text("SELECT COUNT(*) FROM inventario_productos")).scalar()
-    return jsonify({"status": "OK", "servicio": "inventario", "bd": DB_NAME, "productos": n})
 
 
 @app.route("/productos")
@@ -645,6 +665,13 @@ def _arrancar_consumidor():
     try:
         from rabbit_consumidor import iniciar_consumidor
         iniciar_consumidor("inventario", _aplicar_evento)
+    except ModuleNotFoundError:
+        _incluir_directorio_servicio()
+        try:
+            from rabbit_consumidor import iniciar_consumidor
+            iniciar_consumidor("inventario", _aplicar_evento)
+        except Exception as e:
+            print(f"[inventario] no se pudo iniciar el consumidor de eventos: {e}")
     except Exception as e:
         print(f"[inventario] no se pudo iniciar el consumidor de eventos: {e}")
 
@@ -652,4 +679,4 @@ def _arrancar_consumidor():
 _arrancar_consumidor()
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8001, threaded=True)
+    app.run(host="0.0.0.0", port=8001, threaded=True)

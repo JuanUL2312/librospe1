@@ -67,14 +67,33 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
 )
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"init_command": "SET time_zone = '-05:00'"}}
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+
+def _incluir_directorio_servicio():
+    servicio_dir = str(Path(__file__).resolve().parent)
+    if servicio_dir not in sys.path:
+        sys.path.insert(0, servicio_dir)
+
+
+_incluir_directorio_servicio()
+
 db = SQLAlchemy(app)
 
 
 @app.route("/health")
 def health():
-    db.session.execute(text("SELECT 1"))
-    n = db.session.execute(text("SELECT COUNT(*) FROM comercial_pedidos")).scalar()
-    return jsonify({"status": "OK", "servicio": "ventas", "bd": DB_NAME, "pedidos": n})
+    try:
+        db.session.execute(text("SELECT 1"))
+        n = db.session.execute(text("SELECT COUNT(*) FROM comercial_pedidos")).scalar()
+        return jsonify({"status": "OK", "servicio": "ventas", "bd": DB_NAME, "pedidos": n})
+    except Exception as exc:
+        return jsonify({
+            "status": "error",
+            "servicio": "ventas",
+            "bd": DB_NAME,
+            "error": "BD no inicializada o tablas faltantes",
+            "detalle": str(exc),
+        }), 503
 
 
 @app.route("/pedidos")
@@ -133,6 +152,7 @@ def validar(pid, cant):
 def _verifica_token():
     return hmac.compare_digest(request.headers.get("X-Service-Token", ""), SERVICE_TOKEN)
 
+
 @app.route("/pedidos", methods=["POST"])
 def crear_pedido():
     if not _verifica_token():
@@ -149,10 +169,8 @@ def crear_pedido():
             "total": data.get("total",0), "direccion_entrega": data.get("direccion_entrega"),
             "tipo_entrega": data.get("tipo_entrega"), "nota": data.get("nota")
         })
-        # Antes del commit (misma transaccion/conexion): LAST_INSERT_ID() es por-conexion.
         nid = db.session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
         db.session.commit()
-        # Detalles si vienen
         for det in data.get("detalles", []):
             db.session.execute(text("""
                 INSERT INTO comercial_detalle_pedido (pedido_id, producto_id, cantidad, precio_unitario, subtotal)
@@ -166,6 +184,7 @@ def crear_pedido():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/ventas", methods=["POST"])
 def crear_venta():
@@ -183,7 +202,6 @@ def crear_venta():
             "vendedor_id": data["vendedor_id"], "cliente_id": data.get("cliente_id"),
             "tipo_comprobante": data.get("tipo_comprobante","boleta"), "numero_comprobante": data.get("numero_comprobante")
         })
-        # Antes del commit (misma transaccion/conexion): LAST_INSERT_ID() es por-conexion.
         nid = db.session.execute(text("SELECT LAST_INSERT_ID()")).scalar()
         db.session.commit()
         return jsonify({"ok": True, "id": nid}), 201
@@ -193,24 +211,15 @@ def crear_venta():
 
 
 def _aplicar_evento(tipo, datos):
-    """Aplica un evento recibido del agente de mensajes (RabbitMQ).
-
-    - producto.actualizado: actualiza la copia local del producto.
-    - cliente.registrado: evento informativo; clientes conserva la propiedad.
-    - pedido.creado / venta.registrada: deja registro en el servicio.
-    """
+    """Aplica un evento recibido del agente de mensajes (RabbitMQ)."""
     try:
         if tipo == "producto.actualizado":
-            db.session.execute(text("""
-                UPDATE productos SET nombre = COALESCE(:nombre, nombre),
-                                    precio = COALESCE(:precio, precio)
-                WHERE id = :id
-            """), {"nombre": datos.get("nombre"), "precio": datos.get("precio"),
-                   "id": datos.get("id")})
-            db.session.commit()
+            print(
+                f"[ventas] evento '{tipo}' recibido para producto {datos.get('id')}; "
+                "ventas no replica el catálogo local."
+            )
             return True
         if tipo == "cliente.registrado":
-            # Ventas no tiene clientes espejo; consultar al servicio dueño.
             return True
         if tipo in ("pedido.creado", "venta.registrada"):
             print(f"[ventas] evento '{tipo}' recibido "
@@ -231,6 +240,13 @@ def _arrancar_consumidor():
     try:
         from rabbit_consumidor import iniciar_consumidor
         iniciar_consumidor("ventas", _aplicar_evento)
+    except ModuleNotFoundError:
+        _incluir_directorio_servicio()
+        try:
+            from rabbit_consumidor import iniciar_consumidor
+            iniciar_consumidor("ventas", _aplicar_evento)
+        except Exception as e:
+            print(f"[ventas] no se pudo iniciar el consumidor de eventos: {e}")
     except Exception as e:
         print(f"[ventas] no se pudo iniciar el consumidor de eventos: {e}")
 
@@ -238,4 +254,4 @@ def _arrancar_consumidor():
 _arrancar_consumidor()
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8002, threaded=True)
+    app.run(host="0.0.0.0", port=8002, threaded=True)

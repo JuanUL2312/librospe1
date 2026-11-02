@@ -7032,6 +7032,7 @@ def ver_pedidos():
                           fecha_desde=fecha_desde,
                           fecha_hasta=fecha_hasta,
                           solo_reportes=solo_reportes,
+                          caja_abierta=_hay_caja_abierta(),
                           estados=estados_lista,
                           datetime=datetime)
 

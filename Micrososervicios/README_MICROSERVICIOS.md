@@ -70,8 +70,8 @@ Estado en vivo: `GET /api/health` → `agente_mensajes` y
 ## BDs
 
 ```sql
-SOURCE microservicios_bds.sql;
-SOURCE microservicios_bds_tablas.sql;
+SOURCE database/schema/microservicios_bds.sql;
+SOURCE database/schema/microservicios_bds_tablas.sql;
 ```
 
 ## `.env`
@@ -89,7 +89,7 @@ SERVICE_TOKEN=librospe-interno-dev
 MS_INVENTARIO_URL=http://127.0.0.1:8001
 ```
 
-## Arranque (5 terminales o `run_all.bat`)
+## Arranque (5 terminales o `local/windows/run_all.bat`)
 
 ```bat
 cd www & python app.py                  :: 8000 gateway

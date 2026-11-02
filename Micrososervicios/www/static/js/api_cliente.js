@@ -12,6 +12,15 @@
   'use strict';
 
   var LLAVE = 'librospe_jwt';
+  var rutaScript = document.currentScript
+    ? new URL(document.currentScript.src, window.location.href).pathname
+    : '';
+  var prefijo = rutaScript.replace(/\/static\/js\/api_cliente\.js$/, '');
+  if (prefijo === rutaScript) prefijo = '';
+
+  function rutaGateway(ruta) {
+    return prefijo + (ruta.charAt(0) === '/' ? ruta : '/' + ruta);
+  }
 
   function token() {
     try { return localStorage.getItem(LLAVE) || ''; } catch (e) { return ''; }
@@ -37,7 +46,7 @@
       body = JSON.stringify(body);
     }
 
-    return fetch(ruta, {
+    return fetch(rutaGateway(ruta), {
       method: opciones.method || 'GET',
       headers: cabeceras,
       body: body,
@@ -48,7 +57,7 @@
       return promesa.then(function (datos) {
         if (resp.status === 401) {
           cerrarSesion();
-          window.location.href = '/api/login';
+          window.location.href = rutaGateway('/api/login');
           return Promise.reject({ status: 401, datos: datos });
         }
         if (!resp.ok) {

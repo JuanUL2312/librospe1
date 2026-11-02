@@ -50,4 +50,4 @@ app = crear_app()
 if __name__ == "__main__":
     puerto = int(os.environ.get("GATEWAY_API_PORT", "8000"))
     depurar = os.environ.get("DEBUG", "false").lower() == "true"
-    app.run(host="127.0.0.1", port=puerto, debug=depurar)
+    app.run(host="0.0.0.0", port=puerto, debug=depurar)

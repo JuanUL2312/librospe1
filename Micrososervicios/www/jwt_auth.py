@@ -114,13 +114,17 @@ def requiere_rol(*roles):
             usuario = getattr(g, "usuario_api", None)
             if usuario is None:
                 raise TokenInvalido("Identidad no resuelta para esta ruta")
-            if usuario["rol"] not in roles:
+            rol_actual = (usuario.get("rol") or "").strip().lower()
+            # Compatibilidad con el rol legado guardado en la BD principal.
+            if rol_actual == "administrador":
+                rol_actual = "admin"
+            if rol_actual not in roles:
                 return (
                     jsonify(
                         {
                             "error": "No tiene permisos para esta operación",
                             "rol_requerido": list(roles),
-                            "rol_actual": usuario["rol"],
+                            "rol_actual": rol_actual,
                         }
                     ),
                     403,

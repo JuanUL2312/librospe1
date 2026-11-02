@@ -90,15 +90,19 @@ def login():
         return jsonify({"error": f"Respuesta inválida del servicio de {nombre_servicio}",
                         "request_id": rid}), 502
 
+    rol = (identidad.get("rol") or "cliente").strip().lower()
+    if rol == "administrador":
+        rol = "admin"
+
     token, segundos = crear_token(
         usuario_id=identidad["id"],
-        rol=identidad.get("rol", "cliente"),
+        rol=rol,
         correo=identidad.get("correo", correo),
         nombre=identidad.get("nombre", "").strip(),
     )
     auditoria.registrar("auth.login", request.method, request.path, 200,
                         usuario={"id": identidad["id"],
-                                 "rol": identidad.get("rol")},
+                                 "rol": rol},
                         payload=intento, request_id=rid,
                         detalle="token emitido")
     return jsonify({
@@ -109,7 +113,7 @@ def login():
             "id": identidad["id"],
             "nombre": identidad.get("nombre", ""),
             "correo": identidad.get("correo", correo),
-            "rol": identidad.get("rol", ""),
+            "rol": rol,
         },
         "request_id": rid,
     }), 200

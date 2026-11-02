@@ -39,7 +39,7 @@ jobs:
           python-version: "3.13"
 
       - name: Instalar dependencias
-        run: pip install -r Micrososervicios/requirements-dev.txt
+        run: pip install -r Micrososervicios/local/dev/requirements-dev.txt
 
       - name: Comprobar la sintaxis de Python
         run: python -m compileall -q Micrososervicios/www Micrososervicios/tests
@@ -68,13 +68,14 @@ jobs:
 
       - name: Ejecutar las pruebas
         env:
+          SECRET_KEY: ci-only-not-for-production
           TEST_DB_HOST: 127.0.0.1
           TEST_DB_PORT: "3306"
           TEST_DB_USER: root
           TEST_DB_PASSWORD: dev
         run: |
           set +e
-          python -m pytest Micrososervicios/tests -q --tb=short 2>&1 | tee /tmp/pytest.log
+          python -m pytest -c Micrososervicios/local/dev/pytest.ini Micrososervicios/tests -q --tb=short 2>&1 | tee /tmp/pytest.log
           codigo=${PIPESTATUS[0]}
           echo "----- resumen de fallos -----"
           grep -E "^(FAILED|ERROR)|^(E ) " /tmp/pytest.log | head -30 | while IFS= read -r l; do

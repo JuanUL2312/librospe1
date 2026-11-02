@@ -14,3 +14,10 @@ www/cookies.txt
 .ssh/
 .gunicorn/
 www/tmp/bloqueos.html
+
+# Archivos personales locales
+.bash_history
+.bashrc
+.mariadb_history
+.python_history
+.wget-hsts

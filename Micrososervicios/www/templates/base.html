@@ -19,9 +19,10 @@
     <!-- ESTILOS LOCALES -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}?v=202610193">
     {% block extra_css %}{% endblock %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive_global.css') }}?v=20261102-sidebar4">
 </head>
 
-<body>
+<body class="{% if session.usuario_id %}has-admin-sidebar{% endif %}">
     <!-- NAVBAR -->
     <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
         <div class="container-fluid">
@@ -31,6 +32,9 @@
                 <span class="fw-bold d-none d-sm-inline">Librería Salesiana</span>
             </a>
             {% if session.usuario_id %}
+            <button class="btn btn-outline-light sidebar-toggle" id="sidebarToggle" type="button" aria-label="Toggle navigation sidebar" aria-expanded="true" aria-controls="panelSalesiano">
+                <i class="fas fa-bars"></i>
+            </button>
             <div class="d-flex align-items-center text-white gap-2 gap-sm-3">
                 <div class="d-none d-md-block">
                     <i class="fas fa-user-circle me-2"></i>
@@ -63,7 +67,7 @@
                 <div class="row align-items-center g-1 g-md-2">
                     <div class="col-12 col-md-auto panel-titulo">
                         <h1 class="fw-bold mb-0 text-dark">
-                            <i class="fas fa-cube me-2 text-primary"></i>Panel Salesiano
+                            <i class="fas fa-cube me-2 text-primary"></i><span class="sidebar-title-text">Panel Salesiano</span>
                         </h1>
                         <p class="mb-0 text-secondary small">
                             <i class="fas fa-warehouse me-1"></i>Sistema de gestión completa
@@ -181,6 +185,7 @@
             </div>
         </div>
     </div>
+    <div class="sidebar-backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
     {% endif %}
 
     <!-- ========================================================= -->
@@ -199,6 +204,51 @@
 <script src="{{ url_for('static', filename='js/paginar_tablas.js') }}?v=202610193"></script>
     <script src="{{ url_for('static', filename='js/telefono_pais.js') }}?v=202610191"></script>
     {% block extra_js %}{% endblock %}
+    <script>
+        (function () {
+            const button = document.getElementById('sidebarToggle');
+            const backdrop = document.getElementById('sidebarBackdrop');
+            const mobile = window.matchMedia('(max-width: 767.98px)');
+            if (!button) return;
+            function setExpanded(value) { button.setAttribute('aria-expanded', value ? 'true' : 'false'); }
+            setExpanded(!mobile.matches);
+            button.addEventListener('click', function () {
+                if (mobile.matches) {
+                    document.body.classList.toggle('sidebar-open');
+                    setExpanded(document.body.classList.contains('sidebar-open'));
+                } else {
+                    document.body.classList.toggle('sidebar-collapsed');
+                    setExpanded(!document.body.classList.contains('sidebar-collapsed'));
+                }
+            });
+            function closeMobile() {
+                if (mobile.matches) {
+                    document.body.classList.remove('sidebar-open');
+                    setExpanded(false);
+                }
+            }
+            if (backdrop) backdrop.addEventListener('click', closeMobile);
+            document.querySelectorAll('#panelSalesiano a[href]').forEach(function (link) {
+                link.addEventListener('click', function () {
+                    if (link.getAttribute('data-bs-toggle') === 'dropdown' || link.getAttribute('href') === '#') {
+                        if (!mobile.matches && document.body.classList.contains('sidebar-collapsed')) {
+                            document.body.classList.remove('sidebar-collapsed');
+                            setExpanded(true);
+                        }
+                        return;
+                    }
+                    closeMobile();
+                });
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape') closeMobile();
+            });
+            mobile.addEventListener('change', function () {
+                document.body.classList.remove('sidebar-open', 'sidebar-collapsed');
+                setExpanded(!mobile.matches);
+            });
+        })();
+    </script>
     <!-- REGISTRO PWA -->
     <script>
         if ('serviceWorker' in navigator) {

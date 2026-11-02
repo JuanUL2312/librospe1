@@ -143,9 +143,15 @@
                                 {% endif %}
                                 <p><strong>📄 Tipo Comprobante:</strong><br>
                                     {% if venta and venta.tipo_comprobante == 'factura' %}
-                                        <span class="badge bg-primary">🏢 FACTURA</span>
+                                        <span class="badge bg-primary">?? FACTURA</span>
+                                    {% elif venta and venta.tipo_comprobante == 'nota' %}
+                                        <span class="badge bg-info text-dark">?? NOTA DE VENTA</span>
+                                    {% elif venta and venta.tipo_comprobante == 'ninguno' %}
+                                        <span class="badge bg-secondary">Sin comprobante</span>
+                                    {% elif venta and venta.tipo_comprobante == 'boleta' %}
+                                        <span class="badge bg-secondary">?? BOLETA</span>
                                     {% else %}
-                                        <span class="badge bg-secondary">📄 BOLETA</span>
+                                        <span class="badge bg-light text-dark">No especificado</span>
                                     {% endif %}
                                 </p>
                             </div>
