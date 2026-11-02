@@ -11,7 +11,7 @@ import json
 import math
 import re
 from pathlib import Path
-from urllib.parse import quote, quote_plus
+from urllib.parse import quote, quote_plus, urlencode
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from flask import Flask, abort, render_template, request, redirect, url_for, session, flash, jsonify, send_file
@@ -117,13 +117,25 @@ DB_PASSWORD = os.environ.get("DB_PASSWORD")
 DB_HOST = os.environ.get("DB_HOST")
 DB_NAME = os.environ.get("DB_NAME")
 DB_PORT = os.environ.get("DB_PORT", "").strip()
+DB_DRIVER = os.environ.get("DB_DRIVER", "ODBC Driver 17 for SQL Server")
+DB_ENCRYPT = os.environ.get("DB_ENCRYPT", "yes").strip().lower()
+DB_TRUST_CERT = os.environ.get("DB_TRUST_SERVER_CERTIFICATE", "no").strip().lower()
 if not all((DB_USER, DB_PASSWORD, DB_HOST, DB_NAME)):
     raise RuntimeError("Faltan variables de conexión de base de datos")
-# Puerto opcional (3306 por defecto); útil para entornos de prueba.
-_host_puerto = f"{DB_HOST}:{DB_PORT}" if DB_PORT else DB_HOST
-app.config["SQLALCHEMY_DATABASE_URI"] = (
-    f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{_host_puerto}/{DB_NAME}"
-)
+
+def _sql_server_url(db_name: str) -> str:
+    _host_puerto = f"{DB_HOST},{DB_PORT}" if DB_PORT else DB_HOST
+    query = {
+        "driver": DB_DRIVER,
+        "Encrypt": "yes" if DB_ENCRYPT in {"1", "true", "yes", "on"} else "no",
+        "TrustServerCertificate": "yes" if DB_TRUST_CERT in {"1", "true", "yes", "on"} else "no",
+    }
+    return (
+        f"mssql+pyodbc://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{_host_puerto}/"
+        f"{quote_plus(db_name)}?{urlencode(query)}"
+    )
+
+app.config["SQLALCHEMY_DATABASE_URI"] = _sql_server_url(DB_NAME)
 
 # =============================================
 # MICROSERVICIOS: UNA BASE DE DATOS POR SERVICIO
@@ -148,7 +160,7 @@ MS_CONFIG = {
     "clientes":   os.environ.get("MS_CLIENTES_DB", _ms_config.get("clientes", DB_NAME)),
 }
 app.config["SQLALCHEMY_BINDS"] = {
-    servicio: f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{_host_puerto}/{quote_plus(db_nombre)}"
+    servicio: _sql_server_url(db_nombre)
     for servicio, db_nombre in MS_CONFIG.items()
 }
 
@@ -168,7 +180,7 @@ app.config["INVENTARIO_DB_FALLBACK"] = os.environ.get(
     "INVENTARIO_DB_FALLBACK", "false").strip().lower() in ("1", "true", "yes", "on")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "connect_args": {"ssl": {"ssl_mode": "REQUIRED"}, "init_command": "SET time_zone = '-05:00'"},
+    "connect_args": {"autocommit": True},
     "pool_pre_ping": True,
     "pool_recycle": 280,
 }
